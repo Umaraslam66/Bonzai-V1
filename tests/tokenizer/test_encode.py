@@ -140,3 +140,48 @@ def test_land_use_polygon_multi_segment_encodes(vocab: Vocabulary) -> None:
     assert t["L_residential"] in out.tokens
     assert t["ANCHOR_X_100"] in out.tokens
     assert t["ANCHOR_Y_0"] in out.tokens
+
+
+def _line(coords: list[list[float]], cls: str = "R_residential") -> dict:
+    return {
+        "type": "Feature",
+        "properties": {"class": cls},
+        "geometry": {"type": "LineString", "coordinates": coords},
+    }
+
+
+def test_road_crossing_east_edge_emits_exit(vocab: Vocabulary) -> None:
+    # Road from (0,125) to (250,125). 250m = 32*7 + 16 + 8 + 2.
+    out = encode_cell(
+        _fc(_line([[0, 125], [250, 125]])),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    t = vocab.token_to_id
+    assert t["EXIT"] in out.tokens
+    assert t["ANCHOR_X_0"] in out.tokens
+    assert t["ANCHOR_Y_125"] in out.tokens
+    # MOVE_E_32 must appear at least 7 times.
+    move_e_32 = t["MOVE_E_32"]
+    assert sum(1 for tok in out.tokens if tok == move_e_32) == 7
+
+
+def test_internal_road_no_exit(vocab: Vocabulary) -> None:
+    out = encode_cell(
+        _fc(_line([[20, 20], [40, 20]])),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    assert vocab.token_to_id["EXIT"] not in out.tokens
+
+
+def test_diagonal_segment_raises(vocab: Vocabulary) -> None:
+    with pytest.raises(UnsupportedGeometry):
+        encode_cell(
+            _fc(_line([[0, 0], [100, 100]])),
+            cell_origin=(0.0, 0.0),
+            cell_size_m=250.0,
+            vocab=vocab,
+        )

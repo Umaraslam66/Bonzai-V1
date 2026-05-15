@@ -58,6 +58,8 @@ def _encode_feature(
         body = _encode_point(geom["coordinates"], cell_origin, cell_size_m, vocab)
     elif gtype == "Polygon":
         body = _encode_polygon(cls, geom["coordinates"], cell_origin, cell_size_m, vocab)
+    elif gtype == "LineString":
+        body = _encode_linestring(geom["coordinates"], cell_origin, cell_size_m, vocab)
     else:
         raise UnsupportedGeometry(f"Phase 0 does not yet handle geometry type {gtype!r}")
     return [
@@ -104,6 +106,56 @@ def _encode_polygon(
             f"got {len(vertices_local)}"
         )
     return _encode_closed_path(vertices_local, vocab)
+
+
+def _encode_linestring(
+    coordinates: list[list[float]],
+    cell_origin: tuple[float, float],
+    cell_size_m: float,
+    vocab: Vocabulary,
+) -> list[TokenId]:
+    vertices_local = [_to_cell_local(p[0], p[1], cell_origin) for p in coordinates]
+    if len(vertices_local) < 2:
+        raise UnsupportedGeometry("line must have at least 2 vertices")
+    for x, y in vertices_local:
+        _require_in_bounds(x, y, cell_size_m)
+    vertices_local = _drop_collinear_open(vertices_local)
+    ax, ay = vertices_local[0]
+    body: list[TokenId] = [
+        vocab.token_to_id[f"ANCHOR_X_{round(ax)}"],
+        vocab.token_to_id[f"ANCHOR_Y_{round(ay)}"],
+    ]
+    for i in range(len(vertices_local) - 1):
+        x0, y0 = vertices_local[i]
+        x1, y1 = vertices_local[i + 1]
+        body.extend(_encode_axis_aligned_segment(x1 - x0, y1 - y0, vocab))
+    end_x, end_y = vertices_local[-1]
+    if _on_cell_boundary(end_x, end_y, cell_size_m):
+        body.append(vocab.token_to_id["EXIT"])
+    return body
+
+
+def _drop_collinear_open(verts: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Remove interior collinear vertices from an open polyline (keeps endpoints)."""
+    if len(verts) < 3:
+        return verts
+    out: list[tuple[float, float]] = [verts[0]]
+    for i in range(1, len(verts) - 1):
+        prev = verts[i - 1]
+        cur = verts[i]
+        nxt = verts[i + 1]
+        dx_in, dy_in = cur[0] - prev[0], cur[1] - prev[1]
+        dx_out, dy_out = nxt[0] - cur[0], nxt[1] - cur[1]
+        same_axis = (dx_in == 0 and dx_out == 0) or (dy_in == 0 and dy_out == 0)
+        same_sign = (dx_in * dx_out + dy_in * dy_out) > 0
+        if not (same_axis and same_sign):
+            out.append(cur)
+    out.append(verts[-1])
+    return out
+
+
+def _on_cell_boundary(x: float, y: float, cell_size_m: float) -> bool:
+    return x == 0 or x == cell_size_m or y == 0 or y == cell_size_m
 
 
 def _encode_closed_path(
