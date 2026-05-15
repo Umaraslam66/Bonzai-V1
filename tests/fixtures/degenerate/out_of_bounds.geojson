@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"class": "POI_restaurant"},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [300, 300]
+      }
+    }
+  ]
+}
