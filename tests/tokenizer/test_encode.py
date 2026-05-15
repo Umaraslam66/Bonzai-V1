@@ -185,3 +185,24 @@ def test_diagonal_segment_raises(vocab: Vocabulary) -> None:
             cell_size_m=250.0,
             vocab=vocab,
         )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 0 has no <ENTRY> marker for lines starting on a cell boundary; "
+    "to be addressed by Phase 1 boundary contracts.",
+)
+def test_road_entering_west_edge_emits_entry_marker(vocab: Vocabulary) -> None:
+    """A road starting at x=0 should emit some boundary-entry marker. Phase 0 doesn't yet."""
+    # Road from (0, 60) going east to (50, 60). Starts on west edge.
+    out = encode_cell(
+        _fc(_line([[0, 60], [50, 60]])),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    # We don't have an ENTRY token in Phase 0 vocab; this assertion is *intentionally*
+    # going to fail today. The xfail makes the gap visible. When Phase 1 adds
+    # boundary contracts (or an ENTRY token), this test will need its assertion
+    # updated and the xfail removed.
+    assert "ENTRY" in [vocab.id_to_token[t] for t in out.tokens]
