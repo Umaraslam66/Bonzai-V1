@@ -9,6 +9,7 @@ from cfm.data.overture.errors import (
     RegionNotFound,
     ReleaseNotConfigured,
 )
+from cfm.data.overture.loader import load_region
 from cfm.data.overture.region import (
     BboxScope,
     Region,
@@ -28,4 +29,5 @@ __all__ = [
     "RegionNotFound",
     "ReleaseNotConfigured",
     "SizeEstimate",
+    "load_region",
 ]
