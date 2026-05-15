@@ -43,7 +43,8 @@ htmlcov/
 Thumbs.db
 
 # Project data — large, gitignored per CLAUDE.md
-data/
+# Anchored to repo root so configs/data/ (small YAML region/release pins) is NOT ignored.
+/data/
 checkpoints/
 runs/
 wandb/

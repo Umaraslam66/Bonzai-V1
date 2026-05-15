@@ -7,6 +7,8 @@ requires-python = ">=3.11"
 dependencies = [
   "shapely>=2.0",
   "pyyaml>=6.0",
+  "duckdb==1.5.2",
+  "pyarrow>=15.0",
 ]
 
 [project.optional-dependencies]

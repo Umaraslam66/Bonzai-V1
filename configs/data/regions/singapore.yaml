@@ -1,0 +1,12 @@
+# Singapore region config for Phase 1 sub-project A.
+#
+# Primary scoping is by admin polygon (fetched from Overture's divisions theme).
+# The bbox here is a fallback used by C-stage sea masking if admin-polygon
+# scoping ever proves impractical, and as a coarse DuckDB pre-filter.
+name: singapore
+admin:
+  source: "overture://divisions"
+  country_code: "SG"      # Overture ISO country code
+  level: "country"        # divisions level: country | region | locality
+fallback_bbox: [103.6, 1.16, 104.05, 1.48]    # [min_lon, min_lat, max_lon, max_lat]
+crs: "EPSG:4326"
