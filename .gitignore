@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+.python-version
+
+# uv
+.uv-cache/
+
+# Build artifacts
+build/
+dist/
+*.whl
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Project data — large, gitignored per CLAUDE.md
+data/
+checkpoints/
+runs/
+wandb/
+logs/
+
+# Local secrets
+.env
+.env.local
+
+# Reports — keep tracked, but ignore scratch
+reports/_scratch/
