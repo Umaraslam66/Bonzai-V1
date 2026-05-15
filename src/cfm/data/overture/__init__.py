@@ -9,13 +9,23 @@ from cfm.data.overture.errors import (
     RegionNotFound,
     ReleaseNotConfigured,
 )
+from cfm.data.overture.region import (
+    BboxScope,
+    Region,
+    RegionGeometry,
+    SizeEstimate,
+)
 
 __all__ = [
+    "BboxScope",
     "CacheCorrupt",
     "OversizedFetch",
     "OvertureError",
     "OvertureSchemaMismatch",
     "OvertureUnreachable",
+    "Region",
+    "RegionGeometry",
     "RegionNotFound",
     "ReleaseNotConfigured",
+    "SizeEstimate",
 ]
