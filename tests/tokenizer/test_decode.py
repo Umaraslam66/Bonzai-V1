@@ -87,6 +87,7 @@ def test_decode_unclosed_polygon_raises(vocab: Vocabulary) -> None:
         t["CELL"],
         t["FEATURE_START"],
         t["B_residential"],
+        t["POLYGON"],
         t["ANCHOR_X_40"],
         t["ANCHOR_Y_40"],
         t["MOVE_E_16"],  # cursor at (56, 40) — no closure

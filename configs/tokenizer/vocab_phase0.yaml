@@ -5,7 +5,7 @@
 # index is the canonical TokenId. Order: control, hierarchy, feature_class
 # (road, building, poi, land_use), anchor_x, anchor_y, moves.
 #
-# Counts: control=8, hierarchy=4, feature_class=19, anchor=500, move=48 -> 579.
+# Counts: control=11, hierarchy=4, feature_class=19, anchor=500, move=48 -> 582.
 
 control:
   - PAD
@@ -16,6 +16,9 @@ control:
   - FEATURE_START
   - FEATURE_END
   - EXIT
+  - POINT     # shape: Point feature body
+  - LINE      # shape: LineString feature body
+  - POLYGON   # shape: Polygon feature body
 
 hierarchy:  # reserved; unused in Phase 0
   - MACRO

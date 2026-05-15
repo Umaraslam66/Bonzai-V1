@@ -9,7 +9,14 @@ from cfm.tokenizer.vocabulary import Vocabulary
 
 def test_load_phase0_total_count(vocab_yaml_path: Path) -> None:
     vocab = Vocabulary.load(vocab_yaml_path)
-    assert len(vocab) == 579
+    assert len(vocab) == 582
+
+
+def test_shape_tokens_present(vocab_yaml_path: Path) -> None:
+    vocab = Vocabulary.load(vocab_yaml_path)
+    assert "POINT" in vocab.token_to_id
+    assert "LINE" in vocab.token_to_id
+    assert "POLYGON" in vocab.token_to_id
 
 
 def test_first_eight_ids_are_control_tokens(vocab_yaml_path: Path) -> None:
@@ -56,3 +63,7 @@ def test_token_to_id_is_inverse_of_id_to_token(vocab_yaml_path: Path) -> None:
 def test_load_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         Vocabulary.load(tmp_path / "does_not_exist.yaml")
+
+
+def test_vocabulary_exposes_anchor_axis_count(vocab_yaml_path: Path) -> None:
+    assert Vocabulary.load(vocab_yaml_path).anchor_axis_count == 250

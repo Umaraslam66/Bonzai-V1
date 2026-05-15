@@ -6,9 +6,9 @@ Reference companion to `configs/tokenizer/vocab_phase0.yaml`. The YAML is the so
 
 The Phase-0 vocabulary is a deliberately small starter set. It exists to lock the encode → decode round-trip contract before Phase 1's full Overture-driven frequency analysis. New tokens are append-only across phases so checkpoints stay readable. See spec `docs/superpowers/specs/2026-05-15-phase-0-tokenizer-roundtrip-design.md`.
 
-Counts: 8 control + 4 hierarchy + 19 feature class + 500 anchor + 48 move = **579 tokens**.
+Counts: 11 control + 4 hierarchy + 19 feature class + 500 anchor + 48 move = **582 tokens**.
 
-## Control (8)
+## Control (11)
 
 | Token | Role |
 |---|---|
@@ -20,6 +20,9 @@ Counts: 8 control + 4 hierarchy + 19 feature class + 500 anchor + 48 move = **57
 | `FEATURE_START` | start of a feature |
 | `FEATURE_END` | end of a feature |
 | `EXIT` | preceding line ends on a cell boundary |
+| `POINT` | shape marker: Point feature body |
+| `LINE` | shape marker: LineString feature body |
+| `POLYGON` | shape marker: Polygon feature body |
 
 ## Hierarchy (4, reserved)
 
@@ -52,9 +55,9 @@ Absolute positions in cell-local metres, split as `ANCHOR_X_n` + `ANCHOR_Y_n` fo
 
 ```
 <BOS> <CELL>
-  <FEATURE_START> <class> <anchor_pair> [<move> ...] [<EXIT>] <FEATURE_END>
+  <FEATURE_START> <class> <shape> <anchor_pair> [<move> ...] [<EXIT>] <FEATURE_END>
   ...
 <END_CELL> <EOS>
 ```
 
-For polygons, the move sequence closes (cumulative delta returns to the anchor). For lines that terminate on a cell edge, the move sequence is followed by `<EXIT>` before `<FEATURE_END>`. Vertex boundaries within a polygon or line are inferred by direction change (consecutive moves in the same cardinal direction collapse into one segment).
+`<shape>` is one of `POINT`, `LINE`, `POLYGON` and decides how the body is materialised; the class token carries semantic identity only. For polygons, the move sequence closes (cumulative delta returns to the anchor). For lines that terminate on a cell edge, the move sequence is followed by `<EXIT>` before `<FEATURE_END>`. Vertex boundaries within a polygon or line are inferred by direction change (consecutive moves in the same cardinal direction collapse into one segment).

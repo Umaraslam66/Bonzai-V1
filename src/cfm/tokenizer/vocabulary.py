@@ -16,10 +16,13 @@ class Vocabulary:
 
     `id_to_token[i]` is the token name at id `i`.
     `token_to_id[name]` is the inverse lookup.
+    `anchor_axis_count` is the per-axis anchor token count (matches the largest supported
+    `cell_size_m`).
     """
 
     id_to_token: tuple[str, ...]
     token_to_id: Mapping[str, TokenId]
+    anchor_axis_count: int
 
     def __len__(self) -> int:
         return len(self.id_to_token)
@@ -28,12 +31,16 @@ class Vocabulary:
     def load(cls, path: Path) -> Vocabulary:
         with Path(path).open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        names = _flatten(data)
+        names, anchor_axis_count = _flatten(data)
         token_to_id = MappingProxyType({name: i for i, name in enumerate(names)})
-        return cls(id_to_token=tuple(names), token_to_id=token_to_id)
+        return cls(
+            id_to_token=tuple(names),
+            token_to_id=token_to_id,
+            anchor_axis_count=anchor_axis_count,
+        )
 
 
-def _flatten(data: dict) -> list[str]:
+def _flatten(data: dict) -> tuple[list[str], int]:
     out: list[str] = []
     out.extend(data["control"])
     out.extend(data["hierarchy"])
@@ -47,4 +54,4 @@ def _flatten(data: dict) -> list[str]:
     for direction in move["directions"]:
         for step in move["steps_m"]:
             out.append(f"MOVE_{direction}_{step}")
-    return out
+    return out, axis_count

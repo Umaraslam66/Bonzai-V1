@@ -51,6 +51,7 @@ def test_single_poi_encodes_as_anchor_pair(vocab: Vocabulary) -> None:
         vocab.token_to_id["CELL"],
         vocab.token_to_id["FEATURE_START"],
         vocab.token_to_id["POI_restaurant"],
+        vocab.token_to_id["POINT"],
         vocab.token_to_id["ANCHOR_X_50"],
         vocab.token_to_id["ANCHOR_Y_80"],
         vocab.token_to_id["FEATURE_END"],
@@ -98,6 +99,7 @@ def test_rectangular_building_encodes_with_dyadic_moves(vocab: Vocabulary) -> No
     expected_core = (
         t["FEATURE_START"],
         t["B_residential"],
+        t["POLYGON"],
         t["ANCHOR_X_40"],
         t["ANCHOR_Y_40"],
         t["MOVE_E_16"],
@@ -160,6 +162,7 @@ def test_road_crossing_east_edge_emits_exit(vocab: Vocabulary) -> None:
     )
     t = vocab.token_to_id
     assert t["EXIT"] in out.tokens
+    assert t["LINE"] in out.tokens
     assert t["ANCHOR_X_0"] in out.tokens
     assert t["ANCHOR_Y_125"] in out.tokens
     # MOVE_E_32 must appear at least 7 times.
@@ -185,3 +188,47 @@ def test_diagonal_segment_raises(vocab: Vocabulary) -> None:
             cell_size_m=250.0,
             vocab=vocab,
         )
+
+
+def test_road_with_fuzzed_east_exit_still_emits_exit(vocab: Vocabulary) -> None:
+    """Reprojection drift of ~1e-6 m at the east edge must not silently drop <EXIT>."""
+    # End point is 250 - 5e-7 m; strict == would miss this, tolerance must catch it.
+    out = encode_cell(
+        _fc(_line([[0, 125], [250 - 5e-7, 125]])),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    assert vocab.token_to_id["EXIT"] in out.tokens
+
+
+def test_road_clearly_inside_cell_does_not_emit_exit(vocab: Vocabulary) -> None:
+    """A road ending 5 m inside the cell must NOT emit <EXIT> even with tolerance."""
+    out = encode_cell(
+        _fc(_line([[0, 125], [245, 125]])),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    assert vocab.token_to_id["EXIT"] not in out.tokens
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 0 has no <ENTRY> marker for lines starting on a cell boundary; "
+    "to be addressed by Phase 1 boundary contracts.",
+)
+def test_road_entering_west_edge_emits_entry_marker(vocab: Vocabulary) -> None:
+    """A road starting at x=0 should emit some boundary-entry marker. Phase 0 doesn't yet."""
+    # Road from (0, 60) going east to (50, 60). Starts on west edge.
+    out = encode_cell(
+        _fc(_line([[0, 60], [50, 60]])),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    # We don't have an ENTRY token in Phase 0 vocab; this assertion is *intentionally*
+    # going to fail today. The xfail makes the gap visible. When Phase 1 adds
+    # boundary contracts (or an ENTRY token), this test will need its assertion
+    # updated and the xfail removed.
+    assert "ENTRY" in [vocab.id_to_token[t] for t in out.tokens]
