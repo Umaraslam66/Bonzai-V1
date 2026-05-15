@@ -7,6 +7,7 @@ from cfm.tokenizer.errors import (
     UnsupportedGeometry,
     VocabularyMismatch,
 )
+from cfm.tokenizer.geometry import geometric_equal
 from cfm.tokenizer.vocabulary import Vocabulary
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "UnsupportedGeometry",
     "Vocabulary",
     "VocabularyMismatch",
+    "geometric_equal",
 ]
