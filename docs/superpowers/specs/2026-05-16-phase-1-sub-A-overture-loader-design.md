@@ -9,6 +9,8 @@
 
 Stand up `cfm.data.overture` — a focused Python module that loads pinned Overture Maps release themes from public S3, scoped to a named region (Singapore for Phase 1), with cache management, schema validation, and a backend protocol that lets tests run without network. After A lands, downstream sub-projects (B1, C, ...) consume a `Region` object and never touch S3 or DuckDB directly.
 
+**S3 access prerequisite:** the Overture S3 bucket `s3://overturemaps-us-west-2/` is **public-read with no credentials required** (per https://docs.overturemaps.org/getting-data/). The backend uses anonymous access — no AWS account or IAM role needed for CI or contributor machines. If Overture ever switches to authenticated access (extremely unlikely but possible), `S3DuckDBBackend` would need to accept credentials via env vars and the pinning policy doc would have to be updated to document the auth requirement. The slow opt-in test would surface this immediately by failing on `OvertureUnreachable`.
+
 ## 2. Scope (in / out)
 
 **In scope for A:**
@@ -36,10 +38,11 @@ Stand up `cfm.data.overture` — a focused Python module that loads pinned Overt
 ## 3. Load-bearing decisions
 
 1. **Admin-polygon scoping, not bbox.** Singapore's bbox includes a lot of open sea that would dilute downstream training signal. Loader fetches Singapore's admin boundary once from Overture's `divisions` theme, then uses it as a spatial filter for the other four themes (`buildings`, `places`, `transportation`, `base`). **Fallback:** if admin-polygon scoping proves harder than expected during implementation, fall back to bbox loading and explicitly sea-mask via `base.water` at C-stage. Either way, raw open sea does not enter the training set.
-2. **Pinned release: `2026-04-15.0`** (schema v1.16.0), confirmed via https://docs.overturemaps.org/release-calendar/ on 2026-05-16. We update the pin once per phase and never mid-phase. If frequency analysis (B1) reveals that 2026-04-15 has problems for our use case, we re-pin in one commit. The pin lives in `configs/data/overture_release.yaml` so every data-pipeline run is traceable to a commit + a release.
-3. **Backend protocol for testability.** A `Protocol` interface with one method, `read_theme(theme, region, release) -> pyarrow.Table`. Real impl talks to `s3://overturemaps-us-west-2/release/<release>/theme=<theme>/`. Test impl reads from `tests/fixtures/overture_mini/<theme>.parquet`. The loader takes a backend instance via dependency injection; default factory returns the real backend.
-4. **Cache layout under `data/cache/overture/`** (repo-local, gitignored). Now that the repo lives at `~/Projects/Bonzai-OSM` (outside iCloud) this is safe. Per-release, per-region subdirectories. Each region has a rich `manifest.yaml` for full audit traceability.
-5. **Fixture-generation snapshot script is the maintenance mechanism.** `scripts/snapshot_overture_fixtures.py` regenerates `tests/fixtures/overture_mini/` from a tiny real S3 fetch (e.g., a 0.01° × 0.01° bbox in central Singapore). The pinning policy doc instructs maintainers to re-run the script whenever they re-pin. A live schema-drift slow test against real S3 (`tests/slow/test_real_s3_optin.py`, §13) is an additional, opt-in verification — useful when investigating a suspected drift, but not part of the regular workflow.
+2. **Five themes, not four.** Phase 1 loads `divisions` in addition to the originally-proposed four (`buildings`, `places`, `transportation`, `base`). This is a direct consequence of decision 1: admin-polygon scoping requires the boundary geometry, which lives in `divisions`. Downstream sub-projects (B1, C) must expect a five-theme `Region` object; their schemas, manifests, and tests all account for this. If decision 1 is reversed (bbox fallback), `divisions` could in principle be dropped — but we keep it anyway because it carries country/locality labels useful for conditioning later.
+3. **Pinned release: `2026-04-15.0`** (schema v1.16.0), confirmed via https://docs.overturemaps.org/release-calendar/ on 2026-05-16. We update the pin once per phase and never mid-phase. If frequency analysis (B1) reveals that 2026-04-15 has problems for our use case, we re-pin in one commit. The pin lives in `configs/data/overture_release.yaml` so every data-pipeline run is traceable to a commit + a release.
+4. **Backend protocol for testability.** A `Protocol` interface with one method, `read_theme(theme, region, release) -> pyarrow.Table`. Real impl talks to `s3://overturemaps-us-west-2/release/<release>/theme=<theme>/`. Test impl reads from `tests/fixtures/overture_mini/<theme>.parquet`. The loader takes a backend instance via dependency injection; default factory returns the real backend.
+5. **Cache layout under `data/cache/overture/`** (repo-local, gitignored). Per-release, per-region subdirectories. Each region has a rich `manifest.yaml` for full audit traceability.
+6. **Fixture-generation snapshot script is the maintenance mechanism.** `scripts/snapshot_overture_fixtures.py` regenerates `tests/fixtures/overture_mini/` from a tiny real S3 fetch (e.g., a 0.01° × 0.01° bbox in central Singapore). The pinning policy doc instructs maintainers to re-run the script whenever they re-pin. A live schema-drift slow test against real S3 (`tests/slow/test_real_s3_opt_in.py`, §13) is an additional, opt-in verification — useful when investigating a suspected drift, but not part of the regular workflow.
 
 ## 4. Public API
 
@@ -110,10 +113,12 @@ WHERE bbox.xmin <= ? AND bbox.xmax >= ?
 Before fetching any theme, the loader calls `backend.estimate_size(...)`, which runs a cheap `COUNT(*)` query plus a small-sample average-row-size measurement. The loader logs:
 
 ```
-[overture] estimated fetch: theme=buildings rows≈340,000 size≈45 MB
-[overture] estimated fetch: theme=places    rows≈12,400  size≈3.1 MB
-...
-[overture] estimated total: 5 themes, ~360 MB
+[overture] estimated fetch: theme=buildings      rows≈340,000 size≈45 MB
+[overture] estimated fetch: theme=places         rows≈12,400  size≈3.1 MB
+[overture] estimated fetch: theme=transportation rows≈85,000  size≈22 MB
+[overture] estimated fetch: theme=base           rows≈4,200   size≈1.8 MB
+[overture] estimated fetch: theme=divisions      rows≈18      size≈64 KB
+[overture] estimated total: 5 themes, ~72 MB
 ```
 
 If the total exceeds **2 GB**, the loader prints a warning and requires `confirm=True` to proceed (the public `load_region` accepts a `confirm` parameter; default `False` means small fetches go through, large fetches abort with a clear message). For Singapore the total will be well under 2 GB.
@@ -171,7 +176,13 @@ data/                                  # gitignored (already in .gitignore)
                 └── divisions.parquet
 ```
 
-Cache hit rule: if `manifest.yaml` exists and `release` and `region` match and every theme's sha256 matches the cached parquet, return cached. Otherwise re-fetch (or fail loudly if `refresh=False` was passed and manifest is stale — clearer than silently fetching).
+Cache-hit rule (deterministic, three cases):
+
+1. **No manifest or release mismatch:** if `manifest.yaml` does not exist, **or** its `release` field does not match the currently-pinned release in `configs/data/overture_release.yaml`, the loader silently re-fetches all themes for the region. Rationale: the pin is the source of truth; a stale-release cache is exactly what we expect to find right after a re-pin, and silently fetching the correct release is the right behaviour.
+2. **Release matches, sha256 mismatch:** if `manifest.yaml` exists with the right release, but any cached parquet's actual sha256 differs from what the manifest records, the loader raises `CacheCorrupt`. Rationale: the cache has been tampered with or partially written; silently re-fetching could mask a real problem.
+3. **Release matches, sha256 matches:** cache hit. Return cached themes without touching the network.
+
+`refresh=True` short-circuits this and unconditionally re-fetches (still writes a fresh manifest). The `refresh=False` default does not "fail loudly" on a missing/stale-release manifest; case 1 covers that.
 
 ## 9. Module layout
 
@@ -194,7 +205,7 @@ configs/data/
     └── singapore.yaml            # name, admin_source, fallback_bbox
 
 docs/data/
-└── overture_pinning_policy.md    # update once per phase; fixture regen procedure
+└── overture_pinning_policy.md    # update once per phase; fixture regeneration procedure
 
 scripts/
 ├── snapshot_overture_fixtures.py # regenerates tests/fixtures/overture_mini/
@@ -216,7 +227,7 @@ tests/data/overture/
 └── test_manifest.py              # round-trip, sha256, schema_version
 
 tests/slow/
-└── test_real_s3_optin.py         # @pytest.mark.slow; real S3 fetch of a tiny bbox
+└── test_real_s3_opt_in.py        # @pytest.mark.slow; real S3 fetch of a tiny bbox
 ```
 
 ## 10. Errors
@@ -276,24 +287,24 @@ The full doc lands at `docs/data/overture_pinning_policy.md`. Key rules:
 ## 13. Tests
 
 - **Fast suite (`uv run pytest`):** all `tests/data/overture/` tests use `LocalFixtureBackend`. No network. Covers: manifest round-trip, schema validation passes/fails, region loading, cache hit/miss, refresh, error paths, oversized-fetch guard.
-- **Slow opt-in (`uv run pytest -m slow`):** `tests/slow/test_real_s3_optin.py` fetches a tiny real bbox from S3 (under 1 MB), asserts schema matches `schema.py`. Skipped by default.
+- **Slow opt-in (`uv run pytest -m slow`):** `tests/slow/test_real_s3_opt_in.py` fetches a tiny real bbox from S3 (under 1 MB), asserts schema matches `schema.py`. Skipped by default.
 
 ## 14. Done criteria
 
 A is done when:
 
 - `uv run pytest` passes the data/overture tests using fixtures, **no network calls**.
-- `uv run pytest -m slow tests/slow/test_real_s3_optin.py` passes on a machine with internet (run manually before sign-off, not on every commit).
+- `uv run pytest -m slow tests/slow/test_real_s3_opt_in.py` passes on a machine with internet (run manually before sign-off, not on every commit).
 - `uv run python -c "from cfm.data.overture import load_region; r = load_region('singapore'); print(r.release, list(r.themes), len(r.themes['buildings']))"` works after the first real fetch (manifest cached, sha256s recorded).
 - `data/cache/overture/2026-04-15.0/singapore/manifest.yaml` matches §7 in form and content.
 - The pinning policy is committed; a contributor can read it and re-pin without asking questions.
-- All five new error classes have at least one test.
+- All six new error classes (§10) have at least one test.
 
 ## 15. Risks specific to A
 
 - **Overture changes their S3 path layout between releases.** Mitigation: backend URL is templated by release version; if 2026-04-15 uses a different path structure than the fixture-generation testing assumed, the slow-marked S3 test will catch it during first run.
 - **Admin polygon for Singapore is multi-polygon (main island + offshore islands).** Mitigation: SpatialScope holds a `shapely.MultiPolygon | Polygon`; ST_Intersects handles either.
-- **DuckDB spatial extension version drift.** Mitigation: pin `duckdb >= 1.0` in `pyproject.toml`; document the version in the manifest's `backend` field.
+- **DuckDB spatial extension version drift.** Mitigation: pin `duckdb == 1.5.2` exactly in `pyproject.toml` (latest stable as of 2026-05-16 per pypi.org); also record the resolved version string in the manifest's `backend` field for full traceability. Re-pin DuckDB only on the same cadence as Overture re-pins.
 - **Fixture parquet files become outdated when we re-pin.** Mitigation: §12 step 2 explicitly requires running the snapshot script on every re-pin. The schema-drift live test is the future-work backstop.
 
 ## 16. Out-of-scope items deferred to later sub-projects
