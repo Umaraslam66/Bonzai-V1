@@ -51,6 +51,7 @@ def test_single_poi_encodes_as_anchor_pair(vocab: Vocabulary) -> None:
         vocab.token_to_id["CELL"],
         vocab.token_to_id["FEATURE_START"],
         vocab.token_to_id["POI_restaurant"],
+        vocab.token_to_id["POINT"],
         vocab.token_to_id["ANCHOR_X_50"],
         vocab.token_to_id["ANCHOR_Y_80"],
         vocab.token_to_id["FEATURE_END"],
@@ -98,6 +99,7 @@ def test_rectangular_building_encodes_with_dyadic_moves(vocab: Vocabulary) -> No
     expected_core = (
         t["FEATURE_START"],
         t["B_residential"],
+        t["POLYGON"],
         t["ANCHOR_X_40"],
         t["ANCHOR_Y_40"],
         t["MOVE_E_16"],
@@ -160,6 +162,7 @@ def test_road_crossing_east_edge_emits_exit(vocab: Vocabulary) -> None:
     )
     t = vocab.token_to_id
     assert t["EXIT"] in out.tokens
+    assert t["LINE"] in out.tokens
     assert t["ANCHOR_X_0"] in out.tokens
     assert t["ANCHOR_Y_125"] in out.tokens
     # MOVE_E_32 must appear at least 7 times.

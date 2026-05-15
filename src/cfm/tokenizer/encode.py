@@ -61,16 +61,20 @@ def _encode_feature(
     geom = feature["geometry"]
     gtype = geom["type"]
     if gtype == "Point":
+        shape_name = "POINT"
         body = _encode_point(geom["coordinates"], cell_origin, cell_size_m, vocab)
     elif gtype == "Polygon":
+        shape_name = "POLYGON"
         body = _encode_polygon(cls, geom["coordinates"], cell_origin, cell_size_m, vocab)
     elif gtype == "LineString":
+        shape_name = "LINE"
         body = _encode_linestring(geom["coordinates"], cell_origin, cell_size_m, vocab)
     else:
         raise UnsupportedGeometry(f"Phase 0 does not yet handle geometry type {gtype!r}")
     return [
         vocab.token_to_id["FEATURE_START"],
         vocab.token_to_id[cls],
+        vocab.token_to_id[shape_name],
         *body,
         vocab.token_to_id["FEATURE_END"],
     ]

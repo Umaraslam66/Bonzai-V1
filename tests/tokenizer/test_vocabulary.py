@@ -9,7 +9,14 @@ from cfm.tokenizer.vocabulary import Vocabulary
 
 def test_load_phase0_total_count(vocab_yaml_path: Path) -> None:
     vocab = Vocabulary.load(vocab_yaml_path)
-    assert len(vocab) == 579
+    assert len(vocab) == 582
+
+
+def test_shape_tokens_present(vocab_yaml_path: Path) -> None:
+    vocab = Vocabulary.load(vocab_yaml_path)
+    assert "POINT" in vocab.token_to_id
+    assert "LINE" in vocab.token_to_id
+    assert "POLYGON" in vocab.token_to_id
 
 
 def test_first_eight_ids_are_control_tokens(vocab_yaml_path: Path) -> None:

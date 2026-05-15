@@ -55,33 +55,39 @@ def _decode_feature(
 ) -> dict:
     cursor.expect("FEATURE_START")
     cls = cursor.take()
+    shape = cursor.take()
     body: list[str] = []
     while cursor.peek() != "FEATURE_END":
         body.append(cursor.take())
     cursor.expect("FEATURE_END")
-    return _materialise_feature(cls, body, cell_origin, cell_size_m)
+    return _materialise_feature(cls, shape, body, cell_origin, cell_size_m)
 
 
 def _materialise_feature(
     cls: str,
+    shape: str,
     body: list[str],
     cell_origin: tuple[float, float],
     cell_size_m: float,
 ) -> dict:
-    # Phase 0 dispatch by class prefix.
+    # Shape token decides materialisation; class is a semantic label only.
     has_exit = body and body[-1] == "EXIT"
     if has_exit:
         body = body[:-1]
     anchor_x, anchor_y, rest = _read_anchor(body, cell_origin)
-    if not rest and not has_exit and cls.startswith(("POI_",)):
+    if shape == "POINT":
+        if rest or has_exit:
+            raise UnsupportedGeometry(
+                f"POINT feature must have no moves and no <EXIT>; class={cls}"
+            )
         return _point_feature(cls, anchor_x, anchor_y)
-    if cls.startswith(("R_",)):
+    if shape == "LINE":
         return _line_feature(cls, anchor_x, anchor_y, rest, has_exit, cell_size_m, cell_origin)
-    if cls.startswith(("B_", "L_")):
+    if shape == "POLYGON":
         if has_exit:
-            raise UnsupportedGeometry(f"<EXIT> not valid for class {cls}")
+            raise UnsupportedGeometry(f"<EXIT> not valid for POLYGON; class={cls}")
         return _polygon_feature(cls, anchor_x, anchor_y, rest, cell_origin)
-    raise UnsupportedGeometry(f"unknown class prefix for {cls!r}")
+    raise UnsupportedGeometry(f"unknown shape token {shape!r}")
 
 
 def _read_anchor(
