@@ -187,6 +187,29 @@ def test_diagonal_segment_raises(vocab: Vocabulary) -> None:
         )
 
 
+def test_road_with_fuzzed_east_exit_still_emits_exit(vocab: Vocabulary) -> None:
+    """Reprojection drift of ~1e-6 m at the east edge must not silently drop <EXIT>."""
+    # End point is 250 - 5e-7 m; strict == would miss this, tolerance must catch it.
+    out = encode_cell(
+        _fc(_line([[0, 125], [250 - 5e-7, 125]])),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    assert vocab.token_to_id["EXIT"] in out.tokens
+
+
+def test_road_clearly_inside_cell_does_not_emit_exit(vocab: Vocabulary) -> None:
+    """A road ending 5 m inside the cell must NOT emit <EXIT> even with tolerance."""
+    out = encode_cell(
+        _fc(_line([[0, 125], [245, 125]])),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    assert vocab.token_to_id["EXIT"] not in out.tokens
+
+
 @pytest.mark.xfail(
     strict=True,
     reason="Phase 0 has no <ENTRY> marker for lines starting on a cell boundary; "

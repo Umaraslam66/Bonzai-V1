@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from cfm.tokenizer._geom_utils import on_cell_boundary
 from cfm.tokenizer.encode import CellTokens
 from cfm.tokenizer.errors import UnsupportedGeometry, VocabularyMismatch
 from cfm.tokenizer.vocabulary import Vocabulary
@@ -116,7 +117,7 @@ def _line_feature(
         end_x, end_y = coords[-1]
         local_x = end_x - cell_origin[0]
         local_y = end_y - cell_origin[1]
-        if not _on_cell_boundary(local_x, local_y, cell_size_m):
+        if not on_cell_boundary(local_x, local_y, cell_size_m):
             raise UnsupportedGeometry("<EXIT> token but final vertex not on cell boundary")
     return {
         "type": "Feature",
@@ -193,7 +194,3 @@ def _apply_moves_as_polyline(
         cur_y += dy * seg_len
         coords.append((cur_x, cur_y))
     return coords
-
-
-def _on_cell_boundary(x: float, y: float, cell_size_m: float) -> bool:
-    return x == 0 or x == cell_size_m or y == 0 or y == cell_size_m

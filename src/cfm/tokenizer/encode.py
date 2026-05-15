@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cfm.tokenizer._geom_utils import on_cell_boundary
 from cfm.tokenizer.errors import (
     FeatureOutOfBounds,
     UnsupportedFeatureClass,
@@ -135,7 +136,7 @@ def _encode_linestring(
         x1, y1 = vertices_local[i + 1]
         body.extend(_encode_axis_aligned_segment(x1 - x0, y1 - y0, vocab))
     end_x, end_y = vertices_local[-1]
-    if _on_cell_boundary(end_x, end_y, cell_size_m):
+    if on_cell_boundary(end_x, end_y, cell_size_m):
         body.append(vocab.token_to_id["EXIT"])
     return body
 
@@ -157,10 +158,6 @@ def _drop_collinear_open(verts: list[tuple[float, float]]) -> list[tuple[float, 
             out.append(cur)
     out.append(verts[-1])
     return out
-
-
-def _on_cell_boundary(x: float, y: float, cell_size_m: float) -> bool:
-    return x == 0 or x == cell_size_m or y == 0 or y == cell_size_m
 
 
 def _encode_closed_path(
