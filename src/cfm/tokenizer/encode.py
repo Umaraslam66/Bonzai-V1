@@ -6,6 +6,7 @@ from cfm.tokenizer.errors import (
     FeatureOutOfBounds,
     UnsupportedFeatureClass,
     UnsupportedGeometry,
+    VocabularyMismatch,
 )
 from cfm.tokenizer.vocabulary import TokenId, Vocabulary
 
@@ -36,6 +37,10 @@ def encode_cell(
     cell_size_m: float,
     vocab: Vocabulary,
 ) -> CellTokens:
+    if cell_size_m > vocab.anchor_axis_count:
+        raise VocabularyMismatch(
+            f"cell_size_m={cell_size_m} exceeds vocabulary anchor range {vocab.anchor_axis_count}"
+        )
     out: list[TokenId] = [vocab.token_to_id["BOS"], vocab.token_to_id["CELL"]]
     for feature in geojson["features"]:
         out.extend(_encode_feature(feature, cell_origin, cell_size_m, vocab))
