@@ -1,5 +1,6 @@
 """Tokenizer for cell-local GeoJSON ↔ token-ID round-trip."""
 
+from cfm.tokenizer.decode import decode_cell
 from cfm.tokenizer.encode import CellTokens, encode_cell
 from cfm.tokenizer.errors import (
     FeatureOutOfBounds,
@@ -19,6 +20,7 @@ __all__ = [
     "UnsupportedGeometry",
     "Vocabulary",
     "VocabularyMismatch",
+    "decode_cell",
     "encode_cell",
     "geometric_equal",
 ]
