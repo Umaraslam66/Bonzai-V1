@@ -10,10 +10,11 @@
 
 **Tech stack:** Python 3.11+, `duckdb == 1.5.2` (spatial + httpfs extensions), `pyarrow >= 15.0`, `shapely` (from Phase 0), `pyyaml` (from Phase 0), `pytest`.
 
-**Two implementation-level conventions worth knowing up front:**
+**Three implementation-level conventions worth knowing up front:**
 
 1. **Schema is curated, not faithful.** `schema.py` lists only the columns we actually use per theme. `validate_schema` checks the cached parquet has at least those columns; extras are ignored. This decouples our contract from Overture's full schema — if Overture adds columns, we don't break. If they remove columns we depend on, `OvertureSchemaMismatch` fires.
 2. **`S3DuckDBBackend` query generation is unit-tested via a `_build_query` helper.** Actual S3 round-trips happen only in the slow opt-in test. This keeps the fast suite deterministic and network-free.
+3. **Bbox does the filtering; polygon is a handoff record.** Phase-1 simplification of spec §3 decision 1: the spatial filter at fetch time is the *bounding box*, not the admin polygon. The admin polygon is fetched as the regular `divisions` theme and exposed on `Region.geometry` as a downstream-handoff record. C-stage (tile extraction, sub-project C) is contractually obligated to apply the polygon for precise clipping; this contract is documented in `docs/data/handoffs.md`. The types make this split explicit: `BboxScope` (filter) and `RegionGeometry` (handoff record) are distinct dataclasses.
 
 **Branch:** all work on `phase-1-sub-A-overture-loader` off main. Merge to main only after the done check in Task 15.
 
@@ -27,10 +28,11 @@
 | `configs/data/overture_release.yaml` | One key: `release: "2026-04-15.0"` |
 | `configs/data/regions/singapore.yaml` | Region name + admin source + fallback bbox |
 | `docs/data/overture_pinning_policy.md` | Re-pin procedure |
+| `docs/data/handoffs.md` | A→C contract: themes are bbox-filtered; C must apply `admin_polygon` |
 | `src/cfm/data/__init__.py` | Package marker |
 | `src/cfm/data/overture/__init__.py` | Public API re-exports |
 | `src/cfm/data/overture/errors.py` | Six `OvertureError` subclasses |
-| `src/cfm/data/overture/region.py` | `Region`, `SpatialScope`, `SizeEstimate` dataclasses |
+| `src/cfm/data/overture/region.py` | `Region`, `BboxScope`, `RegionGeometry`, `SizeEstimate` dataclasses |
 | `src/cfm/data/overture/schema.py` | Curated column schemas + `validate_schema` |
 | `src/cfm/data/overture/manifest.py` | `CacheManifest` r/w + sha256 helper |
 | `src/cfm/data/overture/backend.py` | Protocol + `LocalFixtureBackend` + `S3DuckDBBackend` |
@@ -326,12 +328,18 @@ git commit -m "feat(data): add OvertureError hierarchy with six subclasses"
 
 ---
 
-## Task 3: Region, SpatialScope, SizeEstimate dataclasses (TDD)
+## Task 3: Region, BboxScope, RegionGeometry, SizeEstimate dataclasses (TDD)
 
 **Files:**
 - Create: `src/cfm/data/overture/region.py`
 - Modify: `src/cfm/data/overture/__init__.py`
 - Create: `tests/data/overture/test_region.py`
+
+**Design note** — split `BboxScope` and `RegionGeometry` deliberately:
+
+- **`BboxScope`** is what backends use as their *fetch-time spatial filter*. Carries four floats; nothing else.
+- **`RegionGeometry`** is the *handoff record* describing the region's precise shape (admin polygon + provenance). Backends never touch it; C-stage and beyond consume it for clipping.
+- **`Region`** carries both. The split prevents a reader from assuming the polygon is doing filter work — which it isn't in Phase 1.
 
 - [ ] **Step 3.1: Write the failing tests**
 
@@ -347,27 +355,40 @@ import pyarrow as pa
 import pytest
 from shapely.geometry import Polygon
 
-from cfm.data.overture.region import Region, SizeEstimate, SpatialScope
+from cfm.data.overture.region import (
+    BboxScope,
+    Region,
+    RegionGeometry,
+    SizeEstimate,
+)
 
 
 def _square_polygon() -> Polygon:
     return Polygon([(103.6, 1.16), (104.05, 1.16), (104.05, 1.48), (103.6, 1.48), (103.6, 1.16)])
 
 
-def test_spatial_scope_is_frozen() -> None:
-    scope = SpatialScope(
-        admin_polygon=_square_polygon(),
-        bbox=(103.6, 1.16, 104.05, 1.48),
-    )
+def test_bbox_scope_is_frozen() -> None:
+    bbox = BboxScope(min_lon=103.6, min_lat=1.16, max_lon=104.05, max_lat=1.48)
     with pytest.raises(FrozenInstanceError):
-        scope.bbox = (0.0, 0.0, 1.0, 1.0)  # type: ignore[misc]
+        bbox.min_lon = 0.0  # type: ignore[misc]
 
 
-def test_spatial_scope_holds_polygon_and_bbox() -> None:
+def test_bbox_scope_as_tuple_roundtrips() -> None:
+    bbox = BboxScope.from_tuple((103.6, 1.16, 104.05, 1.48))
+    assert bbox.as_tuple() == (103.6, 1.16, 104.05, 1.48)
+
+
+def test_region_geometry_holds_polygon_and_source() -> None:
     poly = _square_polygon()
-    scope = SpatialScope(admin_polygon=poly, bbox=(103.6, 1.16, 104.05, 1.48))
-    assert scope.admin_polygon is poly
-    assert scope.bbox == (103.6, 1.16, 104.05, 1.48)
+    geom = RegionGeometry(admin_polygon=poly, source="overture://divisions:country:SG")
+    assert geom.admin_polygon is poly
+    assert geom.source == "overture://divisions:country:SG"
+
+
+def test_region_geometry_is_frozen() -> None:
+    geom = RegionGeometry(admin_polygon=_square_polygon(), source="x")
+    with pytest.raises(FrozenInstanceError):
+        geom.source = "y"  # type: ignore[misc]
 
 
 def test_size_estimate_fields() -> None:
@@ -384,7 +405,8 @@ def test_size_estimate_is_frozen() -> None:
 
 def test_region_construction(tmp_path: Path) -> None:
     poly = _square_polygon()
-    scope = SpatialScope(admin_polygon=poly, bbox=(103.6, 1.16, 104.05, 1.48))
+    bbox = BboxScope.from_tuple((103.6, 1.16, 104.05, 1.48))
+    geometry = RegionGeometry(admin_polygon=poly, source="overture://divisions:country:SG")
     themes = {
         "buildings": pa.table({"id": [1, 2]}),
         "places": pa.table({"id": [3, 4]}),
@@ -392,7 +414,8 @@ def test_region_construction(tmp_path: Path) -> None:
     region = Region(
         name="singapore",
         release="2026-04-15.0",
-        scope=scope,
+        fetch_bbox=bbox,
+        geometry=geometry,
         themes=themes,
         manifest_path=tmp_path / "manifest.yaml",
     )
@@ -400,15 +423,18 @@ def test_region_construction(tmp_path: Path) -> None:
     assert region.release == "2026-04-15.0"
     assert region.themes["buildings"].num_rows == 2
     assert region.admin_polygon is poly
+    assert region.bbox == (103.6, 1.16, 104.05, 1.48)
 
 
 def test_region_is_frozen(tmp_path: Path) -> None:
     poly = _square_polygon()
-    scope = SpatialScope(admin_polygon=poly, bbox=(103.6, 1.16, 104.05, 1.48))
+    bbox = BboxScope.from_tuple((103.6, 1.16, 104.05, 1.48))
+    geometry = RegionGeometry(admin_polygon=poly, source="x")
     region = Region(
         name="singapore",
         release="2026-04-15.0",
-        scope=scope,
+        fetch_bbox=bbox,
+        geometry=geometry,
         themes={},
         manifest_path=tmp_path / "manifest.yaml",
     )
@@ -416,17 +442,12 @@ def test_region_is_frozen(tmp_path: Path) -> None:
         region.name = "elsewhere"  # type: ignore[misc]
 
 
-def test_region_admin_polygon_is_shortcut_to_scope(tmp_path: Path) -> None:
-    poly = _square_polygon()
-    scope = SpatialScope(admin_polygon=poly, bbox=(103.6, 1.16, 104.05, 1.48))
-    region = Region(
-        name="x",
-        release="2026-04-15.0",
-        scope=scope,
-        themes={},
-        manifest_path=tmp_path / "manifest.yaml",
-    )
-    assert region.admin_polygon is region.scope.admin_polygon
+def test_region_docstring_states_handoff_contract() -> None:
+    """The Region docstring must tell downstream consumers that themes are
+    bbox-filtered and admin_polygon is for their use, not the backend's.
+    """
+    assert "bbox" in Region.__doc__.lower()
+    assert "admin_polygon" in Region.__doc__ or "admin polygon" in Region.__doc__.lower()
 ```
 
 - [ ] **Step 3.2: Run tests; expect failure**
@@ -449,17 +470,39 @@ from shapely.geometry.base import BaseGeometry
 
 
 @dataclass(frozen=True)
-class SpatialScope:
-    """Spatial filter for an Overture query.
+class BboxScope:
+    """Bounding box used by Overture backends as the fetch-time spatial filter.
 
-    `admin_polygon` is the authoritative filter. `bbox` is used as a cheap
-    DuckDB pre-filter (bbox.xmin/xmax/ymin/ymax columns in Overture parquet)
-    before the polygon-intersect refinement, and is recorded in the cache
-    manifest for audit.
+    This is the only spatial filter applied at fetch time in Phase 1. The
+    admin polygon (see RegionGeometry) is NOT used by backends; downstream
+    consumers (e.g. C-stage tile extraction) must apply it themselves for
+    precise clipping. See docs/data/handoffs.md.
+    """
+
+    min_lon: float
+    min_lat: float
+    max_lon: float
+    max_lat: float
+
+    @classmethod
+    def from_tuple(cls, t: tuple[float, float, float, float]) -> BboxScope:
+        return cls(min_lon=t[0], min_lat=t[1], max_lon=t[2], max_lat=t[3])
+
+    def as_tuple(self) -> tuple[float, float, float, float]:
+        return (self.min_lon, self.min_lat, self.max_lon, self.max_lat)
+
+
+@dataclass(frozen=True)
+class RegionGeometry:
+    """Precise geometric description of a region, plus where it came from.
+
+    Phase 1 uses this as a downstream-handoff record: it lives on Region for
+    C-stage and later consumers, but is NOT used by backends as a fetch-time
+    filter. See docs/data/handoffs.md.
     """
 
     admin_polygon: BaseGeometry
-    bbox: tuple[float, float, float, float]   # min_lon, min_lat, max_lon, max_lat
+    source: str   # e.g. "overture://divisions:country:SG"
 
 
 @dataclass(frozen=True)
@@ -472,20 +515,38 @@ class SizeEstimate:
 
 @dataclass(frozen=True)
 class Region:
-    """A fully-loaded Overture region: themes + spatial scope + provenance."""
+    """A fully-loaded Overture region for one release.
+
+    HANDOFF CONTRACT — read before consuming this object:
+
+    The `themes` parquet tables are filtered ONLY by `fetch_bbox` at load
+    time. The `geometry.admin_polygon` is a HANDOFF record describing the
+    region's precise shape; it is NOT applied to the themes at load time.
+
+    Downstream consumers (e.g. C-stage tile extraction in sub-project C)
+    MUST apply `admin_polygon` to clip themes before training data leaves
+    A's contract. Failing to do so means open sea — which falls inside
+    `fetch_bbox` but outside `admin_polygon` — silently enters the
+    training set. See docs/data/handoffs.md.
+    """
 
     name: str
     release: str
-    scope: SpatialScope
+    fetch_bbox: BboxScope
+    geometry: RegionGeometry
     themes: dict[str, pa.Table]
     manifest_path: Path
 
     @property
     def admin_polygon(self) -> BaseGeometry:
-        return self.scope.admin_polygon
+        return self.geometry.admin_polygon
+
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        return self.fetch_bbox.as_tuple()
 ```
 
-- [ ] **Step 3.4: Re-export Region and SpatialScope from the package**
+- [ ] **Step 3.4: Re-export new dataclasses from the package**
 
 Update `src/cfm/data/overture/__init__.py`:
 
@@ -501,26 +562,32 @@ from cfm.data.overture.errors import (
     RegionNotFound,
     ReleaseNotConfigured,
 )
-from cfm.data.overture.region import Region, SizeEstimate, SpatialScope
+from cfm.data.overture.region import (
+    BboxScope,
+    Region,
+    RegionGeometry,
+    SizeEstimate,
+)
 
 __all__ = [
+    "BboxScope",
     "CacheCorrupt",
     "OversizedFetch",
     "OvertureError",
     "OvertureSchemaMismatch",
     "OvertureUnreachable",
     "Region",
+    "RegionGeometry",
     "RegionNotFound",
     "ReleaseNotConfigured",
     "SizeEstimate",
-    "SpatialScope",
 ]
 ```
 
 - [ ] **Step 3.5: Run tests; expect pass**
 
 Run: `uv run pytest tests/data/overture/test_region.py -v`
-Expected: 7 passed.
+Expected: 9 passed (4 BboxScope/RegionGeometry, 2 SizeEstimate, 2 Region, 1 docstring contract).
 
 - [ ] **Step 3.6: Lint and commit**
 
@@ -528,7 +595,7 @@ Expected: 7 passed.
 uv run ruff format src tests
 uv run ruff check src tests
 git add src/cfm/data/overture/region.py src/cfm/data/overture/__init__.py tests/data/overture/test_region.py
-git commit -m "feat(data): add Region, SpatialScope, SizeEstimate dataclasses"
+git commit -m "feat(data): BboxScope (filter) + RegionGeometry (handoff) + Region with explicit contract docstring"
 ```
 
 ---
@@ -1233,9 +1300,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shapely.geometry import Polygon
 
-from cfm.data.overture.region import SpatialScope
+from cfm.data.overture.region import BboxScope
 
 
 @pytest.fixture(scope="session")
@@ -1244,13 +1310,8 @@ def overture_mini_dir(repo_root: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
-def singapore_scope() -> SpatialScope:
-    return SpatialScope(
-        admin_polygon=Polygon(
-            [(103.6, 1.16), (104.05, 1.16), (104.05, 1.48), (103.6, 1.48), (103.6, 1.16)]
-        ),
-        bbox=(103.6, 1.16, 104.05, 1.48),
-    )
+def singapore_bbox() -> BboxScope:
+    return BboxScope.from_tuple((103.6, 1.16, 104.05, 1.48))
 ```
 
 (`repo_root` comes from `tests/conftest.py` already in the project.)
@@ -1268,7 +1329,7 @@ import pyarrow as pa
 import pytest
 
 from cfm.data.overture.backend import LocalFixtureBackend, OvertureBackend
-from cfm.data.overture.region import SpatialScope
+from cfm.data.overture.region import BboxScope
 
 
 def test_local_backend_implements_protocol(overture_mini_dir: Path) -> None:
@@ -1279,30 +1340,30 @@ def test_local_backend_implements_protocol(overture_mini_dir: Path) -> None:
 
 
 def test_local_backend_reads_each_theme(
-    overture_mini_dir: Path, singapore_scope: SpatialScope
+    overture_mini_dir: Path, singapore_bbox: BboxScope
 ) -> None:
     backend = LocalFixtureBackend(fixtures_dir=overture_mini_dir)
     for theme in ("buildings", "places", "transportation", "base", "divisions"):
-        table = backend.read_theme(theme=theme, scope=singapore_scope, release="ignored")
+        table = backend.read_theme(theme=theme, bbox=singapore_bbox, release="ignored")
         assert isinstance(table, pa.Table)
         assert table.num_rows > 0
 
 
 def test_local_backend_estimate_size_is_cheap(
-    overture_mini_dir: Path, singapore_scope: SpatialScope
+    overture_mini_dir: Path, singapore_bbox: BboxScope
 ) -> None:
     backend = LocalFixtureBackend(fixtures_dir=overture_mini_dir)
-    est = backend.estimate_size(theme="buildings", scope=singapore_scope, release="ignored")
+    est = backend.estimate_size(theme="buildings", bbox=singapore_bbox, release="ignored")
     assert est.rows > 0
     assert est.bytes > 0
 
 
 def test_local_backend_unknown_theme_raises(
-    overture_mini_dir: Path, singapore_scope: SpatialScope
+    overture_mini_dir: Path, singapore_bbox: BboxScope
 ) -> None:
     backend = LocalFixtureBackend(fixtures_dir=overture_mini_dir)
     with pytest.raises(FileNotFoundError):
-        backend.read_theme(theme="not_a_theme", scope=singapore_scope, release="ignored")
+        backend.read_theme(theme="not_a_theme", bbox=singapore_bbox, release="ignored")
 ```
 
 - [ ] **Step 7.3: Run tests; expect failure**
@@ -1323,17 +1384,22 @@ from typing import Protocol
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from cfm.data.overture.region import SizeEstimate, SpatialScope
+from cfm.data.overture.region import BboxScope, SizeEstimate
 
 
 class OvertureBackend(Protocol):
-    """Reads Overture theme parquet for a spatial scope at a given release."""
+    """Reads Overture theme parquet for a bounding box at a given release.
+
+    Phase 1 backends apply only the bounding-box filter. The region's
+    admin polygon is NOT used here; downstream consumers apply it for
+    precise clipping. See docs/data/handoffs.md.
+    """
 
     def read_theme(
         self,
         *,
         theme: str,
-        scope: SpatialScope,
+        bbox: BboxScope,
         release: str,
     ) -> pa.Table: ...
 
@@ -1341,13 +1407,13 @@ class OvertureBackend(Protocol):
         self,
         *,
         theme: str,
-        scope: SpatialScope,
+        bbox: BboxScope,
         release: str,
     ) -> SizeEstimate: ...
 
 
 class LocalFixtureBackend:
-    """Reads from tests/fixtures/overture_mini/. Ignores scope and release.
+    """Reads from tests/fixtures/overture_mini/. Ignores bbox and release.
 
     Used by the fast test suite. The fixtures are committed parquets generated
     by scripts/snapshot_overture_fixtures.py.
@@ -1360,7 +1426,7 @@ class LocalFixtureBackend:
         self,
         *,
         theme: str,
-        scope: SpatialScope,
+        bbox: BboxScope,
         release: str,
     ) -> pa.Table:
         path = self._fixtures_dir / f"{theme}.parquet"
@@ -1372,7 +1438,7 @@ class LocalFixtureBackend:
         self,
         *,
         theme: str,
-        scope: SpatialScope,
+        bbox: BboxScope,
         release: str,
     ) -> SizeEstimate:
         path = self._fixtures_dir / f"{theme}.parquet"
@@ -1414,7 +1480,7 @@ from __future__ import annotations
 import pytest
 
 from cfm.data.overture.backend import S3DuckDBBackend
-from cfm.data.overture.region import SpatialScope
+from cfm.data.overture.region import BboxScope
 
 
 def test_s3_backend_default_bucket() -> None:
@@ -1433,37 +1499,31 @@ def test_build_s3_url_for_release_and_theme() -> None:
     assert url == "s3://overturemaps-us-west-2/release/2026-04-15.0/theme=buildings/*"
 
 
-def test_build_query_contains_required_clauses(singapore_scope: SpatialScope) -> None:
+def test_build_query_contains_bbox_clauses_and_not_polygon(singapore_bbox: BboxScope) -> None:
     backend = S3DuckDBBackend()
-    sql = backend.build_query(theme="buildings", scope=singapore_scope, release="2026-04-15.0")
+    sql = backend.build_query(theme="buildings", bbox=singapore_bbox, release="2026-04-15.0")
     # Theme path
     assert "release/2026-04-15.0/theme=buildings/" in sql
-    # Bbox pre-filter clauses (Overture parquet has bbox.xmin/xmax/ymin/ymax)
+    # Bbox-only filter (Overture parquet has bbox.xmin/xmax/ymin/ymax)
     assert "bbox.xmin" in sql
     assert "bbox.ymax" in sql
-    # Polygon refinement
-    assert "ST_Intersects" in sql or "st_intersects" in sql.lower()
+    # No polygon refinement in Phase 1 — handoff contract is bbox-only at fetch time.
+    assert "ST_Intersects" not in sql and "st_intersects" not in sql.lower()
 
 
-def test_build_count_query_returns_count_star(singapore_scope: SpatialScope) -> None:
+def test_build_count_query_returns_count_star(singapore_bbox: BboxScope) -> None:
     backend = S3DuckDBBackend()
-    sql = backend.build_count_query(theme="buildings", scope=singapore_scope, release="2026-04-15.0")
+    sql = backend.build_count_query(theme="buildings", bbox=singapore_bbox, release="2026-04-15.0")
     assert sql.strip().lower().startswith("select count(*)")
     assert "release/2026-04-15.0/theme=buildings/" in sql
 
 
 @pytest.mark.slow
-def test_real_s3_smoke_buildings(singapore_scope: SpatialScope) -> None:
+def test_real_s3_smoke_buildings() -> None:
     """Sanity smoke that S3 is reachable. Excluded from default suite."""
-    # Use a tiny bbox to keep this fast even when slow tests run.
-    from shapely.geometry import box
-
     backend = S3DuckDBBackend()
-    tiny = SpatialScope(
-        admin_polygon=box(103.85, 1.29, 103.86, 1.30),
-        bbox=(103.85, 1.29, 103.86, 1.30),
-    )
-    est = backend.estimate_size(theme="buildings", scope=tiny, release="2026-04-15.0")
+    tiny = BboxScope.from_tuple((103.85, 1.29, 103.86, 1.30))
+    est = backend.estimate_size(theme="buildings", bbox=tiny, release="2026-04-15.0")
     assert est.rows >= 0
 ```
 
@@ -1480,15 +1540,15 @@ Add to `src/cfm/data/overture/backend.py` (after `LocalFixtureBackend`):
 import duckdb
 
 from cfm.data.overture.errors import OvertureUnreachable
-from shapely import wkt as shapely_wkt
 
 
 class S3DuckDBBackend:
-    """Reads Overture themes from public S3 via DuckDB + spatial extension.
+    """Reads Overture themes from public S3 via DuckDB + httpfs extensions.
 
     The Overture S3 bucket (s3://overturemaps-us-west-2/) is public-read; no
-    credentials required. DuckDB's httpfs + spatial extensions handle the
-    parquet I/O and the spatial predicate.
+    credentials required. Phase 1 filters by bounding box only; precise
+    admin-polygon clipping is the responsibility of downstream consumers
+    (see docs/data/handoffs.md).
     """
 
     DEFAULT_BUCKET = "overturemaps-us-west-2"
@@ -1503,50 +1563,48 @@ class S3DuckDBBackend:
         self,
         *,
         theme: str,
-        scope: SpatialScope,
+        bbox: BboxScope,
         release: str,
     ) -> str:
         url = self.build_s3_url(theme=theme, release=release)
-        xmin, ymin, xmax, ymax = scope.bbox
-        wkt = shapely_wkt.dumps(scope.admin_polygon)
         return f"""
             SELECT *
             FROM read_parquet('{url}', filename=false, hive_partitioning=1)
-            WHERE bbox.xmin <= {xmax}
-              AND bbox.xmax >= {xmin}
-              AND bbox.ymin <= {ymax}
-              AND bbox.ymax >= {ymin}
-              AND ST_Intersects(ST_GeomFromWKB(geometry), ST_GeomFromText('{wkt}'))
+            WHERE bbox.xmin <= {bbox.max_lon}
+              AND bbox.xmax >= {bbox.min_lon}
+              AND bbox.ymin <= {bbox.max_lat}
+              AND bbox.ymax >= {bbox.min_lat}
         """.strip()
 
     def build_count_query(
         self,
         *,
         theme: str,
-        scope: SpatialScope,
+        bbox: BboxScope,
         release: str,
     ) -> str:
         url = self.build_s3_url(theme=theme, release=release)
-        xmin, ymin, xmax, ymax = scope.bbox
         return f"""
             SELECT COUNT(*) AS n
             FROM read_parquet('{url}', filename=false, hive_partitioning=1)
-            WHERE bbox.xmin <= {xmax}
-              AND bbox.xmax >= {xmin}
-              AND bbox.ymin <= {ymax}
-              AND bbox.ymax >= {ymin}
+            WHERE bbox.xmin <= {bbox.max_lon}
+              AND bbox.xmax >= {bbox.min_lon}
+              AND bbox.ymin <= {bbox.max_lat}
+              AND bbox.ymax >= {bbox.min_lat}
         """.strip()
 
     def read_theme(
         self,
         *,
         theme: str,
-        scope: SpatialScope,
+        bbox: BboxScope,
         release: str,
     ) -> pa.Table:
         try:
             con = self._open()
-            return con.execute(self.build_query(theme=theme, scope=scope, release=release)).arrow()
+            return con.execute(
+                self.build_query(theme=theme, bbox=bbox, release=release)
+            ).arrow()
         except duckdb.IOException as e:  # type: ignore[attr-defined]
             raise OvertureUnreachable(f"reading theme={theme!r}: {e}") from e
 
@@ -1554,13 +1612,13 @@ class S3DuckDBBackend:
         self,
         *,
         theme: str,
-        scope: SpatialScope,
+        bbox: BboxScope,
         release: str,
     ) -> SizeEstimate:
         try:
             con = self._open()
             (rows,) = con.execute(
-                self.build_count_query(theme=theme, scope=scope, release=release)
+                self.build_count_query(theme=theme, bbox=bbox, release=release)
             ).fetchone()
         except duckdb.IOException as e:  # type: ignore[attr-defined]
             raise OvertureUnreachable(f"estimating theme={theme!r}: {e}") from e
@@ -1572,7 +1630,6 @@ class S3DuckDBBackend:
     def _open() -> "duckdb.DuckDBPyConnection":  # type: ignore[name-defined]
         con = duckdb.connect()
         con.execute("INSTALL httpfs; LOAD httpfs;")
-        con.execute("INSTALL spatial; LOAD spatial;")
         con.execute("SET s3_region='us-west-2';")
         return con
 ```
@@ -1815,7 +1872,12 @@ from cfm.data.overture.manifest import (
     ThemeEntry,
     sha256_of_file,
 )
-from cfm.data.overture.region import Region, SizeEstimate, SpatialScope
+from cfm.data.overture.region import (
+    BboxScope,
+    Region,
+    RegionGeometry,
+    SizeEstimate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1840,12 +1902,16 @@ def load_region(
 ) -> Region:
     """Load Overture themes for region `name`, caching on disk.
 
-    See docs/superpowers/specs/2026-05-16-phase-1-sub-A-overture-loader-design.md.
+    Phase 1 contract: themes are bbox-filtered only. The admin polygon is
+    surfaced on Region.geometry for downstream consumers to apply. See
+    docs/data/handoffs.md and the spec at
+    docs/superpowers/specs/2026-05-16-phase-1-sub-A-overture-loader-design.md.
     """
     root = Path(repo_root) if repo_root is not None else _find_repo_root()
     release = _load_release_pin(root)
     region_cfg = _load_region_config(root, name)
-    scope = _build_spatial_scope(region_cfg)
+    bbox = _build_bbox_scope(region_cfg)
+    geometry = _build_region_geometry(region_cfg)
     backend = backend or S3DuckDBBackend()
 
     cache_dir = root / "data" / "cache" / "overture" / release["release"] / name
@@ -1854,22 +1920,20 @@ def load_region(
     if not refresh and manifest_path.exists():
         existing = CacheManifest.from_yaml(manifest_path)
         if existing.release == release["release"]:
-            # Same release: verify sha256s.
             _verify_cache_or_raise(cache_dir, existing)
-            return _region_from_cache(name, release, scope, cache_dir, existing)
-        # Release mismatch: silently re-fetch into the new release subdir.
+            return _region_from_cache(name, bbox, geometry, cache_dir, existing)
         logger.info(
             "[overture] cached release %s differs from pin %s; re-fetching",
             existing.release, release["release"],
         )
 
-    _check_total_size(backend, scope, release["release"], confirm=confirm)
+    _check_total_size(backend, bbox, release["release"], confirm=confirm)
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     themes: dict = {}
     theme_entries: dict[str, ThemeEntry] = {}
     for theme in THEMES_TO_LOAD:
-        table = backend.read_theme(theme=theme, scope=scope, release=release["release"])
+        table = backend.read_theme(theme=theme, bbox=bbox, release=release["release"])
         out_path = cache_dir / f"{theme}.parquet"
         pq.write_table(table, out_path)
         sha = sha256_of_file(out_path)
@@ -1889,8 +1953,8 @@ def load_region(
         release_subversion=int(release["release_subversion"]),
         overture_schema_version=release["overture_schema_version"],
         region=name,
-        admin_polygon_source=region_cfg["admin"]["source"],
-        bbox=tuple(region_cfg["fallback_bbox"]),
+        admin_polygon_source=geometry.source,
+        bbox=bbox.as_tuple(),
         backend=type(backend).__name__,
         fetched_at=datetime.now(timezone.utc),
         themes=theme_entries,
@@ -1899,7 +1963,8 @@ def load_region(
     return Region(
         name=name,
         release=release["release"],
-        scope=scope,
+        fetch_bbox=bbox,
+        geometry=geometry,
         themes=themes,
         manifest_path=manifest_path,
     )
@@ -1931,14 +1996,21 @@ def _load_region_config(root: Path, name: str) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-def _build_spatial_scope(region_cfg: dict) -> SpatialScope:
+def _build_bbox_scope(region_cfg: dict) -> BboxScope:
+    """The fetch-time spatial filter. Phase 1: read straight from the region config."""
+    return BboxScope.from_tuple(tuple(region_cfg["fallback_bbox"]))
+
+
+def _build_region_geometry(region_cfg: dict) -> RegionGeometry:
+    """The handoff-record geometry. Phase 1 placeholder: a Polygon equal to
+    the bbox. C-stage (or a future implementation upgrade) replaces this
+    with the precise polygon from the divisions theme. See
+    docs/data/handoffs.md.
+    """
     bbox = tuple(region_cfg["fallback_bbox"])
-    # Phase 1: use the bbox as the admin polygon placeholder. C-stage (or a
-    # future implementation of admin-polygon scoping) will refine this by
-    # fetching the real boundary from the divisions theme during the first
-    # load. For now, the bbox-as-polygon keeps everything well-typed.
-    admin = box(bbox[0], bbox[1], bbox[2], bbox[3])
-    return SpatialScope(admin_polygon=admin, bbox=bbox)  # type: ignore[arg-type]
+    polygon = box(bbox[0], bbox[1], bbox[2], bbox[3])
+    source = f"{region_cfg['admin']['source']}:{region_cfg['admin']['country_code']}"
+    return RegionGeometry(admin_polygon=polygon, source=source)
 
 
 def _verify_cache_or_raise(cache_dir: Path, manifest: CacheManifest) -> None:
@@ -1955,8 +2027,8 @@ def _verify_cache_or_raise(cache_dir: Path, manifest: CacheManifest) -> None:
 
 def _region_from_cache(
     name: str,
-    release: dict,
-    scope: SpatialScope,
+    bbox: BboxScope,
+    geometry: RegionGeometry,
     cache_dir: Path,
     manifest: CacheManifest,
 ) -> Region:
@@ -1966,7 +2038,8 @@ def _region_from_cache(
     return Region(
         name=name,
         release=manifest.release,
-        scope=scope,
+        fetch_bbox=bbox,
+        geometry=geometry,
         themes=themes,
         manifest_path=cache_dir / "manifest.yaml",
     )
@@ -1980,7 +2053,7 @@ def _s3_url(backend: OvertureBackend, theme: str, release: str) -> str:
 
 def _check_total_size(
     backend: OvertureBackend,
-    scope: SpatialScope,
+    bbox: BboxScope,
     release: str,
     *,
     confirm: bool,
@@ -1988,7 +2061,7 @@ def _check_total_size(
     estimates: dict[str, SizeEstimate] = {}
     total = 0
     for theme in THEMES_TO_LOAD:
-        est = backend.estimate_size(theme=theme, scope=scope, release=release)
+        est = backend.estimate_size(theme=theme, bbox=bbox, release=release)
         estimates[theme] = est
         total += est.bytes
         logger.info(
@@ -2058,12 +2131,13 @@ git commit -m "feat(data): load_region with cache management, sha256 verificatio
 
 ---
 
-## Task 10: Pinning policy doc
+## Task 10: Pinning policy doc + sub-project handoff contract
 
 **Files:**
 - Create: `docs/data/overture_pinning_policy.md`
+- Create: `docs/data/handoffs.md`
 
-- [ ] **Step 10.1: Write the doc**
+- [ ] **Step 10.1: Write the pinning-policy doc**
 
 Create `docs/data/overture_pinning_policy.md`:
 
@@ -2118,11 +2192,46 @@ If we discover (mid-implementation, mid-training, whenever) that the pinned rele
 We don't. One pin, one cache, one source of truth. If you need to compare releases, run on a branch with a different pin.
 ```
 
-- [ ] **Step 10.2: Commit**
+- [ ] **Step 10.2: Write the handoff-contract doc**
+
+Create `docs/data/handoffs.md`:
+
+```markdown
+# Sub-project handoff contracts
+
+Phase 1 is decomposed into sub-projects A–G. Each sub-project has a contract with its downstream consumers: what is guaranteed, and what the consumer must still do. This document is the canonical record of those contracts.
+
+## A → C: bbox-filtered themes, polygon for downstream clipping
+
+**Sub-project A** (Overture loader) returns a `Region` object with:
+
+- `themes: dict[str, pyarrow.Table]` — five Overture themes (buildings, places, transportation, base, divisions), **filtered ONLY by `fetch_bbox`** at fetch time.
+- `fetch_bbox: BboxScope` — the bounding box actually used as the filter.
+- `geometry: RegionGeometry` — the precise admin polygon for the region, surfaced as a *handoff record*. **Not applied at fetch time.**
+- `manifest_path: Path` — the cache manifest, recording release version, sha256s, and source URLs.
+
+**Sub-project C** (tile extraction) is contractually obligated to:
+
+1. **Apply `region.admin_polygon` to clip themes** before partitioning into tiles. Failing this means open sea — which falls inside `region.fetch_bbox` but outside `region.admin_polygon` for Singapore — silently enters the training set.
+2. Use `region.themes["divisions"]` as the source of truth for the precise polygon if the bbox-as-polygon placeholder in `region.geometry` is still in use. C may choose to compute its own polygon by dissolving rows from `region.themes["divisions"]` matching the country/locality.
+3. Reproject from `EPSG:4326` to a local metric frame before tokenisation.
+
+The Phase 1 simplification in sub-project A — using `box(fetch_bbox)` as a placeholder for the admin polygon — exists because the polygon is genuinely not needed for fetching, only for clipping. C-stage either uses the precise polygon from `themes["divisions"]` or, in a future iteration, A is upgraded to a two-pass fetch (divisions first, polygon-derived filter applied to the other four themes). Either is acceptable; A's contract holds either way.
+
+## Why an explicit handoff doc
+
+The risk of the bbox-only fetch is silent: A succeeds, C runs, and sea contamination only becomes visible far downstream when training metrics misbehave. Documenting the contract here lets every consumer of A know the obligation up front and lets a code reviewer flag a C-stage PR that skips the clip.
+
+## Future handoffs
+
+This document grows as more sub-projects ship. Each sub-project adds a section describing what its output guarantees and what consumers must do.
+```
+
+- [ ] **Step 10.3: Commit**
 
 ```bash
-git add docs/data/overture_pinning_policy.md
-git commit -m "docs(data): add Overture release pinning policy"
+git add docs/data/overture_pinning_policy.md docs/data/handoffs.md
+git commit -m "docs(data): pinning policy + A→C handoff contract"
 ```
 
 ---
@@ -2652,8 +2761,8 @@ git push origin phase-1-sub-A-overture-loader
 | §14 done criteria | Task 15 |
 | §15 risks | mitigations documented in this plan: DuckDB pinned in Task 1; multi-polygon handled by `shapely.box` returning a Polygon (single, not Multi — Singapore's bbox-derived scope works; the real divisions polygon ships in `region.themes["divisions"]` for downstream multi-polygon handling) |
 
-**Note on Phase-1 simplification of admin polygon:** the spec called for fetching Singapore's admin boundary from `divisions` and using it as a *spatial filter* before fetching the other themes. To keep Task 9 to a single round-trip per theme (and one cache, one manifest), this plan ships the bbox as the spatial filter and includes `divisions` as a regular theme. The admin polygon is fetchable from `region.themes["divisions"]` for any downstream user (C-stage) who needs it for finer clipping. If the user wants the spec's two-pass approach instead (fetch divisions first, derive polygon, use it to filter buildings/places/etc.), that's a single-task patch on top of Task 9 — call it out and add it to the plan.
+**Note on Phase-1 simplification of admin polygon:** the spec called for fetching Singapore's admin boundary from `divisions` and using it as a *spatial filter* before fetching the other themes. To keep Task 9 to a single round-trip per theme (and one cache, one manifest), this plan ships the bbox as the fetch-time filter and includes `divisions` as a regular theme. The simplification is now explicit in the type system: `BboxScope` is the filter, `RegionGeometry` is the handoff record, and the `Region` docstring states the contract loudly. The A→C handoff in `docs/data/handoffs.md` codifies the obligation on C-stage to apply the polygon. If a future Phase-1 iteration wants the spec's two-pass approach, it's a localised patch on top of Task 9 + a small backend signature addition; A's public contract stays stable.
 
 **Placeholder scan:** every step has actual code or commands. No "TBD" anywhere.
 
-**Type consistency:** `Region`, `SpatialScope`, `SizeEstimate`, `CacheManifest`, `ThemeEntry`, `OvertureBackend`, `S3DuckDBBackend`, `LocalFixtureBackend`, `load_region` — names consistent across all tasks.
+**Type consistency:** `Region`, `BboxScope`, `RegionGeometry`, `SizeEstimate`, `CacheManifest`, `ThemeEntry`, `OvertureBackend`, `S3DuckDBBackend`, `LocalFixtureBackend`, `load_region` — names consistent across all tasks.
