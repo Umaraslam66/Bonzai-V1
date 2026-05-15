@@ -10,6 +10,19 @@ import pyarrow.parquet as pq
 from cfm.data.overture.errors import OvertureUnreachable
 from cfm.data.overture.region import BboxScope, SizeEstimate
 
+# Phase-1 simplification: one primary type per theme.
+# Overture's S3 layout is partitioned by both theme and type:
+#   s3://.../release/{release}/theme={theme}/type={type}/*
+# Multi-type fetches (e.g., base.land + base.water) are deferred to a later phase.
+# See docs.overturemaps.org/getting-data/ for the full type catalogue.
+THEME_TO_TYPE: dict[str, str] = {
+    "buildings": "building",
+    "places": "place",
+    "transportation": "segment",  # roads/paths/etc.; connectors deferred
+    "base": "water",  # needed for sea masking; land/land_cover deferred
+    "divisions": "division_area",  # polygon geometry; division/boundary types deferred
+}
+
 
 class OvertureBackend(Protocol):
     """Reads Overture theme parquet for a bounding box at a given release.
@@ -87,7 +100,12 @@ class S3DuckDBBackend:
         self.bucket = bucket or self.DEFAULT_BUCKET
 
     def build_s3_url(self, *, theme: str, release: str) -> str:
-        return f"s3://{self.bucket}/release/{release}/theme={theme}/*"
+        try:
+            type_ = THEME_TO_TYPE[theme]
+        except KeyError as e:
+            known = ", ".join(sorted(THEME_TO_TYPE))
+            raise ValueError(f"unknown Overture theme {theme!r}; known themes: {known}") from e
+        return f"s3://{self.bucket}/release/{release}/theme={theme}/type={type_}/*"
 
     def build_query(
         self,
