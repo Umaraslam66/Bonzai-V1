@@ -36,6 +36,7 @@ ignore = ["ANN401"]  # Any allowed in geojson dict
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]  # iCloud Drive hides underscore-prefixed .pth files in synced .venv; rely on pytest's pythonpath instead of uv's editable install
 addopts = "-ra --strict-markers"
 markers = [
   "slow: tests slower than 5 seconds",
