@@ -10,6 +10,7 @@ from cfm.tokenizer import (
     Vocabulary,
 )
 from cfm.tokenizer.encode import CellTokens, encode_cell
+from cfm.tokenizer.errors import UnsupportedGeometry
 
 
 @pytest.fixture(scope="module")
@@ -72,3 +73,70 @@ def test_unknown_class_raises(vocab: Vocabulary) -> None:
             cell_size_m=250.0,
             vocab=vocab,
         )
+
+
+def _rect(x0: float, y0: float, x1: float, y1: float, cls: str = "B_residential") -> dict:
+    return {
+        "type": "Feature",
+        "properties": {"class": cls},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
+        },
+    }
+
+
+def test_rectangular_building_encodes_with_dyadic_moves(vocab: Vocabulary) -> None:
+    # 20m x 20m building at (40,40)-(60,60). Sides 20m = 16+4.
+    out = encode_cell(
+        _fc(_rect(40, 40, 60, 60)),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    t = vocab.token_to_id
+    expected_core = (
+        t["FEATURE_START"],
+        t["B_residential"],
+        t["ANCHOR_X_40"],
+        t["ANCHOR_Y_40"],
+        t["MOVE_E_16"],
+        t["MOVE_E_4"],
+        t["MOVE_N_16"],
+        t["MOVE_N_4"],
+        t["MOVE_W_16"],
+        t["MOVE_W_4"],
+        t["MOVE_S_16"],
+        t["MOVE_S_4"],
+        t["FEATURE_END"],
+    )
+    assert out.tokens[2:-2] == expected_core
+
+
+def test_non_rectangular_building_raises(vocab: Vocabulary) -> None:
+    # L-shape (6 vertices) under B_* class is rejected.
+    feature = {
+        "type": "Feature",
+        "properties": {"class": "B_residential"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[30, 30], [70, 30], [70, 50], [50, 50], [50, 70], [30, 70], [30, 30]]],
+        },
+    }
+    with pytest.raises(UnsupportedGeometry):
+        encode_cell(_fc(feature), cell_origin=(0.0, 0.0), cell_size_m=250.0, vocab=vocab)
+
+
+def test_land_use_polygon_multi_segment_encodes(vocab: Vocabulary) -> None:
+    # 150m x 150m square anchored at (100, 0). Sides 150m = 128+16+4+2.
+    out = encode_cell(
+        _fc(_rect(100, 0, 250, 150, cls="L_residential")),
+        cell_origin=(0.0, 0.0),
+        cell_size_m=250.0,
+        vocab=vocab,
+    )
+    t = vocab.token_to_id
+    # Just spot-check the anchor + first east-side decomposition.
+    assert t["L_residential"] in out.tokens
+    assert t["ANCHOR_X_100"] in out.tokens
+    assert t["ANCHOR_Y_0"] in out.tokens
