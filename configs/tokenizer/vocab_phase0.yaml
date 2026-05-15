@@ -1,0 +1,56 @@
+# Phase 0 vocabulary for the city foundation model tokenizer.
+# Frozen for Phase 0. Phase 1 may append; never reorder, never delete.
+#
+# The loader flattens this into a single ordered list of token names whose
+# index is the canonical TokenId. Order: control, hierarchy, feature_class
+# (road, building, poi, land_use), anchor_x, anchor_y, moves.
+#
+# Counts: control=8, hierarchy=4, feature_class=19, anchor=500, move=48 -> 579.
+
+control:
+  - PAD
+  - BOS
+  - EOS
+  - CELL
+  - END_CELL
+  - FEATURE_START
+  - FEATURE_END
+  - EXIT
+
+hierarchy:  # reserved; unused in Phase 0
+  - MACRO
+  - END_MACRO
+  - MICRO
+  - END_MICRO
+
+feature_class:
+  road:
+    - R_motorway
+    - R_primary
+    - R_secondary
+    - R_residential
+    - R_service
+  building:
+    - B_residential
+    - B_commercial
+    - B_industrial
+  poi:
+    - POI_restaurant
+    - POI_school
+    - POI_retail
+    - POI_park_amenity
+    - POI_transit_stop
+  land_use:
+    - L_residential
+    - L_commercial
+    - L_industrial
+    - L_park
+    - L_water
+    - L_agricultural
+
+anchor:
+  axis_count: 250  # 250 m cell on a 1 m grid -> ANCHOR_X_0..249, ANCHOR_Y_0..249
+
+move:
+  directions: [N, NE, E, SE, S, SW, W, NW]
+  steps_m: [1, 2, 4, 8, 16, 32]
