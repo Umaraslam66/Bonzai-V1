@@ -1,0 +1,37 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"class": "R_residential"},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 125], [250, 125]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"class": "B_residential"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[40, 40], [60, 40], [60, 60], [40, 60], [40, 40]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"class": "POI_restaurant"},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [50, 80]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"class": "L_residential"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[100, 0], [250, 0], [250, 150], [100, 150], [100, 0]]]
+      }
+    }
+  ]
+}
