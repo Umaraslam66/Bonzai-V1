@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 
 import yaml
 
@@ -301,3 +302,338 @@ def compute_yaml_sha256(data: dict) -> str:
         stripped.pop(field, None)
     canonical = canonicalize_yaml(stripped)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# Locked decisions per the B2 spec §7 + §8.
+# Centralised here so the derivation reads as a transparent application of
+# the spec, not as scattered constants.
+_LOCKED_FLOOR_VALUES = {
+    "transportation.class": 202,
+    "buildings.class": 100,
+    "places.categories.primary": 145,
+    "places.categories.alternate": 109,
+    "base.class": 300,
+}
+
+_LOCKED_MISSING_POLICIES = {
+    "buildings.class": (
+        "emit_unknown_token",
+        (
+            "78.0% missing on Singapore; dropping forfeits the bulk of building "
+            "data; append-only safety."
+        ),
+        True,
+    ),
+    "transportation.class": (
+        "drop_row",
+        "0.02% missing (42 rows); too few to warrant a token slot.",
+        False,
+    ),
+    "base.class": (
+        "n_a",
+        "100% coverage on Singapore; no missing rows.",
+        False,
+    ),
+    "places.categories.primary": (
+        "emit_unknown_token",
+        "2.59% missing (3,883 rows); geometric info valid; consistency with buildings.class.",
+        True,
+    ),
+    "places.categories.alternate": (
+        "n_a",
+        "List field; empty list is 'no secondary categories', not missing data.",
+        False,
+    ),
+}
+
+_DECISION_BASIS = {
+    "road": "pedestrian-infrastructure distinctiveness over Strict's scaling-math",
+    "building": "marginal-cost elbow + building distinctiveness",
+    "poi": "marginal-cost elbow on both columns; union for semantic-equivalence",
+    "base": "append-only safety on small-N field",
+}
+
+_NOTES = {
+    "road": (
+        "Closer call vs Strict; kept Moderate for pedestrian-infrastructure "
+        "distinction (cycleway/footway band). Floor=202 SG rows scales to 4K-20K "
+        "global at 5%-1% Singapore share; low end below PRD §5's 10,000-global-"
+        "instance learnability threshold. B1' Sweden re-run is required for "
+        "de-provisioning; revisit Moderate->Strict if Sweden's pedestrian counts "
+        "don't lift these above 10K globally."
+    ),
+    "building": (
+        "Singapore coverage 22.13% (78% missing); B_unknown included. "
+        "Floor=100 SG rows scales to 2K-10K global at 5%-1% Singapore share; "
+        "low end below PRD §5's 10,000-global-instance learnability threshold. "
+        "B1' Sweden re-run is required for de-provisioning; revisit "
+        "Moderate->Lenient (13 cheap cats) at the same time."
+    ),
+    "poi": (
+        "Union of primary-Moderate-kept U alternate-Moderate-kept. "
+        "POI_unknown included for primary missing-value handling. "
+        "Denominator: alternate counts use occurrences-among-rows-with-alternates. "
+        "Cap=2 at tokenizer time means alternate-only-position-3+ categories may "
+        "be dead under current encoder; estimated <=1.78% of POI tokens. "
+        "Floors of 145 (primary) and 109 (alternate) SG rows scale to 2.9K-14.5K "
+        "and 2.18K-10.9K global respectively at 5%-1% Singapore share; both low "
+        "ends below PRD §5's 10K learnability threshold. B1' Sweden re-run is "
+        "required for de-provisioning."
+    ),
+    "base": (
+        "Small-N field (8,636 Singapore rows). Append-only safety dominated "
+        "marginal-cost-of-cut. Floor=300 SG rows scales to 6K-30K global at "
+        "5%-1% Singapore share; low end below PRD §5's 10K learnability "
+        "threshold but in the marginal-but-learnable band. B1' Sweden re-run "
+        "is required for de-provisioning; should specifically check whether "
+        "the 7 dropped Lenient->Strict categories deserve appending."
+    ),
+}
+
+_LIST_CAP_CAVEAT = (
+    "Moderate-cut survival counted alternates at all positions. Under cap=2 at "
+    "tokenizer time, categories appearing only at position 3+ have allocated "
+    "token IDs but will never be emitted. Estimated dead-token fraction <=1.78%. "
+    "B1' Sweden re-run can optionally re-compute frequencies under a position≤2 "
+    "filter to refine the kept set."
+)
+
+
+def derive_phase1_vocab(
+    *,
+    field_results: dict,
+    overture_release: str,
+    source_report_path: str,
+    commit_sha: str,
+    run_timestamp_utc: datetime,
+    schema_version: str = "1.0",
+    phase: int = 1,
+    vocab_version: str = "1.0",
+) -> Phase1Vocab:
+    """Assemble the full Phase 1 vocab from B1 field results. Pure; no I/O."""
+
+    # Per spec §9, section order in the YAML follows the feature_class outline
+    # used by the tokenizer's _flatten: road, building, poi, base.
+    road = derive_section(
+        section_name="road",
+        prefix="R_",
+        field_result=field_results["transportation.class"],
+        floor_value=_LOCKED_FLOOR_VALUES["transportation.class"],
+        missing_policy=_LOCKED_MISSING_POLICIES["transportation.class"][0],
+        coverage_singapore_pct=_coverage_pct(field_results["transportation.class"]),
+        decision_basis=_DECISION_BASIS["road"],
+        notes=_NOTES["road"],
+        is_provisional=True,
+    )
+    building = derive_section(
+        section_name="building",
+        prefix="B_",
+        field_result=field_results["buildings.class"],
+        floor_value=_LOCKED_FLOOR_VALUES["buildings.class"],
+        missing_policy=_LOCKED_MISSING_POLICIES["buildings.class"][0],
+        coverage_singapore_pct=_coverage_pct(field_results["buildings.class"]),
+        decision_basis=_DECISION_BASIS["building"],
+        notes=_NOTES["building"],
+        is_provisional=True,
+    )
+    poi = derive_poi_union(
+        primary_result=field_results["places.categories.primary"],
+        alternate_result=field_results["places.categories.alternate"],
+        floor_value_primary=_LOCKED_FLOOR_VALUES["places.categories.primary"],
+        floor_value_alternate=_LOCKED_FLOOR_VALUES["places.categories.alternate"],
+        missing_policy=_LOCKED_MISSING_POLICIES["places.categories.primary"][0],
+        primary_coverage_singapore_pct=_coverage_pct(field_results["places.categories.primary"]),
+        alternate_coverage_singapore_pct=_coverage_pct(
+            field_results["places.categories.alternate"]
+        ),
+        decision_basis=_DECISION_BASIS["poi"],
+        notes=_NOTES["poi"],
+        is_provisional=True,
+    )
+    base = derive_section(
+        section_name="base",
+        prefix="BASE_",
+        field_result=field_results["base.class"],
+        floor_value=_LOCKED_FLOOR_VALUES["base.class"],
+        missing_policy=_LOCKED_MISSING_POLICIES["base.class"][0],
+        coverage_singapore_pct=_coverage_pct(field_results["base.class"]),
+        decision_basis=_DECISION_BASIS["base"],
+        notes=_NOTES["base"],
+        is_provisional=True,
+    )
+
+    return Phase1Vocab(
+        schema_version=schema_version,
+        phase=phase,
+        vocab_version=vocab_version,
+        generated_at_commit=commit_sha,
+        generated_utc=run_timestamp_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        generated_from={
+            "overture_release": overture_release,
+            "regions": ["singapore"],
+            "source_report": source_report_path,
+        },
+        sections=(road, building, poi, base),
+    )
+
+
+def derive_phase1_policy(
+    *,
+    field_results: dict,
+    overture_release: str,
+    source_report_path: str,
+    commit_sha: str,
+    run_timestamp_utc: datetime,
+    schema_version: str = "1.0",
+    phase: int = 1,
+    policy_version: str = "1.0",
+) -> Phase1Policy:
+    """Assemble the full Phase 1 policy from B1 field results. Pure; no I/O."""
+
+    field_policies = tuple(
+        FieldPolicy(
+            field=field,
+            type=policy_type,
+            rationale=rationale,
+            is_provisional=is_provisional,
+        )
+        for field, (policy_type, rationale, is_provisional) in _LOCKED_MISSING_POLICIES.items()
+    )
+
+    list_field_caps = (
+        ListFieldCap(
+            field="places.categories.alternate",
+            cap_value=2,
+            cap_application="tokenizer_time",
+            storage_policy="preserve_all",
+            dead_token_fraction_upper_bound=0.0178,
+            caveat=_LIST_CAP_CAVEAT,
+            is_provisional=True,
+        ),
+    )
+
+    return Phase1Policy(
+        schema_version=schema_version,
+        phase=phase,
+        policy_version=policy_version,
+        generated_at_commit=commit_sha,
+        generated_utc=run_timestamp_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        generated_from={
+            "overture_release": overture_release,
+            "regions": ["singapore"],
+            "source_report": source_report_path,
+        },
+        field_policies=field_policies,
+        list_field_caps=list_field_caps,
+    )
+
+
+def _coverage_pct(result: FieldFrequencyResult) -> float:
+    if result.n_total == 0:
+        return 0.0
+    return 100.0 * result.n_present / result.n_total
+
+
+def vocab_to_dict(vocab: Phase1Vocab) -> dict:
+    """Convert a Phase1Vocab to a dict ready for YAML serialisation.
+
+    The structure matches the §9 exemplar in the B2 spec. The vocab_sha256
+    field is added later by the CLI (after this dict is computed) since
+    sha256 needs the canonicalised form of the dict-without-sha256.
+    """
+    feature_class = {}
+    for section in vocab.sections:
+        feature_class[section.section_name] = _section_to_dict(section)
+
+    # Phase 0 control/hierarchy/anchor/move pulled from vocab_phase0.yaml's outline.
+    return {
+        "schema_version": vocab.schema_version,
+        "phase": vocab.phase,
+        "vocab_version": vocab.vocab_version,
+        "generated_at_commit": vocab.generated_at_commit,
+        "generated_utc": vocab.generated_utc,
+        "generated_from": vocab.generated_from,
+        "phase_links": {
+            "prev_phase_file": "configs/tokenizer/vocab_phase0.yaml",
+        },
+        "control": [
+            "PAD",
+            "BOS",
+            "EOS",
+            "CELL",
+            "END_CELL",
+            "FEATURE_START",
+            "FEATURE_END",
+            "EXIT",
+            "POINT",
+            "LINE",
+            "POLYGON",
+        ],
+        "hierarchy": ["MACRO", "END_MACRO", "MICRO", "END_MICRO"],
+        "feature_class": feature_class,
+        "anchor": {"axis_count": 250},
+        "move": {
+            "directions": ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
+            "steps_m": [1, 2, 4, 8, 16, 32],
+        },
+    }
+
+
+def _section_to_dict(section: SectionDerivation) -> dict:
+    md = section.metadata
+    out: dict = {}
+    if md.source_field is not None:
+        out["source_field"] = md.source_field
+    if md.source_fields is not None:
+        out["source_fields"] = list(md.source_fields)
+    out["floor_strategy"] = md.floor_strategy
+    out["floor_value"] = md.floor_value
+    out["coverage_retained_pct"] = md.coverage_retained_pct
+    out["coverage_singapore_pct"] = md.coverage_singapore_pct
+    out["total_kept"] = md.total_kept
+    out["is_provisional"] = md.is_provisional
+    out["decision_basis"] = md.decision_basis
+    out["notes"] = md.notes
+    if md.denominator_type is not None:
+        out["denominator_type"] = md.denominator_type
+    if md.alternate_only_provenance is not None:
+        out["alternate_only_provenance"] = list(md.alternate_only_provenance)
+    out["tokens"] = list(section.tokens)
+    return out
+
+
+def policy_to_dict(policy: Phase1Policy) -> dict:
+    """Convert a Phase1Policy to dict matching the §10 exemplar.
+
+    Per-field shape: { policies: { missing_value: {...}, [list_cap: {...}] } }.
+    """
+    fields: dict = {}
+    for fp in policy.field_policies:
+        fields[fp.field] = {
+            "policies": {
+                "missing_value": {
+                    "type": fp.type,
+                    "rationale": fp.rationale,
+                    "is_provisional": fp.is_provisional,
+                }
+            }
+        }
+    for cap in policy.list_field_caps:
+        fields[cap.field]["policies"]["list_cap"] = {
+            "cap_value": cap.cap_value,
+            "cap_application": cap.cap_application,
+            "storage_policy": cap.storage_policy,
+            "dead_token_fraction_upper_bound": cap.dead_token_fraction_upper_bound,
+            "caveat": cap.caveat,
+            "is_provisional": cap.is_provisional,
+        }
+
+    return {
+        "schema_version": policy.schema_version,
+        "phase": policy.phase,
+        "policy_version": policy.policy_version,
+        "generated_at_commit": policy.generated_at_commit,
+        "generated_utc": policy.generated_utc,
+        "generated_from": policy.generated_from,
+        "fields": fields,
+    }

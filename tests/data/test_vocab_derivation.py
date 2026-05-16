@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from cfm.data.frequency import FieldFrequencyResult
@@ -9,8 +11,12 @@ from cfm.data.vocab_derivation import (
     canonicalize_yaml,
     compute_alternate_only_provenance,
     compute_yaml_sha256,
+    derive_phase1_policy,
+    derive_phase1_vocab,
     derive_poi_union,
     derive_section,
+    policy_to_dict,
+    vocab_to_dict,
 )
 
 
@@ -294,3 +300,170 @@ def test_compute_yaml_sha256_returns_hex_digest():
     h = compute_yaml_sha256(data)
     assert len(h) == 64
     assert all(c in "0123456789abcdef" for c in h)
+
+
+def _phase1_inputs_minimal():
+    """Build minimal FieldFrequencyResult set covering all 5 fields."""
+    return {
+        "buildings.class": FieldFrequencyResult(
+            field="buildings.class",
+            n_total=339_972,
+            n_present=75_240,
+            counts={"residential": 50_000, "commercial": 20_000, "industrial": 5_000},
+            is_list_field=False,
+            total_occurrences=75_000,
+        ),
+        "transportation.class": FieldFrequencyResult(
+            field="transportation.class",
+            n_total=202_334,
+            n_present=202_292,
+            counts={"motorway": 100_000, "primary": 80_000, "secondary": 22_000},
+            is_list_field=False,
+            total_occurrences=202_000,
+        ),
+        "base.class": FieldFrequencyResult(
+            field="base.class",
+            n_total=8_636,
+            n_present=8_636,
+            counts={"water": 4_000, "park": 3_000, "forest": 1_000},
+            is_list_field=False,
+            total_occurrences=8_000,
+        ),
+        "places.categories.primary": FieldFrequencyResult(
+            field="places.categories.primary",
+            n_total=149_657,
+            n_present=145_774,
+            counts={"restaurant": 50_000, "school": 5_000, "park": 200},
+            is_list_field=False,
+            total_occurrences=55_200,
+        ),
+        "places.categories.alternate": FieldFrequencyResult(
+            field="places.categories.alternate",
+            n_total=149_657,
+            n_present=109_929,
+            counts={"restaurant": 200, "vape_shop": 150, "tobacco_shop": 120},
+            is_list_field=True,
+            total_occurrences=470,
+        ),
+    }
+
+
+def test_derive_phase1_vocab_assembles_four_feature_class_sections():
+    inputs = _phase1_inputs_minimal()
+    vocab = derive_phase1_vocab(
+        field_results=inputs,
+        overture_release="2026-04-15.0",
+        source_report_path="reports/test.md",
+        commit_sha="a" * 40,
+        run_timestamp_utc=datetime(2026, 5, 16, 15, 25, 43, tzinfo=UTC),
+    )
+    section_names = [s.section_name for s in vocab.sections]
+    assert section_names == ["road", "building", "poi", "base"]
+    # Building should have B_unknown at index 0; road should not have R_unknown.
+    building = next(s for s in vocab.sections if s.section_name == "building")
+    road = next(s for s in vocab.sections if s.section_name == "road")
+    assert building.tokens[0] == "B_unknown"
+    assert all(not t.endswith("_unknown") for t in road.tokens)
+
+
+def test_derive_phase1_vocab_metadata_fields_set():
+    inputs = _phase1_inputs_minimal()
+    vocab = derive_phase1_vocab(
+        field_results=inputs,
+        overture_release="2026-04-15.0",
+        source_report_path="reports/test.md",
+        commit_sha="b" * 40,
+        run_timestamp_utc=datetime(2026, 5, 16, 15, 25, 43, tzinfo=UTC),
+    )
+    assert vocab.schema_version == "1.0"
+    assert vocab.phase == 1
+    assert vocab.vocab_version == "1.0"
+    assert vocab.generated_at_commit == "b" * 40
+    assert vocab.generated_utc == "2026-05-16T15:25:43Z"
+    assert vocab.generated_from["overture_release"] == "2026-04-15.0"
+    assert vocab.generated_from["regions"] == ["singapore"]
+
+
+def test_derive_phase1_policy_field_set_matches_expected():
+    inputs = _phase1_inputs_minimal()
+    policy = derive_phase1_policy(
+        field_results=inputs,
+        overture_release="2026-04-15.0",
+        source_report_path="reports/test.md",
+        commit_sha="c" * 40,
+        run_timestamp_utc=datetime(2026, 5, 16, 15, 25, 43, tzinfo=UTC),
+    )
+    expected_fields = {
+        "buildings.class",
+        "transportation.class",
+        "base.class",
+        "places.categories.primary",
+        "places.categories.alternate",
+    }
+    actual_fields = {p.field for p in policy.field_policies}
+    assert actual_fields == expected_fields
+
+
+def test_derive_phase1_policy_enum_values_per_field():
+    inputs = _phase1_inputs_minimal()
+    policy = derive_phase1_policy(
+        field_results=inputs,
+        overture_release="2026-04-15.0",
+        source_report_path="reports/test.md",
+        commit_sha="d" * 40,
+        run_timestamp_utc=datetime(2026, 5, 16, 15, 25, 43, tzinfo=UTC),
+    )
+    by_field = {p.field: p for p in policy.field_policies}
+    assert by_field["buildings.class"].type == "emit_unknown_token"
+    assert by_field["transportation.class"].type == "drop_row"
+    assert by_field["base.class"].type == "n_a"
+    assert by_field["places.categories.primary"].type == "emit_unknown_token"
+    assert by_field["places.categories.alternate"].type == "n_a"
+
+    # list_cap policy on alternate.
+    assert len(policy.list_field_caps) == 1
+    cap = policy.list_field_caps[0]
+    assert cap.field == "places.categories.alternate"
+    assert cap.cap_value == 2
+    assert cap.cap_application == "tokenizer_time"
+    assert cap.storage_policy == "preserve_all"
+
+
+def test_vocab_to_dict_round_trips_sections():
+    inputs = _phase1_inputs_minimal()
+    vocab = derive_phase1_vocab(
+        field_results=inputs,
+        overture_release="2026-04-15.0",
+        source_report_path="r.md",
+        commit_sha="0" * 40,
+        run_timestamp_utc=datetime(2026, 5, 16, tzinfo=UTC),
+    )
+    d = vocab_to_dict(vocab)
+    assert d["schema_version"] == "1.0"
+    assert d["phase"] == 1
+    assert "feature_class" in d
+    assert set(d["feature_class"].keys()) == {"road", "building", "poi", "base"}
+    assert d["feature_class"]["building"]["tokens"][0] == "B_unknown"
+
+
+def test_policy_to_dict_uses_unified_policies_dict():
+    inputs = _phase1_inputs_minimal()
+    policy = derive_phase1_policy(
+        field_results=inputs,
+        overture_release="2026-04-15.0",
+        source_report_path="r.md",
+        commit_sha="0" * 40,
+        run_timestamp_utc=datetime(2026, 5, 16, tzinfo=UTC),
+    )
+    d = policy_to_dict(policy)
+    assert "fields" in d
+    # places.categories.alternate has both missing_value (n_a) and list_cap.
+    alt = d["fields"]["places.categories.alternate"]
+    assert "policies" in alt
+    assert alt["policies"]["missing_value"]["type"] == "n_a"
+    assert alt["policies"]["list_cap"]["cap_value"] == 2
+    # buildings.class has only missing_value.
+    assert "list_cap" not in d["fields"]["buildings.class"]["policies"]
+    assert (
+        d["fields"]["buildings.class"]["policies"]["missing_value"]["type"] == "emit_unknown_token"
+    )
