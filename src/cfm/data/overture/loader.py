@@ -177,7 +177,8 @@ def _build_region_geometry(region_cfg: dict) -> RegionGeometry:
     """
     bbox = tuple(region_cfg["fallback_bbox"])
     polygon = box(bbox[0], bbox[1], bbox[2], bbox[3])
-    source = f"{region_cfg['admin']['source']}:{region_cfg['admin']['country_code']}"
+    admin = region_cfg["admin"]
+    source = f"{admin['source']}:{admin['level']}:{admin['country_code']}"
     return RegionGeometry(admin_polygon=polygon, source=source)
 
 
