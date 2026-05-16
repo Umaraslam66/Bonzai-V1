@@ -150,14 +150,14 @@ def render_report(
 
 Thin glue:
 
-1. Parse `--rerun-reason <str>` (default `"initial"`) and `--output-dir <path>` (default `reports/`).
+1. Parse `--rerun-reason <str>` (default `"initial"`), `--output-dir <path>` (default `reports/`), and `--backend {real,fixture}` (default `real`; `fixture` swaps `load_region`'s backend to `LocalFixtureBackend` for the integration test).
 2. Resolve current git commit sha via `subprocess.run(["git", "rev-parse", "HEAD"])`.
 3. Capture `datetime.now(timezone.utc)` once at start; reuse for both header and footer.
-4. `region = load_region("singapore")` (sub-A's API; cache-hit, ~1 s).
+4. `region = load_region("singapore", backend=selected_backend)` (sub-A's API; cache-hit, ~1 s with the real backend).
 5. Resolve the report and plot directory paths:
    - `reports/2026-05-16-phase-1-sub-B1-singapore-frequency-analysis.md`
    - `reports/2026-05-16-phase-1-sub-B1-singapore-frequency-analysis_plots/`
-   - Date is **fixed at 2026-05-16** across re-runs (not derived from `today()`).
+   - Date is **fixed at 2026-05-16** across re-runs (not derived from `today()`). A future Sweden re-run produces a separate report at its own dated filename (e.g., `2026-XX-YY-phase-1-sub-B1-sweden-frequency-analysis.md`); this report's `2026-05-16` date is fixed in perpetuity as the Singapore-only artifact.
 6. Iterate the nine fields. For each:
    - Compute `FieldFrequencyResult`.
    - Compute `CutBehaviorRow` for each of the five floor strategies.
@@ -203,6 +203,7 @@ One PNG per field, written under the `_plots/` sibling directory.
   - Does **not** call any RNG.
   - Saves with `savefig(path, format='png', metadata={'Software': '', 'Creator': ''})` to strip the matplotlib-version footer that would otherwise drift between environments.
 - **Determinism caveat.** If matplotlib's internal PNG encoder produces non-byte-identical output across patch versions despite the above, the methodology section documents the exception explicitly so a no-op re-run that shows plot diffs in `git status` does not confuse a future contributor. The pinning is best-effort; the script's behavior is deterministic.
+- **Threshold-line label fallback.** If five per-line right-margin labels make the plot busy or overlap on dense curves, prefer a single legend block (e.g., upper right) over per-line labels. Readability of the floor lines beats stylistic preference.
 
 ## 8. Report skeleton (the deliverable)
 
@@ -351,10 +352,11 @@ The library functions enforce these via the `is_list_field` flag on `compute_fie
 - `test_compute_list_length_distribution_buckets` — hand-crafted list lengths spanning 0..7; assert 5+ bucket aggregates lengths ≥5.
 - `test_compute_list_length_distribution_denominator_is_total_rows` — confirm denominator is `n_total_rows`, not `n_present`.
 - `test_render_field_section_includes_prd_framing_flag` — when `binds_to_prd_framing_only=True`, assert annotation line appears.
+- `test_render_field_section_omits_prd_framing_flag` — when `binds_to_prd_framing_only=False` (default), assert the annotation line is absent. Catches inverted-boolean regressions.
 
 **Integration test** (`tests/data/test_analyse_singapore_frequencies.py`, fast suite):
 
-- `test_script_runs_against_fixtures_and_produces_well_formed_report` — invokes the script with `LocalFixtureBackend` (or via subprocess with an env var that the script reads to swap backends; design choice locked at implementation time), points output at `tmp_path`, asserts:
+- `test_script_runs_against_fixtures_and_produces_well_formed_report` — invokes the script via `subprocess.run([..., "--backend", "fixture", "--output-dir", str(tmp_path)])`, asserts:
   - the .md file exists at the expected path under `tmp_path`,
   - all nine `### 3.x` section headers are present,
   - the methodology section (§1) appears,
@@ -406,7 +408,7 @@ B1 is done when:
 - **`n_total` for `places.categories.alternate`'s list-length distribution is the full `places` row count, not non-null `alternate` count.** Easy to get wrong; the user explicitly called this out. Mitigation: dedicated unit test `test_compute_list_length_distribution_denominator_is_total_rows`.
 - **Singapore building-class coverage may be unusually high or low compared to the 94% global missing rate.** Either outcome is fine — the report shows what it shows — but if Very strict happens to bind on a field nobody expected, the PRD-framing-flag must surface it cleanly. Mitigation: the flag is computed mechanically (`n_kept ≤ 3`), not field-gated.
 - **Plot byte-identity across matplotlib patch versions.** Best effort; documented as an exception in methodology if it fails. Not a blocker for B1 sign-off.
-- **The integration test running the CLI script may need a backend-injection seam.** The script defaults to the real `S3DuckDBBackend` via `load_region`. For the integration test to use `LocalFixtureBackend`, either (a) the script accepts a `--backend fixture` flag, or (b) the test monkeypatches `load_region`. Implementation chooses; (a) is cleaner if the seam is cheap.
+- **Backend injection.** The script accepts `--backend {real,fixture}` (default `real`). The integration test invokes the script as a subprocess with `--backend fixture`, which constructs a `LocalFixtureBackend` and passes it to `load_region(...)`. Same code path runs in test and production; the only difference is which backend object reaches `load_region`. No monkeypatching, no env-var indirection.
 
 ## 16. Out-of-scope deferrals — what B2 picks up
 
