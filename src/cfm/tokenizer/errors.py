@@ -21,3 +21,9 @@ class FeatureOutOfBounds(TokenizerError):
 
 class VocabularyMismatch(TokenizerError):
     """Decoded token IDs are not present in the active vocabulary."""
+
+
+class LoaderError(TokenizerError):
+    """A vocabulary YAML failed schema validation at load time:
+    duplicate token names, unknown token misplaced, missing required
+    top-level fields, etc."""
