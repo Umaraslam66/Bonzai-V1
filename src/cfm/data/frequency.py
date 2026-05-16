@@ -158,6 +158,53 @@ def _count_list_field(
 
 
 # ---------------------------------------------------------------------------
+# List length distribution
+# ---------------------------------------------------------------------------
+
+
+_BUCKET_KEYS: tuple[str, ...] = ("0", "1", "2", "3", "4", "5+")
+
+
+def compute_list_length_distribution(
+    table: pa.Table,
+    column_path: str,
+    *,
+    label: str | None = None,
+) -> ListLengthDistribution:
+    """Histogram of list lengths for a list-of-strings column.
+
+    Buckets: "0", "1", "2", "3", "4", "5+" (where "5+" aggregates lengths >= 5).
+    Null lists count as length 0. Denominator for percentages is the full
+    table row count (n_total_rows), NOT the count of non-null rows.
+    """
+    display = label if label is not None else column_path
+    column = _resolve_column(table, column_path)
+    if not (pa.types.is_list(column.type) or pa.types.is_large_list(column.type)):
+        raise ValueError(
+            f"compute_list_length_distribution: expected list column, got {column.type}"
+        )
+
+    n_total_rows = table.num_rows
+    counts: dict[str, int] = dict.fromkeys(_BUCKET_KEYS, 0)
+    for value in column.to_pylist():
+        length = 0 if value is None else len(value)
+        key = str(length) if length < 5 else "5+"
+        counts[key] += 1
+
+    buckets: dict[str, tuple[int, float]] = {}
+    for key in _BUCKET_KEYS:
+        c = counts[key]
+        pct = 100.0 * c / n_total_rows if n_total_rows > 0 else 0.0
+        buckets[key] = (c, pct)
+
+    return ListLengthDistribution(
+        field=display,
+        n_total_rows=n_total_rows,
+        buckets=buckets,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Floor strategy application
 # ---------------------------------------------------------------------------
 

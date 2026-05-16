@@ -12,6 +12,7 @@ from cfm.data.frequency import (
     ListLengthDistribution,
     apply_floor_strategy,
     compute_field_frequencies,
+    compute_list_length_distribution,
 )
 
 
@@ -262,3 +263,60 @@ def test_apply_floor_strategy_empty_counts_retains_100_pct_trivially() -> None:
     assert row.n_dropped == 0
     # By convention, 100% retained when there is nothing to lose.
     assert row.coverage_retained_pct == pytest.approx(100.0)
+
+
+# ---------------------------------------------------------------------------
+# compute_list_length_distribution
+# ---------------------------------------------------------------------------
+
+
+def test_compute_list_length_distribution_buckets() -> None:
+    # Lengths: 0, 1, 2, 3, 4, 5, 6, 7. Buckets: 0=1, 1=1, 2=1, 3=1, 4=1, 5+=3.
+    table = _struct_with_list_table(
+        primaries=["a"] * 8,
+        alternates=[
+            [],
+            ["one"],
+            ["a", "b"],
+            ["a", "b", "c"],
+            ["a", "b", "c", "d"],
+            ["a", "b", "c", "d", "e"],
+            ["a", "b", "c", "d", "e", "f"],
+            ["a", "b", "c", "d", "e", "f", "g"],
+        ],
+    )
+    d = compute_list_length_distribution(
+        table, "categories.alternate", label="places.categories.alternate"
+    )
+    assert d.field == "places.categories.alternate"
+    assert d.n_total_rows == 8
+    assert d.buckets["0"] == (1, pytest.approx(12.5))
+    assert d.buckets["1"] == (1, pytest.approx(12.5))
+    assert d.buckets["2"] == (1, pytest.approx(12.5))
+    assert d.buckets["3"] == (1, pytest.approx(12.5))
+    assert d.buckets["4"] == (1, pytest.approx(12.5))
+    assert d.buckets["5+"] == (3, pytest.approx(37.5))
+
+
+def test_compute_list_length_distribution_denominator_is_total_rows() -> None:
+    # 100 rows, 60 with non-empty lists. Bucket pct must use 100 as denominator.
+    primaries = ["a"] * 100
+    alternates: list[list[str] | None] = [["x"]] * 60 + [None] * 40
+    table = _struct_with_list_table(primaries=primaries, alternates=alternates)
+    d = compute_list_length_distribution(table, "categories.alternate")
+    assert d.n_total_rows == 100
+    # 40 of 100 rows have null/empty alternate -> bucket "0".
+    assert d.buckets["0"] == (40, pytest.approx(40.0))
+    assert d.buckets["1"] == (60, pytest.approx(60.0))
+
+
+def test_compute_list_length_distribution_null_lists_count_as_zero() -> None:
+    table = _struct_with_list_table(primaries=["a", "b"], alternates=[None, []])
+    d = compute_list_length_distribution(table, "categories.alternate")
+    assert d.buckets["0"] == (2, pytest.approx(100.0))
+
+
+def test_compute_list_length_distribution_non_list_column_raises() -> None:
+    table = _scalar_table(["a", "b"])
+    with pytest.raises(ValueError, match="expected list"):
+        compute_list_length_distribution(table, "class")
