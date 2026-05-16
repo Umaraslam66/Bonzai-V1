@@ -7,6 +7,7 @@ from cfm.data.vocab_derivation import (
     SectionMetadata,
     apply_floor_to_kept_set,
     compute_alternate_only_provenance,
+    derive_poi_union,
     derive_section,
 )
 
@@ -186,3 +187,76 @@ def test_derive_section_metadata_fields_populated():
     assert md.is_provisional is False
     assert md.decision_basis == "basis"
     assert md.notes == "notes"
+
+
+def test_derive_poi_union_combines_primary_and_alternate_kept_sets():
+    primary = _make_result({"restaurant": 5000, "school": 1000, "park": 200})
+    alternate = _make_result(
+        {"restaurant": 200, "vape_shop": 150, "tobacco_shop": 120}, is_list_field=True
+    )
+    section = derive_poi_union(
+        primary_result=primary,
+        alternate_result=alternate,
+        floor_value_primary=145,
+        floor_value_alternate=109,
+        missing_policy="emit_unknown_token",
+        primary_coverage_singapore_pct=97.41,
+        alternate_coverage_singapore_pct=73.45,
+        decision_basis="union for semantic-equivalence",
+        notes="placeholder",
+        is_provisional=True,
+    )
+
+    # POI_unknown first; then primary-kept in (-count, name) order;
+    # then alternate-only-kept in (-count, name) order.
+    assert section.tokens[0] == "POI_unknown"
+    # Primary kept: restaurant(5000), school(1000), park(200) all >= 145.
+    assert section.tokens[1:4] == ("POI_restaurant", "POI_school", "POI_park")
+    # Alternate-only kept: vape_shop(150), tobacco_shop(120) >= 109; restaurant overlaps primary.
+    assert section.tokens[4:] == ("POI_vape_shop", "POI_tobacco_shop")
+
+
+def test_derive_poi_union_provenance_set_difference_recorded():
+    primary = _make_result({"restaurant": 5000, "school": 1000})
+    alternate = _make_result(
+        {"restaurant": 200, "vape_shop": 150, "tobacco_shop": 120}, is_list_field=True
+    )
+    section = derive_poi_union(
+        primary_result=primary,
+        alternate_result=alternate,
+        floor_value_primary=145,
+        floor_value_alternate=109,
+        missing_policy="emit_unknown_token",
+        primary_coverage_singapore_pct=97.41,
+        alternate_coverage_singapore_pct=73.45,
+        decision_basis="union",
+        notes="notes",
+        is_provisional=True,
+    )
+    assert section.metadata.alternate_only_provenance == ("tobacco_shop", "vape_shop")
+    assert section.metadata.source_fields == (
+        "places.categories.primary",
+        "places.categories.alternate",
+    )
+    assert section.metadata.source_field is None
+    assert section.metadata.denominator_type == "occurrences"
+
+
+def test_derive_poi_union_no_duplicates_in_token_list():
+    # restaurant appears in BOTH primary and alternate; should be in tokens exactly once.
+    primary = _make_result({"restaurant": 5000})
+    alternate = _make_result({"restaurant": 200, "cafe": 150}, is_list_field=True)
+    section = derive_poi_union(
+        primary_result=primary,
+        alternate_result=alternate,
+        floor_value_primary=145,
+        floor_value_alternate=109,
+        missing_policy="emit_unknown_token",
+        primary_coverage_singapore_pct=97.41,
+        alternate_coverage_singapore_pct=73.45,
+        decision_basis="union",
+        notes="notes",
+        is_provisional=True,
+    )
+    name_counts = {name: section.tokens.count(name) for name in set(section.tokens)}
+    assert all(count == 1 for count in name_counts.values()), name_counts

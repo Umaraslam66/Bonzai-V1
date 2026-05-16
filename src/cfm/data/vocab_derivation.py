@@ -187,3 +187,79 @@ def derive_section(
         tokens=tokens,
         metadata=metadata,
     )
+
+
+def derive_poi_union(
+    *,
+    primary_result: FieldFrequencyResult,
+    alternate_result: FieldFrequencyResult,
+    floor_value_primary: int,
+    floor_value_alternate: int,
+    missing_policy: str,
+    primary_coverage_singapore_pct: float,
+    alternate_coverage_singapore_pct: float,
+    decision_basis: str,
+    notes: str,
+    is_provisional: bool,
+) -> SectionDerivation:
+    r"""Build the POI section as the union of primary and alternate Moderate cuts.
+
+    Ordering of the token list:
+      [<prefix>unknown if emit_unknown_token]
+      + primary-kept by (-count, name)
+      + alternate-only-kept by (-count, name)  (= alternate_kept \ primary_kept)
+
+    Provenance metadata records the alternate-only set so consumers can
+    detect tokens that may be dead under the current encoder.
+    """
+    prefix = "POI_"
+
+    primary_kept = apply_floor_to_kept_set(primary_result, floor_value_primary)
+    alternate_kept = apply_floor_to_kept_set(alternate_result, floor_value_alternate)
+
+    primary_names = {name for name, _ in primary_kept}
+    alternate_names = {name for name, _ in alternate_kept}
+    alternate_only = alternate_names - primary_names
+
+    # Preserve (-count, name) order from alternate_kept for alternate-only entries.
+    alternate_only_ordered = [
+        (name, count) for name, count in alternate_kept if name in alternate_only
+    ]
+
+    primary_tokens = [f"{prefix}{name}" for name, _ in primary_kept]
+    alternate_only_tokens = [f"{prefix}{name}" for name, _ in alternate_only_ordered]
+
+    if missing_policy == "emit_unknown_token":
+        tokens = (f"{prefix}unknown", *primary_tokens, *alternate_only_tokens)
+    elif missing_policy in ("drop_row", "n_a"):
+        tokens = tuple(primary_tokens + alternate_only_tokens)
+    else:
+        raise ValueError(f"unknown missing_policy: {missing_policy!r}")
+
+    primary_total_kept = sum(count for _, count in primary_kept)
+    if primary_result.total_occurrences == 0:
+        primary_coverage_retained = 100.0
+    else:
+        primary_coverage_retained = 100.0 * primary_total_kept / primary_result.total_occurrences
+
+    metadata = SectionMetadata(
+        source_field=None,
+        source_fields=("places.categories.primary", "places.categories.alternate"),
+        floor_strategy="Moderate",
+        floor_value=floor_value_primary,  # primary's floor; the spec records both via notes
+        coverage_retained_pct=round(primary_coverage_retained, 2),
+        coverage_singapore_pct=round(primary_coverage_singapore_pct, 2),
+        total_kept=len(tokens),
+        is_provisional=is_provisional,
+        decision_basis=decision_basis,
+        notes=notes,
+        denominator_type="occurrences",
+        alternate_only_provenance=compute_alternate_only_provenance(primary_names, alternate_names),
+    )
+
+    return SectionDerivation(
+        section_name="poi",
+        prefix=prefix,
+        tokens=tokens,
+        metadata=metadata,
+    )
