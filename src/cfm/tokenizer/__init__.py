@@ -4,6 +4,7 @@ from cfm.tokenizer.decode import decode_cell
 from cfm.tokenizer.encode import CellTokens, encode_cell
 from cfm.tokenizer.errors import (
     FeatureOutOfBounds,
+    LoaderError,
     TokenizerError,
     UnsupportedFeatureClass,
     UnsupportedGeometry,
@@ -15,6 +16,7 @@ from cfm.tokenizer.vocabulary import Vocabulary
 __all__ = [
     "CellTokens",
     "FeatureOutOfBounds",
+    "LoaderError",
     "TokenizerError",
     "UnsupportedFeatureClass",
     "UnsupportedGeometry",

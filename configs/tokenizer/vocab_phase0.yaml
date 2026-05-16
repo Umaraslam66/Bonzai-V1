@@ -1,5 +1,8 @@
 # Phase 0 vocabulary for the city foundation model tokenizer.
-# Frozen for Phase 0. Phase 1 may append; never reorder, never delete.
+# Frozen for Phase 0. Within Phase 0, never reorder, never delete.
+# Phase 1 onward live in separate vocab_phase{N}.yaml files with independent IDs.
+# Phase transitions are explicit re-anchoring events; within-phase changes are append-only.
+# This file is retained for the Phase 0 round-trip test and historical reference.
 #
 # The loader flattens this into a single ordered list of token names whose
 # index is the canonical TokenId. Order: control, hierarchy, feature_class
