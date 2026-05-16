@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+from copy import deepcopy
 from dataclasses import dataclass
+
+import yaml
 
 from cfm.data.frequency import FieldFrequencyResult
 
@@ -263,3 +267,37 @@ def derive_poi_union(
         tokens=tokens,
         metadata=metadata,
     )
+
+
+# Sha-fields excluded from canonicalisation when computing self-hash.
+_SELF_HASH_FIELDS = frozenset({"vocab_sha256", "policy_sha256"})
+
+
+def canonicalize_yaml(data: dict) -> str:
+    """Serialise *data* to a byte-deterministic YAML string.
+
+    Sorts dict keys at every level. Uses block style (no flow) for nested
+    structures so diffs read cleanly. Newline at end of file. The same input
+    produces the same output bytes across runs.
+    """
+    return yaml.safe_dump(
+        data,
+        sort_keys=True,
+        default_flow_style=False,
+        allow_unicode=True,
+        indent=2,
+        width=4096,  # avoid wrapping; we want stable lines
+    )
+
+
+def compute_yaml_sha256(data: dict) -> str:
+    """Return sha256 hex digest of canonicalised *data* with self-hash fields stripped.
+
+    Strips `vocab_sha256` / `policy_sha256` before hashing so the embedded
+    sha256 doesn't participate in its own computation (cyclic dependency).
+    """
+    stripped = deepcopy(data)
+    for field in _SELF_HASH_FIELDS:
+        stripped.pop(field, None)
+    canonical = canonicalize_yaml(stripped)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

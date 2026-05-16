@@ -6,7 +6,9 @@ from cfm.data.frequency import FieldFrequencyResult
 from cfm.data.vocab_derivation import (
     SectionMetadata,
     apply_floor_to_kept_set,
+    canonicalize_yaml,
     compute_alternate_only_provenance,
+    compute_yaml_sha256,
     derive_poi_union,
     derive_section,
 )
@@ -260,3 +262,35 @@ def test_derive_poi_union_no_duplicates_in_token_list():
     )
     name_counts = {name: section.tokens.count(name) for name in set(section.tokens)}
     assert all(count == 1 for count in name_counts.values()), name_counts
+
+
+def test_canonicalize_yaml_byte_deterministic():
+    data = {"b": 2, "a": 1, "nested": {"y": "value", "x": 10}}
+    out1 = canonicalize_yaml(data)
+    out2 = canonicalize_yaml(data)
+    assert out1 == out2
+    assert isinstance(out1, str)
+    # Keys must be sorted: 'a' before 'b' at top level; 'x' before 'y' in nested.
+    assert out1.index("a:") < out1.index("b:")
+    assert out1.index("x:") < out1.index("y:")
+
+
+def test_compute_yaml_sha256_excludes_self_field():
+    data_a = {"vocab_sha256": "AAA", "a": 1, "b": 2}
+    data_b = {"vocab_sha256": "BBB", "a": 1, "b": 2}
+    # The sha256 field is excluded from the hash, so identical content
+    # under different sha256 placeholders should hash identically.
+    assert compute_yaml_sha256(data_a) == compute_yaml_sha256(data_b)
+
+
+def test_compute_yaml_sha256_changes_when_content_changes():
+    data_a = {"vocab_sha256": "<placeholder>", "a": 1}
+    data_b = {"vocab_sha256": "<placeholder>", "a": 2}
+    assert compute_yaml_sha256(data_a) != compute_yaml_sha256(data_b)
+
+
+def test_compute_yaml_sha256_returns_hex_digest():
+    data = {"vocab_sha256": "<placeholder>", "a": 1}
+    h = compute_yaml_sha256(data)
+    assert len(h) == 64
+    assert all(c in "0123456789abcdef" for c in h)
