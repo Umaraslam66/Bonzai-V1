@@ -134,9 +134,9 @@ def test_derive_section_includes_unknown_first_when_policy_emit_unknown_token():
         notes="placeholder",
         is_provisional=True,
     )
-    assert section.tokens[0] == "B_unknown"
+    assert section.tokens[0] == "B__UNK__"
     assert section.tokens[1:] == ("B_residential", "B_commercial", "B_industrial")
-    assert section.metadata.total_kept == 4  # 3 kept + 1 unknown
+    assert section.metadata.total_kept == 4  # 3 kept + 1 __UNK__ placeholder
     assert section.metadata.source_field == "test.field"
 
 
@@ -153,7 +153,7 @@ def test_derive_section_omits_unknown_when_policy_drop_row():
         notes="placeholder",
         is_provisional=True,
     )
-    assert all(not t.endswith("_unknown") for t in section.tokens)
+    assert all("__UNK__" not in t for t in section.tokens)
     assert section.metadata.total_kept == 2
 
 
@@ -170,7 +170,7 @@ def test_derive_section_omits_unknown_when_policy_n_a():
         notes="placeholder",
         is_provisional=True,
     )
-    assert all(not t.endswith("_unknown") for t in section.tokens)
+    assert all("__UNK__" not in t for t in section.tokens)
 
 
 def test_derive_section_metadata_fields_populated():
@@ -215,9 +215,9 @@ def test_derive_poi_union_combines_primary_and_alternate_kept_sets():
         is_provisional=True,
     )
 
-    # POI_unknown first; then primary-kept in (-count, name) order;
+    # POI__UNK__ first; then primary-kept in (-count, name) order;
     # then alternate-only-kept in (-count, name) order.
-    assert section.tokens[0] == "POI_unknown"
+    assert section.tokens[0] == "POI__UNK__"
     # Primary kept: restaurant(5000), school(1000), park(200) all >= 145.
     assert section.tokens[1:4] == ("POI_restaurant", "POI_school", "POI_park")
     # Alternate-only kept: vape_shop(150), tobacco_shop(120) >= 109; restaurant overlaps primary.
@@ -359,11 +359,12 @@ def test_derive_phase1_vocab_assembles_four_feature_class_sections():
     )
     section_names = [s.section_name for s in vocab.sections]
     assert section_names == ["road", "building", "poi", "base"]
-    # Building should have B_unknown at index 0; road should not have R_unknown.
+    # Building should have B__UNK__ placeholder at index 0; road (drop_row policy)
+    # must not carry a __UNK__ placeholder anywhere.
     building = next(s for s in vocab.sections if s.section_name == "building")
     road = next(s for s in vocab.sections if s.section_name == "road")
-    assert building.tokens[0] == "B_unknown"
-    assert all(not t.endswith("_unknown") for t in road.tokens)
+    assert building.tokens[0] == "B__UNK__"
+    assert all("__UNK__" not in t for t in road.tokens)
 
 
 def test_derive_phase1_vocab_metadata_fields_set():
@@ -443,7 +444,7 @@ def test_vocab_to_dict_round_trips_sections():
     assert d["phase"] == 1
     assert "feature_class" in d
     assert set(d["feature_class"].keys()) == {"road", "building", "poi", "base"}
-    assert d["feature_class"]["building"]["tokens"][0] == "B_unknown"
+    assert d["feature_class"]["building"]["tokens"][0] == "B__UNK__"
 
 
 def test_policy_to_dict_uses_unified_policies_dict():

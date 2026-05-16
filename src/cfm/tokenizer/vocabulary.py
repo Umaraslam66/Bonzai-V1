@@ -79,10 +79,16 @@ def _flatten(data: dict) -> tuple[list[str], int]:
 
 
 def _validate_section_tokens(group_name: str, tokens: list[str]) -> None:
-    """Enforce convention: any `*_unknown` token must be at section index 0."""
+    """Enforce convention: any token containing `__UNK__` must be at section index 0.
+
+    The double-underscore marker is the reserved placeholder for missing-value
+    handling. Data-derived tokens (e.g. `R_unknown` from Overture's
+    transportation.class category "unknown") use the bare suffix and are
+    allowed at any position.
+    """
     for i, name in enumerate(tokens):
-        if name.endswith("_unknown") and i != 0:
+        if "__UNK__" in name and i != 0:
             raise LoaderError(
-                f"feature_class.{group_name}: token {name!r} ends with '_unknown' "
+                f"feature_class.{group_name}: token {name!r} contains '__UNK__' "
                 f"but is at position {i}; must be at position 0 within its section"
             )

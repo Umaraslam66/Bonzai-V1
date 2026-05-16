@@ -53,7 +53,7 @@ Vocab YAML changes are append-only inside a phase. Adding a token allocates a ne
 The asymmetry matters at every decision point where data flows in only one direction:
 
 - **Vocab token inclusion** (topic 1, 5 fields): keep categories now that might be valuable later; we can always tell the encoder to skip a token, but introducing one later is expensive — it forces a minor vocab_version bump and propagates to every consumer (sub-C, tokenizer, model checkpoint validator).
-- **`<unknown>` token inclusion** (topic 2, 2 fields): including `B_unknown` and `POI_unknown` now is one slot per field; deciding we need them later means a new minor version every consumer must adopt.
+- **`<unknown>` token inclusion** (topic 2, 2 fields): including `B__UNK__` and `POI__UNK__` now is one slot per field; deciding we need them later means a new minor version every consumer must adopt.
 - **Storage policy for `places.categories.alternate`** (topic 3): sub-C preserves all alternates in storage; truncation happens at tokenization where it's reversible. Once tile extraction is committed, the data is fixed; tokenizer policy can change.
 
 The principle drove three decisions across two topics and is the dominant safety constraint when any single decision creates an irreversible data-loss path.
@@ -78,7 +78,7 @@ The locked decisions are not independent. Several pairs co-depend, and the artif
 
 - **Topic 3 (cap=2 at tokenizer time) ↔ Topic 4 (storage_policy: preserve_all).** The cap is reversible only because sub-C preserves all alternates in storage. If sub-C truncates at extraction, the cap value cannot be raised later without re-extraction. The policy YAML records both fields; sub-C must honor both. A single-source-of-truth invariant: cap_application=tokenizer_time iff storage_policy=preserve_all.
 
-- **Topic 2 (emit_unknown_token policy) ↔ Topic 4 (`<unknown>`-first ordering).** Fields with `missing_value.type: emit_unknown_token` in the policy YAML must have a corresponding `*_unknown` token at position 0 of their vocab section. Fields with `missing_value.type: drop_row` or `n_a` must not. The cross-artifact consistency test enforces this and would fail loudly if one artifact were edited without updating the other.
+- **Topic 2 (emit_unknown_token policy) ↔ Topic 4 (`__UNK__`-placeholder-first ordering).** Fields with `missing_value.type: emit_unknown_token` in the policy YAML must have a corresponding `<prefix>__UNK__` placeholder token at position 0 of their vocab section. Sections whose source fields all have `drop_row` or `n_a` must contain no `__UNK__` token anywhere. The `__UNK__` double-underscore marker disambiguates the placeholder from data-derived tokens that may have category names like `"unknown"` (Overture's transportation.class has 6,066 such rows in Singapore — see feedback_test_weakening_to_pass.md). The cross-artifact consistency test enforces this and would fail loudly if one artifact were edited without updating the other.
 
 - **Topic 1 (Moderate POI floor applied to both primary and alternate) ↔ Topic 4 (union POI section).** The POI section's `tokens` list is the union of two Moderate-cut kept sets. The integration test re-derives the union from the underlying counts and asserts byte equality against the YAML.
 
@@ -189,7 +189,7 @@ def derive_section(
     extra_metadata: dict | None = None,
 ) -> SectionDerivation:
     """Builds a SectionDerivation. Prepends prefix to every category name.
-    Prepends <prefix>unknown at index 0 iff missing_policy == 'emit_unknown_token'.
+    Prepends <prefix>__UNK__ placeholder at index 0 iff missing_policy == 'emit_unknown_token'.
     """
 
 def derive_poi_union(
@@ -201,7 +201,7 @@ def derive_poi_union(
     missing_policy: str,
 ) -> SectionDerivation:
     """Union of two Moderate-cut kept sets. Computes alternate_only_provenance.
-    Ordering: <unknown> (if emit_unknown_token), then primary-kept by (-count, name),
+    Ordering: <prefix>__UNK__ (if emit_unknown_token), then primary-kept by (-count, name),
     then alternate-only-kept by (-count, name) appended at the end."""
 
 def compute_alternate_only_provenance(
@@ -266,8 +266,8 @@ The script does not invoke a re-fetch. Cache present → ~1 s end-to-end. Cache 
 | Section | Source field(s) | Strategy | Floor (SG rows) | Tokens kept | Coverage retained | Decision basis |
 |---|---|---|---:|---:|---:|---|
 | road | transportation.class | Moderate | 202 | 17 | 99.93% | pedestrian-infrastructure distinctiveness over Strict's scaling-math |
-| building | buildings.class | Moderate | 100 | 22 + B_unknown | 98.83% | marginal-cost elbow + building distinctiveness; revisit Moderate→Lenient post-Sweden |
-| poi | places.categories.primary ∪ places.categories.alternate | Moderate each | 145 / 109 | ~290–340 + POI_unknown | 83.10% (primary) / 88.36% (alternate) | marginal-cost elbow on both; union for semantic-equivalence |
+| building | buildings.class | Moderate | 100 | 22 + B__UNK__ | 98.83% | marginal-cost elbow + building distinctiveness; revisit Moderate→Lenient post-Sweden |
+| poi | places.categories.primary ∪ places.categories.alternate | Moderate each | 145 / 109 | ~290–340 + POI__UNK__ | 83.10% (primary) / 88.36% (alternate) | marginal-cost elbow on both; union for semantic-equivalence |
 | base | base.class | Strict | 300 | 7 | 95.31% | append-only safety on small-N field |
 
 All four sections carry `is_provisional: true`. The next subsection explains why: every locked floor's low-end scaling sits below PRD §5's 10,000-global-instance learnability threshold.
@@ -300,7 +300,7 @@ Each section's `decision_basis` and `notes` fields reference this scaling-math c
 
 `places.categories.alternate` list-cap policy: `cap_value: 2`, `cap_application: tokenizer_time`, `storage_policy: preserve_all`, `dead_token_fraction_upper_bound: 0.0178`, `is_provisional: true`.
 
-Two new vocab tokens are introduced by these policies: `B_unknown` (buildings section), `POI_unknown` (poi section).
+Two new vocab tokens are introduced by these policies: `B__UNK__` (buildings section), `POI__UNK__` (poi section).
 
 ## 9. Vocab YAML shape — exemplar
 
@@ -348,13 +348,13 @@ feature_class:
     is_provisional: true
     decision_basis: "marginal-cost elbow + building distinctiveness"
     notes: |
-      Singapore coverage 22.13% (78% missing); B_unknown included.
+      Singapore coverage 22.13% (78% missing); B__UNK__ included.
       Floor=100 SG rows scales to 2K–10K global at 5%–1% Singapore share; low
       end below PRD §5's 10,000-global-instance learnability threshold. B1'
       Sweden re-run is required for de-provisioning; revisit Moderate→Lenient
       (13 cheap cats) at the same time.
     tokens:
-      - B_unknown
+      - B__UNK__
       - B_residential
       - B_commercial
       # ... 20 more in (-count, name) order
@@ -401,7 +401,7 @@ feature_class:
     decision_basis: "marginal-cost elbow on both columns; union for semantic-equivalence"
     notes: |
       Union of primary-Moderate-kept ∪ alternate-Moderate-kept.
-      POI_unknown included for primary missing-value handling.
+      POI__UNK__ included for primary missing-value handling.
       Denominator: alternate counts use occurrences-among-rows-with-alternates.
       Cap=2 at tokenizer time means alternate-only-position-3+ categories may
       be dead under current encoder; estimated ≤1.78% of POI tokens.
@@ -410,7 +410,7 @@ feature_class:
       ends below PRD §5's 10,000-global-instance learnability threshold. B1'
       Sweden re-run is required for de-provisioning.
     tokens:
-      - POI_unknown
+      - POI__UNK__
       - POI_restaurant
       # ... primary-kept in (-count, name) order
       # ... then alternate-only-kept in (-count, name) order
@@ -624,17 +624,17 @@ Negative tests:
   - Both YAMLs at expected paths under `tmp_path`.
   - Vocab YAML has 4 feature_class sections (`road`, `building`, `poi`, `base`) + control / hierarchy / anchor / move.
   - **Section-count pinning is against the currently-locked decisions in §7.** Deviations are investigated, not silently re-pinned. Expected counts:
-    - `building.tokens`: 23 (22 Moderate-kept + B_unknown)
+    - `building.tokens`: 23 (22 Moderate-kept + B__UNK__)
     - `road.tokens`: 17 (17 Moderate-kept; no unknown under drop_row policy)
     - `base.tokens`: 7 (7 Strict-kept; no unknown under n_a policy)
-    - `poi.tokens`: ∈ [291, 341] (primary∪alternate Moderate-kept union + POI_unknown; exact size depends on category-name overlap not visible from B1's report text)
+    - `poi.tokens`: ∈ [291, 341] (primary∪alternate Moderate-kept union + POI__UNK__; exact size depends on category-name overlap not visible from B1's report text)
   - All four counts are pinned only against the current locked decisions; a B1' Sweden re-run that legitimately changes any of them must update this test deliberately, not bump the number silently.
   - Policy YAML has 5 field entries with valid enum values.
   - Both YAMLs have valid versioning fields and self-consistent sha256.
 
 - `test_policy_yaml_field_set_matches_expected` — assert the set of keys in `policies["fields"]` equals the expected 5 fields exactly. Failure produces a diff listing added/removed fields rather than just a count mismatch (test-failure-as-documentation).
 
-- `test_cross_artifact_consistency_unknown_tokens` — for every field in the policy YAML with `missing_value.type: emit_unknown_token`, assert the corresponding vocab section contains a `*_unknown` token at position 0. For every field with `drop_row` or `n_a`, assert no `*_unknown` token in the corresponding vocab section. Catches the failure mode of editing one artifact without updating the other.
+- `test_cross_artifact_consistency_unknown_tokens` — for each vocab section, look at the policies of all source fields that contributed to it. If any source field has `emit_unknown_token`, assert the section has exactly one `__UNK__` placeholder at position 0. If all source fields have `drop_row` or `n_a`, assert no `__UNK__` token appears anywhere in the section. Data-derived tokens with bare `_unknown` suffix (e.g., Overture's `R_unknown`) are not placeholders and are allowed at any position. Catches the failure mode of editing one artifact without updating the other.
 
 - `test_script_byte_deterministic_modulo_generated_utc` — invoke the script twice into separate `tmp_path` directories, then assert the two output files are byte-identical after stripping `generated_utc` and `vocab_sha256` / `policy_sha256` lines. (The sha256 line changes only if the rest of the content changes, so after stripping `generated_utc`, the sha256s should also match — but stripping both is defensive.) Backstops the §16 done-criterion that re-runs are byte-deterministic.
 
@@ -669,10 +669,10 @@ B2 raises standard Python exceptions; one new exception class is added to the to
 - `RuntimeError` from the CLI if `git rev-parse HEAD` fails — abort rather than write a vocab with a bogus commit sha.
 - `LoaderError` (new in `cfm.tokenizer.errors`) when `Vocabulary.load` detects:
   - duplicate token name across sections;
-  - a `*_unknown`-suffixed token at a position other than 0 within its section (when the section has one);
+  - a token containing the reserved `__UNK__` marker at a position other than 0 within its section;
   - missing required top-level fields (schema_version, phase, vocab_version).
 
-The loader detects `*_unknown` tokens by `endswith("_unknown")` — convention, documented in the loader code.
+The loader detects placeholder tokens by checking for the substring `__UNK__` (containment, not endswith) — the double-underscore marker is the reserved placeholder convention, documented in the loader code. Data-derived tokens that happen to end with `_unknown` (e.g., Overture's `R_unknown`) do not contain `__UNK__` and are allowed at any position.
 
 ## 16. Done criteria
 

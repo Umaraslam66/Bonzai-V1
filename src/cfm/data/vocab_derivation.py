@@ -151,13 +151,19 @@ def derive_section(
     The POI section requires the union of two field results; use
     `derive_poi_union` instead.
 
-    Prepends `<prefix>unknown` at index 0 iff missing_policy == "emit_unknown_token".
+    Prepends `<prefix>__UNK__` at index 0 iff missing_policy == "emit_unknown_token".
+    The double-underscore marker disambiguates the placeholder from data category
+    values that may happen to be named "unknown" (Overture's transportation.class
+    contains a literal "unknown" value with 6,066+ rows in Singapore — see
+    feedback_test_weakening_to_pass.md for the bug that motivated this convention).
     """
     kept = apply_floor_to_kept_set(field_result, floor_value)
     prefixed_tokens = [f"{prefix}{name}" for name, _ in kept]
 
     if missing_policy == "emit_unknown_token":
-        tokens = (f"{prefix}unknown", *prefixed_tokens)
+        # Strip the prefix's trailing underscore so the result is `B__UNK__`,
+        # not `B___UNK__` (triple underscore is ugly and visually mistakable).
+        tokens = (f"{prefix.rstrip('_')}__UNK__", *prefixed_tokens)
     elif missing_policy in ("drop_row", "n_a"):
         tokens = tuple(prefixed_tokens)
     else:
@@ -235,7 +241,9 @@ def derive_poi_union(
     alternate_only_tokens = [f"{prefix}{name}" for name, _ in alternate_only_ordered]
 
     if missing_policy == "emit_unknown_token":
-        tokens = (f"{prefix}unknown", *primary_tokens, *alternate_only_tokens)
+        # Strip the prefix's trailing underscore so the placeholder is `POI__UNK__`,
+        # not `POI___UNK__` (triple underscore).
+        tokens = (f"{prefix.rstrip('_')}__UNK__", *primary_tokens, *alternate_only_tokens)
     elif missing_policy in ("drop_row", "n_a"):
         tokens = tuple(primary_tokens + alternate_only_tokens)
     else:
@@ -363,7 +371,7 @@ _NOTES = {
         "don't lift these above 10K globally."
     ),
     "building": (
-        "Singapore coverage 22.13% (78% missing); B_unknown included. "
+        "Singapore coverage 22.13% (78% missing); B__UNK__ placeholder included. "
         "Floor=100 SG rows scales to 2K-10K global at 5%-1% Singapore share; "
         "low end below PRD §5's 10,000-global-instance learnability threshold. "
         "B1' Sweden re-run is required for de-provisioning; revisit "
@@ -371,7 +379,7 @@ _NOTES = {
     ),
     "poi": (
         "Union of primary-Moderate-kept U alternate-Moderate-kept. "
-        "POI_unknown included for primary missing-value handling. "
+        "POI__UNK__ placeholder included for primary missing-value handling. "
         "Denominator: alternate counts use occurrences-among-rows-with-alternates. "
         "Cap=2 at tokenizer time means alternate-only-position-3+ categories may "
         "be dead under current encoder; estimated <=1.78% of POI tokens. "
