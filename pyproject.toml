@@ -7,6 +7,8 @@ requires-python = ">=3.11"
 dependencies = [
   "shapely>=2.0",
   "pyyaml>=6.0",
+  "duckdb==1.5.2",
+  "pyarrow>=15.0",
 ]
 
 [project.optional-dependencies]
@@ -37,7 +39,7 @@ ignore = ["ANN401"]  # Any allowed in geojson dict
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]  # iCloud Drive hides underscore-prefixed .pth files in synced .venv; rely on pytest's pythonpath instead of uv's editable install
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not slow'"
 markers = [
-  "slow: tests slower than 5 seconds",
+  "slow: tests slower than 5 seconds; opt in with -m slow",
 ]

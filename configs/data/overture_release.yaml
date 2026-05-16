@@ -1,0 +1,6 @@
+# Phase 1 Overture pin. Update once per phase, never mid-phase.
+# Latest stable as of 2026-05-16 per https://docs.overturemaps.org/release-calendar/
+release: "2026-04-15.0"
+overture_schema_version: "v1.16.0"
+release_date: "2026-04-15"
+release_subversion: 0
