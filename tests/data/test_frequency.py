@@ -320,3 +320,177 @@ def test_compute_list_length_distribution_non_list_column_raises() -> None:
     table = _scalar_table(["a", "b"])
     with pytest.raises(ValueError, match="expected list"):
         compute_list_length_distribution(table, "class")
+
+
+# ---------------------------------------------------------------------------
+# render_field_section and render_report
+# ---------------------------------------------------------------------------
+
+from datetime import UTC, datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from cfm.data.frequency import render_field_section, render_report  # noqa: E402
+
+
+def _sample_cut_rows() -> list[CutBehaviorRow]:
+    return [
+        CutBehaviorRow(
+            strategy=FloorStrategy(name=name, percentage=pct, hard_min=hm),
+            effective_floor=hm,
+            n_total_categories=10,
+            n_kept=10 - i,
+            n_dropped=i,
+            coverage_retained_pct=99.0 - i,
+        )
+        for i, (name, pct, hm) in enumerate(
+            [
+                ("Very lenient", None, 10),
+                ("Lenient", 0.0003, 30),
+                ("Moderate", 0.001, 100),
+                ("Strict", 0.003, 300),
+                ("Very strict", 0.01, 1000),
+            ]
+        )
+    ]
+
+
+def test_render_field_section_basic() -> None:
+    result = FieldFrequencyResult(
+        field="buildings.class",
+        n_total=1000,
+        n_present=800,
+        counts={"residential": 500, "commercial": 200, "other": 100},
+        is_list_field=False,
+        total_occurrences=800,
+    )
+    md = render_field_section(
+        result=result,
+        cut_rows=_sample_cut_rows(),
+        plot_relative_path="_plots/buildings_class.png",
+    )
+    assert "buildings.class" in md
+    assert "Coverage" in md
+    assert "800" in md  # n_present
+    assert "1000" in md  # n_total
+    assert "_plots/buildings_class.png" in md
+    assert "Strategy" in md  # cut-behavior table header
+    assert "Very lenient" in md
+    assert "Very strict" in md
+
+
+def test_render_field_section_includes_prd_framing_flag() -> None:
+    result = FieldFrequencyResult(
+        field="base.subtype",
+        n_total=100,
+        n_present=100,
+        counts={"x": 100},
+        is_list_field=False,
+        total_occurrences=100,
+    )
+    md = render_field_section(
+        result=result,
+        cut_rows=_sample_cut_rows(),
+        plot_relative_path="_plots/base_subtype.png",
+        binds_to_prd_framing_only=True,
+    )
+    assert "PRD §5 framing only" in md
+
+
+def test_render_field_section_omits_prd_framing_flag() -> None:
+    result = FieldFrequencyResult(
+        field="buildings.class",
+        n_total=100,
+        n_present=100,
+        counts={"x": 100},
+        is_list_field=False,
+        total_occurrences=100,
+    )
+    md = render_field_section(
+        result=result,
+        cut_rows=_sample_cut_rows(),
+        plot_relative_path="_plots/buildings_class.png",
+        binds_to_prd_framing_only=False,
+    )
+    assert "PRD §5 framing only" not in md
+
+
+def test_render_field_section_includes_list_length_table_when_provided() -> None:
+    result = FieldFrequencyResult(
+        field="places.categories.alternate",
+        n_total=100,
+        n_present=60,
+        counts={"a": 80, "b": 20},
+        is_list_field=True,
+        total_occurrences=100,
+    )
+    ld = ListLengthDistribution(
+        field="places.categories.alternate",
+        n_total_rows=100,
+        buckets={
+            "0": (40, 40.0),
+            "1": (30, 30.0),
+            "2": (15, 15.0),
+            "3": (10, 10.0),
+            "4": (3, 3.0),
+            "5+": (2, 2.0),
+        },
+    )
+    md = render_field_section(
+        result=result,
+        cut_rows=_sample_cut_rows(),
+        plot_relative_path="_plots/places_categories_alternate.png",
+        list_length=ld,
+    )
+    assert "List length" in md
+    assert "5+" in md
+    assert "40" in md  # the 0-bucket count
+
+
+def test_render_report_has_required_sections_and_header() -> None:
+    md = render_report(
+        region_name="singapore",
+        overture_release="2026-04-15.0",
+        manifest_path=Path("data/cache/overture/2026-04-15.0/singapore/manifest.yaml"),
+        per_theme_sha256={
+            "buildings": "abc",
+            "places": "def",
+            "transportation": "ghi",
+            "base": "jkl",
+            "divisions": "mno",
+        },
+        field_sections=["### 3.1 buildings.class\n(body)\n"],
+        coverage_summary_rows=[
+            ("buildings.class", 1000, 800, 80.0),
+        ],
+        commit_sha="0" * 40,
+        run_timestamp_utc=datetime(2026, 5, 16, 14, 32, 11, tzinfo=UTC),
+        rerun_reason="initial",
+    )
+    # HTML comment header
+    assert md.startswith("<!--")
+    assert "scripts/analyse_singapore_frequencies.py" in md
+    assert "0" * 40 in md
+    assert "2026-04-15.0" in md
+    assert "2026-05-16T14:32:11" in md
+    assert "Re-run reason: initial" in md
+    # Status line
+    assert "Status: provisional" in md
+    assert "Sweden" in md
+    # Numbered sections
+    for header in (
+        "## 1. Methodology",
+        "## 2. Coverage summary",
+        "## 3. Field analyses",
+        "## 4. Implications for B2",
+        "## 5. Reproducibility",
+    ):
+        assert header in md, f"missing section: {header}"
+    # Implications enumeration
+    assert "emit `<unknown>`" in md
+    assert "drop missing-class features" in md
+    assert "infer class from context" in md
+    # Coverage summary has the row
+    assert "buildings.class" in md
+    # Sha line for each theme
+    for theme in ("buildings", "places", "transportation", "base", "divisions"):
+        assert theme in md
