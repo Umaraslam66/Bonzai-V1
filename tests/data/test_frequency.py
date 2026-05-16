@@ -10,6 +10,7 @@ from cfm.data.frequency import (
     FieldFrequencyResult,
     FloorStrategy,
     ListLengthDistribution,
+    apply_floor_strategy,
     compute_field_frequencies,
 )
 
@@ -195,3 +196,69 @@ def test_compute_field_frequencies_missing_struct_key_raises() -> None:
     table = _struct_with_list_table(primaries=["a"], alternates=[[]])
     with pytest.raises(ValueError, match="struct field 'nonexistent' not found"):
         compute_field_frequencies(table, "categories.nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# apply_floor_strategy
+# ---------------------------------------------------------------------------
+
+
+def _result(n_present: int, counts: dict[str, int]) -> FieldFrequencyResult:
+    return FieldFrequencyResult(
+        field="x",
+        n_total=n_present,
+        n_present=n_present,
+        counts=counts,
+        is_list_field=False,
+        total_occurrences=sum(counts.values()),
+    )
+
+
+def test_apply_floor_strategy_effective_floor_formula() -> None:
+    s = FloorStrategy(name="Lenient", percentage=0.0003, hard_min=30)
+    # max(0.0003 * 1_000_000, 30) = 300
+    row = apply_floor_strategy(_result(1_000_000, {"a": 999_000, "b": 1_000}), s)
+    assert row.effective_floor == 300
+
+
+def test_apply_floor_strategy_hard_min_dominates() -> None:
+    s = FloorStrategy(name="Lenient", percentage=0.0003, hard_min=30)
+    # max(0.0003 * 100, 30) = 30
+    row = apply_floor_strategy(_result(100, {"a": 50, "b": 30, "c": 20}), s)
+    assert row.effective_floor == 30
+    assert row.n_kept == 2  # a (50), b (30); c (20) cut
+    assert row.n_dropped == 1
+
+
+def test_apply_floor_strategy_very_lenient_percentage_none() -> None:
+    s = FloorStrategy(name="Very lenient", percentage=None, hard_min=10)
+    row = apply_floor_strategy(_result(1_000_000, {"a": 999_000, "b": 9}), s)
+    assert row.effective_floor == 10
+    assert row.n_kept == 1
+    assert row.n_dropped == 1
+
+
+def test_apply_floor_strategy_coverage_retained() -> None:
+    s = FloorStrategy(name="Strict", percentage=None, hard_min=100)
+    counts = {"a": 800, "b": 150, "c": 50}  # total 1000
+    row = apply_floor_strategy(_result(1000, counts), s)
+    # Keep a (800) + b (150) = 950; drop c (50). Retained = 950/1000 = 95.0%.
+    assert row.n_kept == 2
+    assert row.n_dropped == 1
+    assert row.coverage_retained_pct == pytest.approx(95.0)
+
+
+def test_apply_floor_strategy_n_total_categories_matches_input() -> None:
+    s = FloorStrategy(name="Lenient", percentage=None, hard_min=10)
+    row = apply_floor_strategy(_result(100, {"a": 60, "b": 25, "c": 9, "d": 4, "e": 2}), s)
+    assert row.n_total_categories == 5
+
+
+def test_apply_floor_strategy_empty_counts_retains_100_pct_trivially() -> None:
+    s = FloorStrategy(name="Lenient", percentage=None, hard_min=10)
+    row = apply_floor_strategy(_result(0, {}), s)
+    assert row.n_total_categories == 0
+    assert row.n_kept == 0
+    assert row.n_dropped == 0
+    # By convention, 100% retained when there is nothing to lose.
+    assert row.coverage_retained_pct == pytest.approx(100.0)

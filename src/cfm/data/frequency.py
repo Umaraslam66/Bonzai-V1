@@ -155,3 +155,51 @@ def _count_list_field(
         is_list_field=True,
         total_occurrences=total_occurrences,
     )
+
+
+# ---------------------------------------------------------------------------
+# Floor strategy application
+# ---------------------------------------------------------------------------
+
+
+def apply_floor_strategy(
+    result: FieldFrequencyResult,
+    strategy: FloorStrategy,
+) -> CutBehaviorRow:
+    """Apply a floor strategy and report the resulting cut behavior.
+
+    Effective floor:  max(percentage * n_present, hard_min)  (percentage may be None)
+    Coverage retained: sum(counts kept) / total_occurrences. Defined as 100% when
+                      total_occurrences == 0 (nothing to lose).
+    """
+    if result.n_present < 0:
+        raise ValueError(f"n_present must be non-negative; got {result.n_present}")
+
+    if strategy.percentage is None:
+        effective_floor = strategy.hard_min
+    else:
+        pct_floor = int(strategy.percentage * result.n_present)
+        effective_floor = max(pct_floor, strategy.hard_min)
+
+    kept_count = 0
+    n_kept = 0
+    for count in result.counts.values():
+        if count >= effective_floor:
+            kept_count += count
+            n_kept += 1
+    n_total_categories = len(result.counts)
+    n_dropped = n_total_categories - n_kept
+
+    if result.total_occurrences == 0:
+        coverage_pct = 100.0
+    else:
+        coverage_pct = 100.0 * kept_count / result.total_occurrences
+
+    return CutBehaviorRow(
+        strategy=strategy,
+        effective_floor=effective_floor,
+        n_total_categories=n_total_categories,
+        n_kept=n_kept,
+        n_dropped=n_dropped,
+        coverage_retained_pct=coverage_pct,
+    )
