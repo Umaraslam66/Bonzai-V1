@@ -262,10 +262,15 @@ def main(argv: list[str] | None = None) -> int:
         coverage_rows.append((label, result.n_total, result.n_present, coverage_pct))
 
     manifest_shas = _load_manifest_shas(region.manifest_path)
+    # Render manifest as a repo-relative path so the report is machine-portable.
+    try:
+        manifest_for_report = region.manifest_path.relative_to(Path.cwd())
+    except ValueError:
+        manifest_for_report = region.manifest_path
     report = render_report(
         region_name="singapore",
         overture_release=region.release,
-        manifest_path=region.manifest_path,
+        manifest_path=manifest_for_report,
         per_theme_sha256=manifest_shas,
         field_sections=field_sections,
         coverage_summary_rows=coverage_rows,
