@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cfm.data.frequency import FieldFrequencyResult
+
 
 @dataclass(frozen=True)
 class SectionMetadata:
@@ -83,3 +85,19 @@ class Phase1Policy:
     generated_from: dict
     field_policies: tuple[FieldPolicy, ...]
     list_field_caps: tuple[ListFieldCap, ...]
+
+
+def apply_floor_to_kept_set(
+    result: FieldFrequencyResult,
+    floor_value: int,
+) -> list[tuple[str, int]]:
+    """Return kept categories sorted deterministically by (-count, name).
+
+    A category is kept iff its count is >= floor_value. Tie-breaking is
+    alphabetical by name. Matches B1's library sort tuple so derivations
+    are reproducible against the rank-frequency report.
+    """
+    return sorted(
+        ((name, count) for name, count in result.counts.items() if count >= floor_value),
+        key=lambda item: (-item[1], item[0]),
+    )
