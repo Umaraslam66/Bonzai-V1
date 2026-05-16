@@ -34,6 +34,15 @@ First call fetches from public S3 and caches to `data/cache/overture/<release>/<
 
 See `docs/data/overture_pinning_policy.md` for the re-pin procedure.
 
+## Phase 1 sub-project B1: Singapore frequency analysis _(2026-05-16)_
+
+Generates a reviewable markdown report at
+`reports/2026-05-16-phase-1-sub-B1-singapore-frequency-analysis.md`
+characterising categorical-field distributions across nine fields of five Overture themes for
+Singapore. Output is a build artefact produced by `scripts/analyse_singapore_frequencies.py` from
+the library at `src/cfm/data/frequency.py`. B1 emits no vocabulary YAML — that is B2's
+responsibility, gated by user review of this report. Status: provisional pending Sweden.
+
 ## Next
 
 Phase 1 takes over once Phase 0 is signed off: Overture loading, multi-cell tiles, boundary contracts, deterministic stitching, and the full ~100-class vocabulary derived from frequency analysis.
