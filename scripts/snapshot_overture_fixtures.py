@@ -130,8 +130,32 @@ def main() -> int:
     if args.mode == "bootstrap":
         bootstrap()
         return 0
-    print("--mode s3 not yet implemented; see Task 12", file=sys.stderr)
-    return 2
+    s3_snapshot()
+    return 0
+
+
+def s3_snapshot() -> None:
+    """Fetch a tiny real bbox in central Singapore from the pinned release."""
+
+    import yaml
+
+    from cfm.data.overture.backend import S3DuckDBBackend
+    from cfm.data.overture.region import BboxScope
+
+    # Read the pin so the snapshot tracks whatever is currently pinned.
+    with (REPO_ROOT / "configs" / "data" / "overture_release.yaml").open() as f:
+        release = yaml.safe_load(f)["release"]
+
+    # 0.01 deg x 0.01 deg around 1.295N 103.855E (Bukit Timah/Bishan area).
+    bbox = BboxScope.from_tuple((103.85, 1.29, 103.86, 1.30))
+    backend = S3DuckDBBackend()
+    FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
+    for theme in _SYNTHETIC:  # reuse the theme list
+        print(f"fetching theme={theme} release={release} bbox={bbox.as_tuple()} ...", flush=True)
+        table = backend.read_theme(theme=theme, bbox=bbox, release=release)
+        out = FIXTURES_DIR / f"{theme}.parquet"
+        pq.write_table(table, out)
+        print(f"  wrote {out.relative_to(REPO_ROOT)} ({table.num_rows} rows)")
 
 
 if __name__ == "__main__":
