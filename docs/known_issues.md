@@ -6,6 +6,35 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #2 — Subtype / subclass fields analyzed in B1 but not tokenized in Phase 1
+
+- **Filed:** 2026-05-16 (Phase 1 sub-B2 spec)
+- **Severity:** low (scope decision, not a bug)
+- **Status:** deferred — picked up by a future sub-project after the encoder design extends to multi-token-per-feature
+- **Affects:** `buildings.subtype`, `transportation.subclass`, `base.subtype` fields from the B1 report
+
+### Context
+
+The B1 frequency analysis covered nine fields including the three subtype/subclass fields above. B2's vocab YAML only tokenizes the four locked feature_class sections (road, building, poi, base) plus the alternate categories folded into the POI section via union. The three subtype/subclass fields are deferred.
+
+### Why
+
+The current tokenizer encoder is one-token-per-feature: `cfm.tokenizer.encode._encode_feature` reads `feature["properties"]["class"]` and emits exactly one feature_class token. Integrating subtype as a *second* token per feature (option B from the B2 brainstorm) or a *crossed* class×subtype token (option C) is a tokenizer architectural decision that warrants its own sub-project with its own brainstorm. B2 deliberately keeps subtype out of scope to avoid quietly expanding the encoder contract via a vocab YAML.
+
+### Future
+
+When subtype integration is on the table, a future sub-project picks between the options. Either way:
+
+- The B1 numbers for `buildings.subtype` (Moderate keeps 11 cats), `transportation.subclass` (all 7 retained at every floor), and `base.subtype` (11 → 7 at Moderate) are already analyzed and ready to use.
+- The Sweden re-run (B1') re-runs both class and subtype frequencies in parallel; subtype data will continue to land in the B1' report.
+
+### Tracking
+
+- B2 spec §2 (out-of-scope deferrals): `docs/superpowers/specs/2026-05-16-phase-1-sub-B2-vocab-yaml-design.md`
+- B1 report §3.2, §3.4, §3.5: `reports/2026-05-16-phase-1-sub-B1-singapore-frequency-analysis.md`
+
+---
+
 ## #1 — Cold-fetch of a fresh region takes ~8 hours
 
 - **Filed:** 2026-05-16 (Phase 1 sub-A shipping checklist)
