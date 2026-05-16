@@ -148,9 +148,21 @@ class S3DuckDBBackend:
         bbox: BboxScope,
         release: str,
     ) -> pa.Table:
+        # DECISION: stream batches via to_arrow_reader() and assemble the
+        # pa.Table ourselves, rather than calling .to_arrow_table() (or the
+        # older .arrow()) directly on the result.
+        #
+        # Why: DuckDB 1.5.2's .to_arrow_table() path hits an InternalException
+        # ("TransactionContext::ActiveTransaction called without active
+        # transaction") at the end of a successful S3 httpfs scan. The
+        # RecordBatchReader path materialises the same data without the bug.
+        # Downstream callers (loader.py: pq.write_table, .num_rows) need a
+        # concrete pa.Table, so we assemble one here.
         try:
             con = self._open()
-            return con.execute(self.build_query(theme=theme, bbox=bbox, release=release)).arrow()
+            res = con.execute(self.build_query(theme=theme, bbox=bbox, release=release))
+            reader = res.to_arrow_reader()
+            return pa.Table.from_batches(list(reader), schema=reader.schema)
         except duckdb.IOException as e:  # type: ignore[attr-defined]
             raise OvertureUnreachable(f"reading theme={theme!r}: {e}") from e
 
@@ -177,4 +189,12 @@ class S3DuckDBBackend:
         con = duckdb.connect()
         con.execute("INSTALL httpfs; LOAD httpfs;")
         con.execute("SET s3_region='us-west-2';")
+        # DECISION: enable HTTP retries with backoff. The Overture buildings
+        # theme spans many parquet partitions; a single transient TCP/connect
+        # failure to S3 would otherwise abort a multi-minute scan. Defaults:
+        # http_retries=3 attempts, base backoff 0.1s, factor 1.5 -> roughly
+        # 0.1/0.15/0.225s between tries.
+        con.execute("SET http_retries=5;")
+        con.execute("SET http_retry_wait_ms=200;")
+        con.execute("SET http_retry_backoff=2.0;")
         return con
