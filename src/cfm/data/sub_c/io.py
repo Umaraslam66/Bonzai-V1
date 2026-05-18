@@ -177,7 +177,8 @@ class FeatureRow:
     """One row for features.parquet (spec §11.2, 15 columns).
 
     geometry is a shapely BaseGeometry in cell-local SVY21 coordinates.
-    geometry_type and bbox_* are derived automatically from geometry by the writer.
+    geometry_type and bbox_* must be PRE-COMPUTED by the caller and supplied on
+    the dataclass; the writer reads them directly without re-deriving from geometry.
     feature_class must be the int8 enum code (0=road, 1=building, 2=poi, 3=base).
     geometry_type must be the int8 enum code (0=Point, 1=LineString, 2=Polygon).
     """
