@@ -1,7 +1,9 @@
-"""Sequential end-to-end pipeline orchestrator for sub-C tile extraction.
+"""End-to-end pipeline orchestrator for sub-C tile extraction.
 
-Composes every sub-C library function in the locked order per spec §6.
-Sequential first (Task 12); Task 13 adds the process-pool variant.
+Composes every sub-C library function in the locked order per spec §6. Task
+12 introduced the sequential path; Task 13 adds the process-pool variant
+gated by the `pool_size` keyword. Pool size affects wall-clock only — byte
+output is invariant under `pool_size ∈ [1, N]` per spec §14.5.
 
 Pipeline ordering (locked at spec §6; tested verbatim by Task 12 named tests):
 
@@ -22,10 +24,23 @@ Pipeline ordering (locked at spec §6; tested verbatim by Task 12 named tests):
     write manifest.yaml                        # tiles[] sorted by (i,j)
 
 _SUCCESS is NOT written here (Task 14 orchestrator writes it after cross-tile validator).
+
+Parallelism (spec §14.5):
+
+Main process performs all once-per-region work (derive_sea_polygons,
+apply_missing_value_policy, densify, reproject, clip, partition_into_tiles)
+BEFORE any worker starts. Workers receive the per-tile feature subset plus
+the SVY21 densified-admin polygon and sea-polygons union (by value, via the
+pickled TileWorkerArgs dataclass) and run only the per-tile pipeline +
+artifact writes + inline validator + provenance write. Workers MUST NOT
+call densify_polygon or derive_sea_polygons — those are recorded as
+once-per-region invariants and re-running them in workers could yield
+different bytes under floating-point vertex-insertion-order artifacts.
 """
 
 from __future__ import annotations
 
+import multiprocessing as mp
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -123,8 +138,9 @@ def extract_region(
     extracted_utc: str | None = None,
     started_utc: str | None = None,
     rerun_reason: str = "initial",
+    pool_size: int = 1,
 ) -> RegionManifest:
-    """Sequential end-to-end extraction per spec §6.
+    """End-to-end extraction per spec §6 + §14.5.
 
     Pre-conditions:
       - region must expose `themes` (dict of pa.Tables for buildings,
@@ -140,14 +156,28 @@ def extract_region(
       - _SUCCESS is NOT written here — that is Task 14's responsibility,
         gated by the cross-tile validator.
 
-    The function is sequential. Task 13 adds the process-pool variant; the
-    once-per-region shared inputs (densified admin polygon, sea_polygons) are
-    computed here in the main process so the Task 13 split is mechanical.
+    Parameters:
+      - pool_size: process-pool size for per-tile extraction. `pool_size=1`
+        runs the sequential path (no multiprocessing.Pool is constructed,
+        avoiding the pool overhead). `pool_size>1` uses `multiprocessing.Pool`
+        with the dynamic queue (`imap_unordered`) — order-independent because
+        the main process aggregates tiles[] by (i, j) sorting before writing
+        the manifest. Spec §14.5 names the invariant: byte output is
+        invariant under `pool_size ∈ [1, N]` for any N; pool size affects
+        only wall-clock.
+
+    Workers receive shared inputs (densified admin polygon as WKB, sea
+    polygons as WKB, per-tile feature subset) by value via the pickled
+    `_TileWorkerArgs` dataclass. Workers MUST NOT call `densify_polygon` or
+    `derive_sea_polygons` — those are once-per-region invariants computed
+    here.
 
     Determinism: byte-identical output across runs given identical inputs
     modulo EXCLUDED_FROM_SHA fields (timestamps). Tests pass a fixed
     extracted_utc for reproducible verification.
     """
+    if pool_size < 1:
+        raise ValueError(f"pool_size must be >= 1, got {pool_size}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     now_iso = _utcnow_iso()
@@ -203,25 +233,49 @@ def extract_region(
         "vocab_yaml_sha256": vocab_yaml_sha256,
     }
 
-    tile_provenances: list[TileProvenance] = []
+    # Build per-tile worker args once in the main process. Each entry is a
+    # pickle-friendly dataclass carrying everything the worker needs; the
+    # shared SVY21 sea polygons + densified admin polygon are serialized as
+    # WKB so the worker re-hydrates with a single shapely.wkb.loads call (no
+    # re-derivation, no re-densification — spec §14.5 invariant).
+    sea_polygons_svy21_wkb = dump_wkb(sea_polygons_svy21)
+    densified_admin_polygon_svy21_wkb = dump_wkb(densified_admin_polygon_svy21)
 
+    tile_args_list: list[_TileWorkerArgs] = []
     for (tile_i, tile_j), tile_admin_footprint in tile_inventory.items():
-        # Features whose absolute SVY21 geometry intersects this tile.
         tile_features = _filter_features_to_tile(clipped_features, tile_i, tile_j)
-
-        prov = _extract_tile(
-            tile_i=tile_i,
-            tile_j=tile_j,
-            tile_admin_footprint=tile_admin_footprint,
-            features_in_tile=tile_features,
-            sea_polygons_svy21=sea_polygons_svy21,
-            output_dir=output_dir,
-            inputs_shared=inputs_shared,
-            commit_sha=commit_sha,
-            extracted_utc=extracted_utc,
-            rerun_reason=rerun_reason,
+        tile_args_list.append(
+            _TileWorkerArgs(
+                tile_i=tile_i,
+                tile_j=tile_j,
+                tile_admin_footprint_wkb=dump_wkb(tile_admin_footprint),
+                features_in_tile=tile_features,
+                sea_polygons_svy21_wkb=sea_polygons_svy21_wkb,
+                densified_admin_polygon_svy21_wkb=densified_admin_polygon_svy21_wkb,
+                output_dir=output_dir,
+                inputs_shared=inputs_shared,
+                commit_sha=commit_sha,
+                extracted_utc=extracted_utc,
+                rerun_reason=rerun_reason,
+            )
         )
-        tile_provenances.append(prov)
+
+    # Dispatch sequentially when pool_size=1 (no multiprocessing overhead) or
+    # via a process pool otherwise. Either path produces the same TileProvenance
+    # objects; main process aggregates by (i,j) sort below regardless.
+    tile_provenances: list[TileProvenance]
+    if pool_size == 1:
+        tile_provenances = [_extract_one_tile(args) for args in tile_args_list]
+    else:
+        # `imap_unordered` lets workers return results as they finish; we
+        # sort by (i, j) when building the manifest. `spawn` start method
+        # would force re-importing the module per worker; `fork` (the macOS
+        # default for now) reuses parent memory pages cheaply. We don't
+        # specify a context — pickle-safety is enforced by _TileWorkerArgs
+        # being a dataclass with picklable fields (str, int, bytes,
+        # _FeatureRecord with shapely geom), so either context works.
+        with mp.Pool(processes=pool_size) as pool:
+            tile_provenances = list(pool.imap_unordered(_extract_one_tile, tile_args_list))
 
     # ---- 8. Manifest assembly (main process; AFTER all tiles done) ------
     # Spec §11.7 + §11.8: tiles[] sorted by (i, j); manifest written last
@@ -273,6 +327,58 @@ def extract_region(
 # ---------------------------------------------------------------------------
 # Per-tile extraction
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _TileWorkerArgs:
+    """Pickle-friendly per-tile worker payload (spec §14.5).
+
+    Geometries shared across all tiles (sea polygons union, densified admin
+    polygon) are passed as WKB bytes so the worker re-hydrates them locally
+    with a single shapely.wkb.loads call — never by re-running
+    derive_sea_polygons or densify_polygon.
+
+    The per-tile features list is shapely-resident (already-clipped,
+    already-reprojected _FeatureRecords); shapely geometries pickle natively
+    so we don't need a WKB round-trip on the per-tile feature stream.
+    """
+
+    tile_i: int
+    tile_j: int
+    tile_admin_footprint_wkb: bytes
+    features_in_tile: list[_FeatureRecord]
+    sea_polygons_svy21_wkb: bytes
+    densified_admin_polygon_svy21_wkb: bytes
+    output_dir: Path
+    inputs_shared: dict
+    commit_sha: str
+    extracted_utc: str
+    rerun_reason: str
+
+
+def _extract_one_tile(args: _TileWorkerArgs) -> TileProvenance:
+    """Worker entry point.
+
+    Rehydrates shared geometries from WKB and delegates to `_extract_tile`.
+    MUST be importable at module scope (top-level function) so
+    `multiprocessing.Pool` can pickle the reference. MUST NOT call
+    `densify_polygon` or `derive_sea_polygons` (spec §14.5).
+    """
+    tile_admin_footprint = shapely_wkb.loads(args.tile_admin_footprint_wkb)
+    sea_polygons_svy21 = shapely_wkb.loads(args.sea_polygons_svy21_wkb)
+
+    return _extract_tile(
+        tile_i=args.tile_i,
+        tile_j=args.tile_j,
+        tile_admin_footprint=tile_admin_footprint,
+        features_in_tile=args.features_in_tile,
+        sea_polygons_svy21=sea_polygons_svy21,
+        output_dir=args.output_dir,
+        inputs_shared=args.inputs_shared,
+        commit_sha=args.commit_sha,
+        extracted_utc=args.extracted_utc,
+        rerun_reason=args.rerun_reason,
+    )
 
 
 @dataclass(frozen=True)
