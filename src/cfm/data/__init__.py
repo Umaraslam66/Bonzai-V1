@@ -5,6 +5,7 @@ from cfm.data.vocab_derivation import (
     ListFieldCap,
     Phase1Policy,
     Phase1Vocab,
+    PolicyAxis,
     SectionDerivation,
     SectionMetadata,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "ListFieldCap",
     "Phase1Policy",
     "Phase1Vocab",
+    "PolicyAxis",
     "SectionDerivation",
     "SectionMetadata",
 ]

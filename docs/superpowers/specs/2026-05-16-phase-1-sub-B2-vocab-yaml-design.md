@@ -288,19 +288,23 @@ Every locked floor's low-end scaling lands **below** PRD §5's 10K threshold; th
 
 Each section's `decision_basis` and `notes` fields reference this scaling-math context explicitly so future readers can trace why each floor was locked under uncertainty.
 
-## 8. Missing-value policy — locked per field
+## 8. Missing-value + not-in-vocab policy — locked per field
 
-| Field | Policy | Rationale | Provisional |
-|---|---|---|---|
-| buildings.class | `emit_unknown_token` | 78.0% missing; dropping forfeits the bulk of building data; append-only safety. | yes |
-| transportation.class | `drop_row` | 0.02% missing (42 rows); too few to warrant a token slot. | no |
-| base.class | `n_a` | 100% coverage on Singapore. | no |
-| places.categories.primary | `emit_unknown_token` | 2.59% missing (3,883 rows); geometric info valid; consistency with buildings.class. | yes |
-| places.categories.alternate | `n_a` | List field; empty list is "no secondary categories", not missing data. | no |
+> **Updated 2026-05-18 by sub-C-driven B2 follow-up:** the per-field policy was extended from a single `missing_value` axis to a **four-case `{missing_value, not_in_vocab}` schema** per **sub-C spec §10.2** (`docs/superpowers/specs/2026-05-17-phase-1-sub-C-tile-extraction-design.md`). The four-case table is **authoritative there**; the row below reflects it. Plan: `docs/superpowers/plans/2026-05-18-phase-1-sub-B2-followup-not-in-vocab.md`.
+
+| Field | `missing_value` | `not_in_vocab` | mv-provisional | niv-provisional | Rationale (missing_value) |
+|---|---|---|---|---|---|
+| buildings.class | `emit_unknown_token` | `emit_unknown_token` | yes | yes | 78.0% missing; dropping forfeits the bulk of building data; append-only safety. |
+| transportation.class | `drop_row` | `drop_row` | no | yes | 0.02% missing (42 rows); too few to warrant a token slot. |
+| base.class | `n_a` | `drop_row` | no | yes | 100% coverage on Singapore. |
+| places.categories.primary | `emit_unknown_token` | `emit_unknown_token` | yes | yes | 2.59% missing (3,883 rows); geometric info valid; consistency with buildings.class. |
+| places.categories.alternate | `n_a` | `drop_element` | no | yes | List field; empty list is "no secondary categories", not missing data. |
 
 `places.categories.alternate` list-cap policy: `cap_value: 2`, `cap_application: tokenizer_time`, `storage_policy: preserve_all`, `dead_token_fraction_upper_bound: 0.0178`, `is_provisional: true`.
 
-Two new vocab tokens are introduced by these policies: `B__UNK__` (buildings section), `POI__UNK__` (poi section).
+Two new vocab tokens are introduced by the `missing_value` axis: `B__UNK__` (buildings section), `POI__UNK__` (poi section). The `not_in_vocab` axis introduces NO new vocab tokens — it shares the same `__UNK__` placeholders at tokenize time (for `emit_unknown_token`) or drops at the policy step (for `drop_row` / `drop_element`).
+
+**`is_provisional` semantic for the `not_in_vocab` axis (locked by the B2 follow-up):** `not_in_vocab.is_provisional` tracks the **underlying floor's provisionality** (not the policy-decision-itself provisionality). Because §7 marked all four Phase 1 vocab sections provisional pending Sweden re-run (§7.1 scaling math: every low-end below PRD §5's 10K-global-instance threshold), all five `not_in_vocab.is_provisional` values are `True`. The `missing_value.is_provisional` values stay as-is — they reflect missing-rate stability across regions (a different axis).
 
 ## 9. Vocab YAML shape — exemplar
 
@@ -456,6 +460,8 @@ move:
 
 ## 10. Policy YAML shape — exemplar
 
+> **Updated 2026-05-18 by sub-C-driven B2 follow-up:** each field now carries BOTH `missing_value` and `not_in_vocab` axes per sub-C spec §10.2 four-case table.
+
 ```yaml
 schema_version: 1.0
 phase: 1
@@ -468,13 +474,19 @@ generated_from:
   regions: [singapore]
   source_report: reports/2026-05-16-phase-1-sub-B1-singapore-frequency-analysis.md
 
-# Per-field policies. Unified `policies` dict keyed by policy_type for extensibility.
+# Per-field policies. Each field carries TWO axes (missing_value + not_in_vocab)
+# per sub-C spec §10.2 four-case schema; list_cap is an optional third axis
+# only for list-typed fields.
 fields:
   buildings.class:
     policies:
       missing_value:
         type: emit_unknown_token
         rationale: "78.0% missing on Singapore; dropping forfeits the bulk of building data; append-only safety."
+        is_provisional: true
+      not_in_vocab:
+        type: emit_unknown_token
+        rationale: "Below-Moderate-floor classes (~1.17% of present rows) map to B__UNK__ at tokenize time. is_provisional=True tracks the Moderate-100 floor's provisionality (§7.1 scaling math)."
         is_provisional: true
 
   transportation.class:
@@ -483,6 +495,10 @@ fields:
         type: drop_row
         rationale: "0.02% missing (42 rows); too few to warrant a token slot."
         is_provisional: false
+      not_in_vocab:
+        type: drop_row
+        rationale: "Below-Moderate-floor classes (~0.07% of present rows) are dropped at sub-C raw level alongside NULL rows. is_provisional=True tracks the Moderate-202 floor's provisionality."
+        is_provisional: true
 
   base.class:
     policies:
@@ -490,12 +506,20 @@ fields:
         type: n_a
         rationale: "100% coverage on Singapore; no missing rows."
         is_provisional: false
+      not_in_vocab:
+        type: drop_row
+        rationale: "Sub-C drops below-Strict-300-floor base rows (~4.69%). Sea-defining rows (class IN {ocean,strait,bay}) are correctly dropped from feature emission — sea polygons are masks not features per sub-C spec §6 + §9.1."
+        is_provisional: true
 
   places.categories.primary:
     policies:
       missing_value:
         type: emit_unknown_token
         rationale: "2.59% missing (3,883 rows); geometric info valid; consistency with buildings.class."
+        is_provisional: true
+      not_in_vocab:
+        type: emit_unknown_token
+        rationale: "Below-Moderate-floor primary categories map to POI__UNK__ at tokenize time. Same Phase 1.1 expansion benefit as buildings.class."
         is_provisional: true
 
   places.categories.alternate:
@@ -504,6 +528,10 @@ fields:
         type: n_a
         rationale: "List field; empty list is 'no secondary categories', not missing data."
         is_provisional: false
+      not_in_vocab:
+        type: drop_element
+        rationale: "List field; tokenizer at encode time filters not-in-vocab elements per-element (NOT per-row drop). Sub-C stores full alternate list raw per storage_policy=preserve_all."
+        is_provisional: true
       list_cap:
         cap_value: 2
         cap_application: tokenizer_time
@@ -522,6 +550,7 @@ fields:
 **Enums:**
 
 - `missing_value.type` ∈ {`emit_unknown_token`, `drop_row`, `n_a`}
+- `not_in_vocab.type` ∈ {`emit_unknown_token`, `drop_row`, `drop_element`} (sub-C spec §10.2)
 - `list_cap.cap_application` ∈ {`tokenizer_time`, `storage_time`, `not_applied`}
 - `list_cap.storage_policy` ∈ {`preserve_all`, `truncate`}
 

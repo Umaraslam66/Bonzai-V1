@@ -91,6 +91,17 @@ def test_policy_yaml_field_set_matches_expected(tmp_path):
     actual = set(policy["fields"].keys())
     assert actual == expected, f"unexpected diff: added={actual-expected}, removed={expected-actual}"
 
+    # Every field carries BOTH four-case axes per sub-C spec §10.2 (B2 follow-up).
+    for field_name in expected:
+        field_block = policy["fields"][field_name]
+        assert "policies" in field_block, f"{field_name}: missing policies block"
+        assert "missing_value" in field_block["policies"], (
+            f"{field_name}: missing missing_value axis"
+        )
+        assert "not_in_vocab" in field_block["policies"], (
+            f"{field_name}: missing not_in_vocab axis (B2 follow-up incomplete?)"
+        )
+
 
 def test_cross_artifact_consistency_unknown_tokens(tmp_path):
     """Cross-artifact consistency between policy and vocab:

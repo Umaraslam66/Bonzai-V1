@@ -43,11 +43,27 @@ class SectionMetadata:
 
 
 @dataclass(frozen=True)
-class FieldPolicy:
-    field: str
-    type: str  # "emit_unknown_token" | "drop_row" | "n_a"
+class PolicyAxis:
+    """One axis of a field-level policy: missing_value OR not_in_vocab.
+
+    Per sub-C spec §10.2: each field carries TWO axes — what to do with NULL
+    values (missing_value) and what to do with present-but-not-in-Phase-1-vocab
+    values (not_in_vocab). The four-case table in sub-C spec §10.2 defines the
+    valid (missing_value.type, not_in_vocab.type) combinations per field.
+    """
+
+    type: str  # "emit_unknown_token" | "drop_row" | "n_a" | "drop_element"
     rationale: str
     is_provisional: bool
+
+
+@dataclass(frozen=True)
+class FieldPolicy:
+    """Per-field policy carrying both axes (sub-C spec §10.2 four-case schema)."""
+
+    field: str
+    missing_value: PolicyAxis
+    not_in_vocab: PolicyAxis
 
 
 @dataclass(frozen=True)
@@ -323,35 +339,113 @@ _LOCKED_FLOOR_VALUES = {
     "base.class": 300,
 }
 
-_LOCKED_MISSING_POLICIES = {
-    "buildings.class": (
-        "emit_unknown_token",
-        (
-            "78.0% missing on Singapore; dropping forfeits the bulk of building "
-            "data; append-only safety."
+_LOCKED_MISSING_POLICIES: dict[str, dict[str, tuple[str, str, bool]]] = {
+    "buildings.class": {
+        "missing_value": (
+            "emit_unknown_token",
+            (
+                "78.0% missing on Singapore; dropping forfeits the bulk of building "
+                "data; append-only safety."
+            ),
+            True,
         ),
-        True,
-    ),
-    "transportation.class": (
-        "drop_row",
-        "0.02% missing (42 rows); too few to warrant a token slot.",
-        False,
-    ),
-    "base.class": (
-        "n_a",
-        "100% coverage on Singapore; no missing rows.",
-        False,
-    ),
-    "places.categories.primary": (
-        "emit_unknown_token",
-        "2.59% missing (3,883 rows); geometric info valid; consistency with buildings.class.",
-        True,
-    ),
-    "places.categories.alternate": (
-        "n_a",
-        "List field; empty list is 'no secondary categories', not missing data.",
-        False,
-    ),
+        "not_in_vocab": (
+            "emit_unknown_token",
+            (
+                "Below-Moderate-floor classes (~1.17% of present rows) map to "
+                "B__UNK__ at tokenize time. is_provisional=True tracks the "
+                "Moderate-100 floor's provisionality (B2 spec §7 + §7.1 scaling "
+                "math: low-end below PRD §5's 10K-global-instance threshold; "
+                "Sweden re-run required for de-provisioning). Phase 1.1 vocab "
+                "expansion (e.g., Sweden) can promote originally-rare classes to "
+                "their own tokens without re-extracting tiles per sub-C spec §4.1 "
+                "cost-asymmetry."
+            ),
+            True,
+        ),
+    },
+    "transportation.class": {
+        "missing_value": (
+            "drop_row",
+            "0.02% missing (42 rows); too few to warrant a token slot.",
+            False,
+        ),
+        "not_in_vocab": (
+            "drop_row",
+            (
+                "Below-Moderate-floor classes (~0.07% of present rows) are dropped "
+                "at sub-C raw level alongside NULL rows. is_provisional=True tracks "
+                "the Moderate-202 floor's provisionality (B2 spec §7: kept Moderate "
+                "over Strict for pedestrian-infrastructure distinction at the cusp "
+                "of learnability; Sweden re-run required to confirm pedestrian "
+                "counts lift these above 10K globally)."
+            ),
+            True,
+        ),
+    },
+    "base.class": {
+        "missing_value": (
+            "n_a",
+            "100% coverage on Singapore; no missing rows.",
+            False,
+        ),
+        "not_in_vocab": (
+            "drop_row",
+            (
+                "Sub-C drops below-Strict-300-floor base rows at the policy step "
+                "(~4.69% of base rows below Strict). Sea-defining rows "
+                "(class IN {ocean,strait,bay}; ~35 SG rows below floor) are "
+                "correctly dropped from feature emission here — sea polygons are "
+                "masks, not features; sea-mask uses pre-policy "
+                "derive_sea_polygons view per sub-C spec §6 + §9.1. "
+                "is_provisional=True tracks the Strict-300 floor's provisionality "
+                "(B2 spec §7.1: low-end below PRD §5's 10K threshold; Sweden "
+                "re-run should check whether the 7 dropped Lenient→Strict "
+                "categories deserve appending)."
+            ),
+            True,
+        ),
+    },
+    "places.categories.primary": {
+        "missing_value": (
+            "emit_unknown_token",
+            "2.59% missing (3,883 rows); geometric info valid; consistency with buildings.class.",
+            True,
+        ),
+        "not_in_vocab": (
+            "emit_unknown_token",
+            (
+                "Below-Moderate-floor primary categories map to POI__UNK__ at "
+                "tokenize time. is_provisional=True tracks the Moderate-145 "
+                "floor's provisionality (B2 spec §7.1: 2.9K-14.5K global at "
+                "5%-1% SG share; low-end below PRD §5's 10K threshold; Sweden "
+                "re-run required for de-provisioning). Same Phase 1.1 expansion "
+                "benefit as buildings.class."
+            ),
+            True,
+        ),
+    },
+    "places.categories.alternate": {
+        "missing_value": (
+            "n_a",
+            "List field; empty list is 'no secondary categories', not missing data.",
+            False,
+        ),
+        "not_in_vocab": (
+            "drop_element",
+            (
+                "List field; tokenizer at encode time filters not-in-vocab "
+                "elements per-element (NOT per-row drop). Sub-C stores full "
+                "alternate list raw per storage_policy=preserve_all. "
+                "is_provisional=True tracks the Moderate-109 floor's "
+                "provisionality (B2 spec §7.1: 2.18K-10.9K global at 5%-1% SG "
+                "share; low-end below PRD §5's 10K threshold; Sweden re-run "
+                "required for de-provisioning + optional position≤2 filter "
+                "refinement)."
+            ),
+            True,
+        ),
+    },
 }
 
 _DECISION_BASIS = {
@@ -427,7 +521,7 @@ def derive_phase1_vocab(
         prefix="R_",
         field_result=field_results["transportation.class"],
         floor_value=_LOCKED_FLOOR_VALUES["transportation.class"],
-        missing_policy=_LOCKED_MISSING_POLICIES["transportation.class"][0],
+        missing_policy=_LOCKED_MISSING_POLICIES["transportation.class"]["missing_value"][0],
         coverage_singapore_pct=_coverage_pct(field_results["transportation.class"]),
         decision_basis=_DECISION_BASIS["road"],
         notes=_NOTES["road"],
@@ -438,7 +532,7 @@ def derive_phase1_vocab(
         prefix="B_",
         field_result=field_results["buildings.class"],
         floor_value=_LOCKED_FLOOR_VALUES["buildings.class"],
-        missing_policy=_LOCKED_MISSING_POLICIES["buildings.class"][0],
+        missing_policy=_LOCKED_MISSING_POLICIES["buildings.class"]["missing_value"][0],
         coverage_singapore_pct=_coverage_pct(field_results["buildings.class"]),
         decision_basis=_DECISION_BASIS["building"],
         notes=_NOTES["building"],
@@ -449,7 +543,7 @@ def derive_phase1_vocab(
         alternate_result=field_results["places.categories.alternate"],
         floor_value_primary=_LOCKED_FLOOR_VALUES["places.categories.primary"],
         floor_value_alternate=_LOCKED_FLOOR_VALUES["places.categories.alternate"],
-        missing_policy=_LOCKED_MISSING_POLICIES["places.categories.primary"][0],
+        missing_policy=_LOCKED_MISSING_POLICIES["places.categories.primary"]["missing_value"][0],
         primary_coverage_singapore_pct=_coverage_pct(field_results["places.categories.primary"]),
         alternate_coverage_singapore_pct=_coverage_pct(
             field_results["places.categories.alternate"]
@@ -463,7 +557,7 @@ def derive_phase1_vocab(
         prefix="BASE_",
         field_result=field_results["base.class"],
         floor_value=_LOCKED_FLOOR_VALUES["base.class"],
-        missing_policy=_LOCKED_MISSING_POLICIES["base.class"][0],
+        missing_policy=_LOCKED_MISSING_POLICIES["base.class"]["missing_value"][0],
         coverage_singapore_pct=_coverage_pct(field_results["base.class"]),
         decision_basis=_DECISION_BASIS["base"],
         notes=_NOTES["base"],
@@ -501,11 +595,18 @@ def derive_phase1_policy(
     field_policies = tuple(
         FieldPolicy(
             field=field,
-            type=policy_type,
-            rationale=rationale,
-            is_provisional=is_provisional,
+            missing_value=PolicyAxis(
+                type=axes["missing_value"][0],
+                rationale=axes["missing_value"][1],
+                is_provisional=axes["missing_value"][2],
+            ),
+            not_in_vocab=PolicyAxis(
+                type=axes["not_in_vocab"][0],
+                rationale=axes["not_in_vocab"][1],
+                is_provisional=axes["not_in_vocab"][2],
+            ),
         )
-        for field, (policy_type, rationale, is_provisional) in _LOCKED_MISSING_POLICIES.items()
+        for field, axes in _LOCKED_MISSING_POLICIES.items()
     )
 
     list_field_caps = (
@@ -611,19 +712,29 @@ def _section_to_dict(section: SectionDerivation) -> dict:
 
 
 def policy_to_dict(policy: Phase1Policy) -> dict:
-    """Convert a Phase1Policy to dict matching the §10 exemplar.
+    """Convert a Phase1Policy to dict matching sub-C spec §10.2 four-case schema.
 
-    Per-field shape: { policies: { missing_value: {...}, [list_cap: {...}] } }.
+    Per-field shape:
+      { policies:
+          { missing_value: {type, rationale, is_provisional},
+            not_in_vocab: {type, rationale, is_provisional},
+            [list_cap: {...}] }
+      }
     """
     fields: dict = {}
     for fp in policy.field_policies:
         fields[fp.field] = {
             "policies": {
                 "missing_value": {
-                    "type": fp.type,
-                    "rationale": fp.rationale,
-                    "is_provisional": fp.is_provisional,
-                }
+                    "type": fp.missing_value.type,
+                    "rationale": fp.missing_value.rationale,
+                    "is_provisional": fp.missing_value.is_provisional,
+                },
+                "not_in_vocab": {
+                    "type": fp.not_in_vocab.type,
+                    "rationale": fp.not_in_vocab.rationale,
+                    "is_provisional": fp.not_in_vocab.is_provisional,
+                },
             }
         }
     for cap in policy.list_field_caps:

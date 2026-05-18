@@ -504,13 +504,13 @@ feature_class:
     - R_pedestrian
     - R_living_street
     total_kept: 17
-generated_at_commit: 05b13a0514bc9e1e3461fcc20fbdfa4f712d08ff
+generated_at_commit: dc39ea76ef85c4b4fd27c52b13eb72caa09f5fe8
 generated_from:
   overture_release: 2026-04-15.0
   regions:
   - singapore
   source_report: reports/2026-05-16-phase-1-sub-B1-singapore-frequency-analysis.md
-generated_utc: '2026-05-16T19:57:15Z'
+generated_utc: '2026-05-18T10:05:25Z'
 hierarchy:
 - MACRO
 - END_MACRO
@@ -537,5 +537,5 @@ phase: 1
 phase_links:
   prev_phase_file: configs/tokenizer/vocab_phase0.yaml
 schema_version: '1.0'
-vocab_sha256: 11b23de536f6066991a74a594e57be8b153d6c5f691204081a0689a6e18e30e0
+vocab_sha256: cdda73378a2559b8fbdbea18d5629b2f65a9ed4846abc2e2c3a6603cd980412d
 vocab_version: '1.0'

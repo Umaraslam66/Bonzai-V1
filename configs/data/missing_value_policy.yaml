@@ -5,11 +5,19 @@ fields:
         is_provisional: false
         rationale: 100% coverage on Singapore; no missing rows.
         type: n_a
+      not_in_vocab:
+        is_provisional: true
+        rationale: 'Sub-C drops below-Strict-300-floor base rows at the policy step (~4.69% of base rows below Strict). Sea-defining rows (class IN {ocean,strait,bay}; ~35 SG rows below floor) are correctly dropped from feature emission here — sea polygons are masks, not features; sea-mask uses pre-policy derive_sea_polygons view per sub-C spec §6 + §9.1. is_provisional=True tracks the Strict-300 floor''s provisionality (B2 spec §7.1: low-end below PRD §5''s 10K threshold; Sweden re-run should check whether the 7 dropped Lenient→Strict categories deserve appending).'
+        type: drop_row
   buildings.class:
     policies:
       missing_value:
         is_provisional: true
         rationale: 78.0% missing on Singapore; dropping forfeits the bulk of building data; append-only safety.
+        type: emit_unknown_token
+      not_in_vocab:
+        is_provisional: true
+        rationale: 'Below-Moderate-floor classes (~1.17% of present rows) map to B__UNK__ at tokenize time. is_provisional=True tracks the Moderate-100 floor''s provisionality (B2 spec §7 + §7.1 scaling math: low-end below PRD §5''s 10K-global-instance threshold; Sweden re-run required for de-provisioning). Phase 1.1 vocab expansion (e.g., Sweden) can promote originally-rare classes to their own tokens without re-extracting tiles per sub-C spec §4.1 cost-asymmetry.'
         type: emit_unknown_token
   places.categories.alternate:
     policies:
@@ -24,11 +32,19 @@ fields:
         is_provisional: false
         rationale: List field; empty list is 'no secondary categories', not missing data.
         type: n_a
+      not_in_vocab:
+        is_provisional: true
+        rationale: 'List field; tokenizer at encode time filters not-in-vocab elements per-element (NOT per-row drop). Sub-C stores full alternate list raw per storage_policy=preserve_all. is_provisional=True tracks the Moderate-109 floor''s provisionality (B2 spec §7.1: 2.18K-10.9K global at 5%-1% SG share; low-end below PRD §5''s 10K threshold; Sweden re-run required for de-provisioning + optional position≤2 filter refinement).'
+        type: drop_element
   places.categories.primary:
     policies:
       missing_value:
         is_provisional: true
         rationale: 2.59% missing (3,883 rows); geometric info valid; consistency with buildings.class.
+        type: emit_unknown_token
+      not_in_vocab:
+        is_provisional: true
+        rationale: 'Below-Moderate-floor primary categories map to POI__UNK__ at tokenize time. is_provisional=True tracks the Moderate-145 floor''s provisionality (B2 spec §7.1: 2.9K-14.5K global at 5%-1% SG share; low-end below PRD §5''s 10K threshold; Sweden re-run required for de-provisioning). Same Phase 1.1 expansion benefit as buildings.class.'
         type: emit_unknown_token
   transportation.class:
     policies:
@@ -36,14 +52,18 @@ fields:
         is_provisional: false
         rationale: 0.02% missing (42 rows); too few to warrant a token slot.
         type: drop_row
-generated_at_commit: 05b13a0514bc9e1e3461fcc20fbdfa4f712d08ff
+      not_in_vocab:
+        is_provisional: true
+        rationale: 'Below-Moderate-floor classes (~0.07% of present rows) are dropped at sub-C raw level alongside NULL rows. is_provisional=True tracks the Moderate-202 floor''s provisionality (B2 spec §7: kept Moderate over Strict for pedestrian-infrastructure distinction at the cusp of learnability; Sweden re-run required to confirm pedestrian counts lift these above 10K globally).'
+        type: drop_row
+generated_at_commit: dc39ea76ef85c4b4fd27c52b13eb72caa09f5fe8
 generated_from:
   overture_release: 2026-04-15.0
   regions:
   - singapore
   source_report: reports/2026-05-16-phase-1-sub-B1-singapore-frequency-analysis.md
-generated_utc: '2026-05-16T19:57:15Z'
+generated_utc: '2026-05-18T10:05:25Z'
 phase: 1
-policy_sha256: 7da43e799d72e0b17a28f47c58c39c1a6728ee871440fb11674f5e81553d1307
+policy_sha256: 66bee63d94b3bdb5e9ea4d5df76b0a404588677aba3b31d5aa5f398e1609152e
 policy_version: '1.0'
 schema_version: '1.0'
