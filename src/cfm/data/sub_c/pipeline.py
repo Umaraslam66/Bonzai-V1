@@ -251,7 +251,7 @@ def extract_region(
             "sea_definition": "base.class IN {ocean, strait, bay} OR base.subtype = ocean",
             "sea_water_fraction_threshold": 1.0,
             "coastal_inland_river_min_river_length_m": 500.0,
-            "pipeline_order": ["clip", "reproject", "partition", "sliver_drop", "sea_mask"],
+            "pipeline_order": ["reproject", "clip", "partition", "sliver_drop", "sea_mask"],
         },
         conditioning_defaults={
             "country": "SG",
