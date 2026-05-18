@@ -1,8 +1,8 @@
 """Tests for cfm.data.sub_c.sea_mask.
 
-11 named tests covering:
+12 named tests covering:
 - derive_sea_polygons: class filter, subtype filter, union, pipeline-order guard
-- apply_sea_mask: drop rule, coastal keep, inland keep, admin-clipped denominator
+- apply_sea_mask: drop rule, coastal keep, inland keep, admin-clipped denominator, epsilon boundary
 - compute_sea_overlap_fraction: intersects-for-points, fast-path None, cache arg
 """
 
@@ -249,7 +249,41 @@ def test_apply_sea_mask_uses_admin_clipped_denominator():
 
 
 # ---------------------------------------------------------------------------
-# Test 9: compute_sea_overlap_fraction uses intersects predicate for points
+# Test 9 (new): apply_sea_mask epsilon boundary at exactly 1.0 - EPS_RATIO
+# ---------------------------------------------------------------------------
+
+
+def test_sea_water_fraction_epsilon_boundary_at_exactly_1_minus_eps():
+    """At sea_water_fraction = 1.0 - EPS_RATIO exactly (zero features), drop_flag is True.
+    Just below (1.0 - 2*EPS_RATIO), drop_flag is False.
+
+    Verifies the alpha structural-boundary EPSILON application at 1.0 per spec §9.2 + §14.4.
+    """
+    # Build a cell box with admin-clipped area = 1.0 m² exactly for arithmetic clarity
+    cell_box = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+    # Construct sea_polygons whose intersection with cell_box has area = 1.0 - EPS_RATIO
+    boundary_sea = Polygon([(0, 0), (1, 0), (1, 1 - EPS_RATIO), (0, 1 - EPS_RATIO)])
+    swf, _, drop_at = apply_sea_mask(
+        cell_box_admin_clipped=cell_box,
+        cell_features=[],  # zero non-sea features
+        sea_polygons_svy21=boundary_sea,
+    )
+    assert abs(swf - (1.0 - EPS_RATIO)) < 1e-12  # FP-equality check
+    assert drop_at is True, "exactly at 1.0 - EPS_RATIO must drop (>= boundary)"
+
+    # Just below boundary: area = 1.0 - 2*EPS_RATIO; must NOT drop
+    below_sea = Polygon([(0, 0), (1, 0), (1, 1 - 2 * EPS_RATIO), (0, 1 - 2 * EPS_RATIO)])
+    swf2, _, drop_below = apply_sea_mask(
+        cell_box_admin_clipped=cell_box,
+        cell_features=[],
+        sea_polygons_svy21=below_sea,
+    )
+    assert swf2 < 1.0 - EPS_RATIO
+    assert drop_below is False, "below 1.0 - EPS_RATIO must NOT drop"
+
+
+# ---------------------------------------------------------------------------
+# Test 11: compute_sea_overlap_fraction uses intersects predicate for points
 # ---------------------------------------------------------------------------
 
 
@@ -297,7 +331,7 @@ def test_sea_overlap_fraction_uses_intersects_predicate_for_points():
 
 
 # ---------------------------------------------------------------------------
-# Test 10: fast-path — cell_local_sea_geometry=None → 0.0 immediately
+# Test 12: fast-path — cell_local_sea_geometry=None → 0.0 immediately
 # ---------------------------------------------------------------------------
 
 
@@ -335,7 +369,7 @@ def test_sea_overlap_fraction_zero_when_cell_sea_water_fraction_zero():
 
 
 # ---------------------------------------------------------------------------
-# Test 11: compute_sea_overlap_fraction uses passed cell_local_sea_geometry directly
+# Test 13: compute_sea_overlap_fraction uses passed cell_local_sea_geometry directly
 # ---------------------------------------------------------------------------
 
 
