@@ -53,7 +53,11 @@ def _load_vocab_kept_sets(vocab_yaml_path: Path) -> dict[str, set[str]]:
         for tok in tokens:
             if "__UNK__" in tok:
                 continue  # placeholders are not data values
-            assert tok.startswith(prefix), f"token {tok} missing expected prefix {prefix}"
+            if not tok.startswith(prefix):
+                raise PolicyError(
+                    f"token {tok!r} in vocab section {section_name!r} "
+                    f"missing expected prefix {prefix!r}"
+                )
             kept.add(tok[len(prefix) :])
         result[field] = kept
     return result
@@ -99,7 +103,6 @@ def apply_missing_value_policy(
                 new_themes["places"],
                 field_path,
                 entry,
-                vocab_kept,
             )
         elif theme_name == "buildings":
             if "buildings" not in new_themes:
@@ -235,7 +238,6 @@ def _apply_places_policy(
     table: pa.Table,
     field_path: str,
     entry: dict,
-    vocab_kept: dict[str, set[str]],
 ) -> pa.Table:
     """Apply the places.categories.{primary,alternate} policies.
 
