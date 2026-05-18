@@ -235,11 +235,13 @@ def extract_region(
 
     # Build per-tile worker args once in the main process. Each entry is a
     # pickle-friendly dataclass carrying everything the worker needs; the
-    # shared SVY21 sea polygons + densified admin polygon are serialized as
-    # WKB so the worker re-hydrates with a single shapely.wkb.loads call (no
-    # re-derivation, no re-densification — spec §14.5 invariant).
+    # shared SVY21 sea polygons are serialized as WKB so the worker re-hydrates
+    # with a single shapely.wkb.loads call (no re-derivation, no re-densification
+    # — spec §14.5 invariant). The densified admin polygon is consumed entirely
+    # in the main process (clip + partition_into_tiles); workers receive the
+    # per-tile admin-clipped footprint instead, so the full admin polygon does
+    # not need to ship to each worker.
     sea_polygons_svy21_wkb = dump_wkb(sea_polygons_svy21)
-    densified_admin_polygon_svy21_wkb = dump_wkb(densified_admin_polygon_svy21)
 
     tile_args_list: list[_TileWorkerArgs] = []
     for (tile_i, tile_j), tile_admin_footprint in tile_inventory.items():
@@ -251,7 +253,6 @@ def extract_region(
                 tile_admin_footprint_wkb=dump_wkb(tile_admin_footprint),
                 features_in_tile=tile_features,
                 sea_polygons_svy21_wkb=sea_polygons_svy21_wkb,
-                densified_admin_polygon_svy21_wkb=densified_admin_polygon_svy21_wkb,
                 output_dir=output_dir,
                 inputs_shared=inputs_shared,
                 commit_sha=commit_sha,
@@ -268,12 +269,12 @@ def extract_region(
         tile_provenances = [_extract_one_tile(args) for args in tile_args_list]
     else:
         # `imap_unordered` lets workers return results as they finish; we
-        # sort by (i, j) when building the manifest. `spawn` start method
-        # would force re-importing the module per worker; `fork` (the macOS
-        # default for now) reuses parent memory pages cheaply. We don't
-        # specify a context — pickle-safety is enforced by _TileWorkerArgs
-        # being a dataclass with picklable fields (str, int, bytes,
-        # _FeatureRecord with shapely geom), so either context works.
+        # sort by (i, j) when building the manifest. On macOS (since Python
+        # 3.8) and Windows the default start method is `spawn`, which
+        # re-imports the module per worker; on Linux the default is `fork`.
+        # We don't specify a context — pickle-safety is enforced by
+        # _TileWorkerArgs being a dataclass with picklable fields (str, int,
+        # bytes, _FeatureRecord with shapely geom), so either context works.
         with mp.Pool(processes=pool_size) as pool:
             tile_provenances = list(pool.imap_unordered(_extract_one_tile, tile_args_list))
 
@@ -348,7 +349,6 @@ class _TileWorkerArgs:
     tile_admin_footprint_wkb: bytes
     features_in_tile: list[_FeatureRecord]
     sea_polygons_svy21_wkb: bytes
-    densified_admin_polygon_svy21_wkb: bytes
     output_dir: Path
     inputs_shared: dict
     commit_sha: str
