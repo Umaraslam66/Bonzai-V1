@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml
 
 from cfm.data.sub_c.determinism import compute_sha256_excluding
-from cfm.data.sub_c.io import TileProvenance, canonicalize_yaml, write_provenance_yaml  # noqa: F401
+from cfm.data.sub_c.io import TileProvenance, canonicalize_yaml
 
 # ---------------------------------------------------------------------------
 # Dataclass
