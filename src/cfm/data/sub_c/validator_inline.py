@@ -73,6 +73,11 @@ def validate_tile_inline(tile_dir: Path) -> None:
     crossings = _read_parquet(tile_dir / "crossings.parquet")
     meta = yaml.safe_load((tile_dir / "meta.yaml").read_text(encoding="utf-8"))
 
+    # Invariants run in spec §12.1 order. Order is load-bearing: corruption
+    # tests rely on fast-fail behaviour to isolate the target invariant.
+    # Moving #6 (kept_cell_rule) before #5 (water_fraction_bounds) or moving
+    # #9 (cell_area_positive) before #8 (mean_water_fraction_matches) will
+    # silently change which invariant fires for a given bad tile.
     _check_schema_correctness(tile_name, cells, features, crossings)
     _check_bbox_matches_wkb(tile_name, features)
     _check_geometry_type_matches_wkb(tile_name, features)
@@ -313,7 +318,7 @@ def _check_crossings_features_source_id_consistency(
                     "crossing_row_index": idx,
                 },
                 detail={
-                    "distinct_cells_in_features": sorted(cells_for_id),
+                    "distinct_cells_in_features": [list(c) for c in sorted(cells_for_id)],
                     "required_min_distinct_cells": 2,
                 },
             )
