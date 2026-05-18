@@ -58,7 +58,7 @@ from cfm.data.sub_c.determinism import compute_sha256, compute_sha256_excluding
 from cfm.data.sub_c.errors import TileValidationError
 from cfm.data.sub_c.pipeline import extract_region
 from cfm.data.sub_c.validator_cross_tile import validate_extraction_cross_tile
-from cfm.data.sub_c.validator_inline import validate_tile_inline
+from cfm.data.sub_c.validator_inline import _ENUM_TO_WKB_TYPE, validate_tile_inline
 from tests.fixtures.sub_c.build_torture_tile import (
     TORTURE_TILE_I,
     TORTURE_TILE_J,
@@ -319,7 +319,7 @@ def test_geometry_type_matches_wkb_diagnostic_includes_row_and_both_types(
     # mapping rather than by raw numeric inequality (the two encodings can
     # happen to share an integer value while still indicating a mismatch —
     # e.g. enum=2 vs wkb=2 means stored=Polygon vs WKB=LineString).
-    _ENUM_TO_WKB_TYPE = {0: 1, 1: 2, 2: 3}
+    # Reuse the production mapping so test and code can't silently drift.
     expected_wkb = _ENUM_TO_WKB_TYPE[err.detail["stored_type"]]
     assert expected_wkb != err.detail["wkb_type"], (
         f"corruption did not produce a real mismatch: "
