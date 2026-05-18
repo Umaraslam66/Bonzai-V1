@@ -39,7 +39,7 @@ def write_parquet(table: pa.Table, path: Path) -> None:
 def dump_wkb(geom: BaseGeometry) -> bytes:
     """Serialise *geom* to WKB bytes with explicit little-endian (NDR) byte order.
 
-    Per spec §14.3: byteorder=1 forces NDR regardless of platform default.
+    Per spec §14.3: byte_order=1 forces NDR regardless of platform default.
     The first byte of the result is always 0x01.
     """
     return wkb.dumps(geom, hex=False, byte_order=1)
