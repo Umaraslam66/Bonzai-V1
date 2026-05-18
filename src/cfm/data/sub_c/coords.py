@@ -56,3 +56,80 @@ def tile_id_from_svy21(x: float, y: float) -> tuple[int, int]:
     i = math.floor(x / TILE_SIZE_M)
     j = math.floor(y / TILE_SIZE_M)
     return int(i), int(j)
+
+
+def cell_id_within_tile(x_in_tile: float, y_in_tile: float) -> tuple[int, int]:
+    """Map an in-tile metric coordinate (0 <= x_in_tile < TILE_SIZE_M)
+    to its (cell_i, cell_j) within the 8x8 grid. Half-open at cell boundaries
+    per spec §7.2; a point at x = c*CELL_SIZE_M lands in cell c (not c-1).
+    """
+    ci = math.floor(x_in_tile / CELL_SIZE_M)
+    cj = math.floor(y_in_tile / CELL_SIZE_M)
+    return ci, cj
+
+
+def densify_polygon(
+    polygon: BaseGeometry,
+    max_edge_length_m: float | None,
+) -> BaseGeometry:
+    """If max_edge_length_m is None, return polygon unchanged (Singapore no-op
+    per spec §7.4 — max edge 775m < cell quantization scale).
+
+    Otherwise insert vertices on every edge longer than max_edge_length_m
+    so the densified polygon has no edge exceeding the threshold. Sweden
+    enrollment passes a real value without re-opening sub-C code.
+    """
+    if max_edge_length_m is None:
+        return polygon
+
+    return polygon.segmentize(max_segment_length=max_edge_length_m)
+
+
+def clip_to_admin_polygon(
+    features: list[BaseGeometry],
+    admin_polygon: BaseGeometry,
+) -> list[BaseGeometry]:
+    """Intersect each feature with admin_polygon (both in SVY21 per spec §7.3).
+
+    Returns the kept sub-geometries (in input order). Empty intersections
+    are dropped. Order is preserved so callers can re-associate with
+    feature attributes by index.
+    """
+    out: list[BaseGeometry] = []
+    for f in features:
+        clipped = f.intersection(admin_polygon)
+        if not clipped.is_empty:
+            out.append(clipped)
+    return out
+
+
+def partition_into_tiles(
+    admin_polygon: BaseGeometry,
+) -> dict[tuple[int, int], BaseGeometry]:
+    """For each 2km x 2km tile that intersects admin_polygon, return the
+    intersection of the tile box with the admin polygon as the tile's
+    admin-clipped footprint. Result is sorted by (tile_i, tile_j) for
+    byte-determinism (spec §11.7 manifest tiles[] sort).
+    """
+    from shapely.geometry import box as shapely_box
+
+    min_x, min_y, max_x, max_y = admin_polygon.bounds
+    min_i = math.floor(min_x / TILE_SIZE_M)
+    min_j = math.floor(min_y / TILE_SIZE_M)
+    max_i = math.floor((max_x - 1e-9) / TILE_SIZE_M)
+    max_j = math.floor((max_y - 1e-9) / TILE_SIZE_M)
+
+    inventory: dict[tuple[int, int], BaseGeometry] = {}
+    for i in range(min_i, max_i + 1):
+        for j in range(min_j, max_j + 1):
+            tile_box = shapely_box(
+                i * TILE_SIZE_M,
+                j * TILE_SIZE_M,
+                (i + 1) * TILE_SIZE_M,
+                (j + 1) * TILE_SIZE_M,
+            )
+            intersection = tile_box.intersection(admin_polygon)
+            if not intersection.is_empty:
+                inventory[(i, j)] = intersection
+
+    return dict(sorted(inventory.items()))
