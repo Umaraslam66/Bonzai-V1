@@ -25,7 +25,7 @@ def compute_conditioning_per_tile(
     *,
     cell_sea_water_fractions: list[float],
     river_stream_lengths_m: list[float],
-    admin_region: str,
+    admin_region: str | None,
     morphology_class: str = "Asian-megacity",
     era_class: str = "contemporary",
 ) -> dict:
@@ -37,7 +37,9 @@ def compute_conditioning_per_tile(
         river_stream_lengths_m: List of river/stream feature lengths (in meters) in tile.
             Represents sum of length(features WHERE class IN {river, stream}) per cell,
             aggregated to tile level. Empty list if no such features.
-        admin_region: Second-level admin division name (e.g., "Central Region").
+        admin_region: Second-level admin division name (e.g., "Central Region"), or None
+            if the tile centroid falls outside all known region polygons (e.g. maritime
+            tiles) or if the divisions theme is absent.
         morphology_class: Urban morphology type; defaults to "Asian-megacity".
         era_class: Historical era; defaults to "contemporary".
 

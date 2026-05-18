@@ -1,8 +1,10 @@
 """Tests for cfm.data.sub_c.sea_mask.
 
-12 named tests covering:
+Tests covering:
 - derive_sea_polygons: class filter, subtype filter, union, pipeline-order guard
-- apply_sea_mask: drop rule, coastal keep, inland keep, admin-clipped denominator, epsilon boundary
+- derive_inland_water_polygons: class filter, geometry union, empty result
+- apply_sea_mask: drop rule, coastal keep, inland keep, admin-clipped denominator,
+  epsilon boundary, inland-water combined water_fraction
 - compute_sea_overlap_fraction: intersects-for-points, fast-path None, cache arg
 """
 
@@ -16,8 +18,10 @@ from shapely.geometry.base import BaseGeometry
 
 from cfm.data.sub_c.epsilon import EPS_RATIO
 from cfm.data.sub_c.sea_mask import (
+    INLAND_WATER_CLASSES,
     apply_sea_mask,
     compute_sea_overlap_fraction,
+    derive_inland_water_polygons,
     derive_sea_polygons,
 )
 
@@ -413,3 +417,351 @@ def test_sea_overlap_fraction_caches_cell_local_sea_geometry():
         cell_local_sea_geometry=sea_poly,
     )
     assert result_full == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# Fix #1: derive_inland_water_polygons tests
+# ---------------------------------------------------------------------------
+
+
+def _make_base_table_with_geom(rows: list[dict]) -> pa.Table:
+    """Build a minimal pyarrow Table with columns: class, subtype, geometry.
+    (Same schema as _make_base_table above but local to this section.)
+    """
+    return pa.table(
+        {
+            "class": pa.array([r["class"] for r in rows], type=pa.string()),
+            "subtype": pa.array([r.get("subtype", "") for r in rows], type=pa.string()),
+            "geometry": pa.array([wkb.dumps(r["geometry"]) for r in rows], type=pa.binary()),
+        }
+    )
+
+
+# Shared synthetic geometries for inland-water tests
+_RESERVOIR_POLY = Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])
+_RIVER_LINE = LineString([(200, 50), (400, 50)])  # LineString river (zero area)
+_CANAL_POLY = Polygon([(500, 0), (600, 0), (600, 80), (500, 80)])
+_LAKE_POLY = Polygon([(700, 0), (800, 0), (800, 60), (700, 60)])
+_OCEAN_POLY2 = Polygon([(900, 0), (1000, 0), (1000, 100), (900, 100)])  # sea, NOT inland
+
+
+def test_derive_inland_water_polygons_filters_inland_classes():
+    """derive_inland_water_polygons returns a union of inland-water rows only.
+
+    Rows with class IN INLAND_WATER_CLASSES appear in the output.
+    Rows with sea-defining classes (ocean) do NOT appear.
+
+    This verifies Fix #1: the function correctly separates inland water from sea.
+    """
+    rows = [
+        {"class": "reservoir", "geometry": _RESERVOIR_POLY},
+        {"class": "river", "geometry": _RIVER_LINE},
+        {"class": "canal", "geometry": _CANAL_POLY},
+        {"class": "ocean", "geometry": _OCEAN_POLY2},  # sea — must be excluded
+    ]
+    table = _make_base_table_with_geom(rows)
+    result = derive_inland_water_polygons(table)
+
+    # Reservoir and canal polygons contribute area to the union.
+    assert result.contains(Point(50, 50))  # inside _RESERVOIR_POLY
+    assert result.contains(Point(550, 40))  # inside _CANAL_POLY
+
+    # The ocean polygon must NOT appear in the inland-water union.
+    assert not result.contains(Point(950, 50))  # inside _OCEAN_POLY2
+
+
+def test_derive_inland_water_polygons_returns_empty_when_no_inland_rows():
+    """Returns an empty MultiPolygon when no rows match INLAND_WATER_CLASSES."""
+    rows = [
+        {"class": "ocean", "geometry": _OCEAN_POLY2},
+        {"class": "bay", "geometry": Polygon([(1100, 0), (1200, 0), (1200, 50), (1100, 50)])},
+    ]
+    table = _make_base_table_with_geom(rows)
+    result = derive_inland_water_polygons(table)
+    assert result.is_empty
+    assert isinstance(result, MultiPolygon)
+
+
+def test_derive_inland_water_polygons_includes_linestring_rivers_no_crash():
+    """derive_inland_water_polygons handles LineString rivers without crashing.
+
+    unary_union of a mixed Polygon + LineString set returns a GeometryCollection.
+    The .area of a GeometryCollection sums only Polygon components, so LineString
+    rivers contribute zero to water_fraction area computations — which is correct.
+    """
+    rows = [
+        {"class": "river", "geometry": _RIVER_LINE},  # LineString — zero area
+        {"class": "lake", "geometry": _LAKE_POLY},  # Polygon — contributes area
+    ]
+    table = _make_base_table_with_geom(rows)
+    result = derive_inland_water_polygons(table)
+
+    # Must not raise; result area should be dominated by the lake polygon.
+    assert result.area == pytest.approx(_LAKE_POLY.area)
+    # The line is geometrically inside the union (intersects it).
+    assert result.intersects(_RIVER_LINE)
+
+
+def test_derive_inland_water_polygons_covers_all_spec_classes():
+    """Every class in INLAND_WATER_CLASSES appears in the frozenset."""
+    expected = frozenset(
+        {
+            "river",
+            "stream",
+            "reservoir",
+            "lake",
+            "pond",
+            "swimming_pool",
+            "canal",
+            "drain",
+        }
+    )
+    assert INLAND_WATER_CLASSES == expected
+
+
+# ---------------------------------------------------------------------------
+# Fix #1: apply_sea_mask with inland_water_polygons_svy21 tests
+# ---------------------------------------------------------------------------
+
+
+def test_apply_sea_mask_with_inland_water_returns_combined_water_fraction():
+    """water_fraction = sea_water_fraction + inland_fraction when inland polygons passed.
+
+    Construct a cell box with:
+      - 25% covered by sea polygon (sea_water_fraction = 0.25)
+      - 25% covered by inland lake polygon (inland_fraction = 0.25, non-overlapping)
+    Expected: water_fraction = 0.50; sea_water_fraction = 0.25; drop_flag = False.
+
+    This is the core Fix #1 correctness assertion.
+    """
+    # Cell box: 100x100 = 10000 m²
+    cell_box = Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])
+
+    # Sea polygon covers left 25 columns: 25 x 100 = 2500 m²  → fraction = 0.25
+    sea_poly = Polygon([(0, 0), (25, 0), (25, 100), (0, 100)])
+
+    # Inland lake covers right 25 columns: 25 x 100 = 2500 m² → fraction = 0.25
+    inland_poly = Polygon([(75, 0), (100, 0), (100, 100), (75, 100)])
+
+    # One feature in the cell (prevents drop_flag)
+    dummy_feature = object()
+
+    sea_wf, wf, drop_flag = apply_sea_mask(
+        cell_box_admin_clipped=cell_box,
+        cell_features=[dummy_feature],
+        sea_polygons_svy21=sea_poly,
+        inland_water_polygons_svy21=inland_poly,
+    )
+
+    assert sea_wf == pytest.approx(0.25)
+    assert wf == pytest.approx(0.50)
+    assert drop_flag is False
+
+
+def test_apply_sea_mask_without_inland_water_behaves_as_before():
+    """When inland_water_polygons_svy21 is None (default), water_fraction == sea_water_fraction.
+
+    Backward-compatibility assertion: existing callers that don't pass
+    inland_water_polygons_svy21 get the same result as before Fix #1.
+    """
+    cell_box = Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])
+    sea_poly = Polygon([(0, 0), (50, 0), (50, 100), (0, 100)])  # 50%
+
+    sea_wf, wf, drop_flag = apply_sea_mask(
+        cell_box_admin_clipped=cell_box,
+        cell_features=[],
+        sea_polygons_svy21=sea_poly,
+        # inland_water_polygons_svy21 not passed → defaults to None
+    )
+
+    assert sea_wf == pytest.approx(0.50)
+    assert wf == pytest.approx(sea_wf)  # water_fraction == sea_water_fraction
+    # 0.5 < 1 - EPS_RATIO so drop_flag = False (no features but below threshold)
+    assert drop_flag is False
+
+
+def test_apply_sea_mask_water_fraction_clamped_to_1_when_fp_overflow():
+    """water_fraction is clamped to 1.0 when sea + inland FP sum exceeds 1.0.
+
+    Sea and inland don't geometrically overlap, but FP arithmetic can push the
+    sum slightly above 1.0.  The min(1.0, ...) cap handles this.
+
+    We test the cap by using large near-full sea and near-full inland polygons
+    whose precise areas may sum to > 1.0 due to floating-point geometry ops.
+    """
+    # Cell box: 1 x 1 exact.
+    cell_box = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+
+    # sea = entire cell (sea_fraction = 1.0)
+    sea_poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+
+    # inland = entire cell (inland_fraction = 1.0) — unrealistic but tests cap
+    inland_poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+
+    # One feature prevents drop
+    dummy_feature = object()
+
+    _, wf, _ = apply_sea_mask(
+        cell_box_admin_clipped=cell_box,
+        cell_features=[dummy_feature],
+        sea_polygons_svy21=sea_poly,
+        inland_water_polygons_svy21=inland_poly,
+    )
+
+    assert wf <= 1.0, f"water_fraction must be clamped to 1.0, got {wf}"
+
+
+def test_apply_sea_mask_inland_water_empty_geometry_is_noop():
+    """Passing an empty inland geometry produces water_fraction == sea_water_fraction."""
+    cell_box = Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])
+    sea_poly = Polygon([(0, 0), (30, 0), (30, 100), (0, 100)])  # 30%
+    empty_inland = MultiPolygon()  # empty
+
+    sea_wf, wf, _ = apply_sea_mask(
+        cell_box_admin_clipped=cell_box,
+        cell_features=[],
+        sea_polygons_svy21=sea_poly,
+        inland_water_polygons_svy21=empty_inland,
+    )
+
+    assert sea_wf == pytest.approx(0.30)
+    assert wf == pytest.approx(sea_wf)  # empty inland adds nothing
+
+
+# ---------------------------------------------------------------------------
+# Fix #2: _derive_region_lookup_svy21 and _lookup_admin_region tests
+# ---------------------------------------------------------------------------
+
+# Import the helpers — they are module-private but tested directly.
+from cfm.data.sub_c.pipeline import (  # noqa: E402
+    _derive_region_lookup_svy21,
+    _lookup_admin_region,
+)
+
+
+def _make_divisions_table(rows: list[dict]) -> pa.Table:
+    """Build a minimal divisions theme table for testing region lookup."""
+    names_type = pa.struct([pa.field("primary", pa.string())])
+    return pa.table(
+        {
+            "subtype": pa.array([r["subtype"] for r in rows], type=pa.string()),
+            "country": pa.array([r["country"] for r in rows], type=pa.string()),
+            "names": pa.array(
+                [{"primary": r["name"]} for r in rows],
+                type=names_type,
+            ),
+            "geometry": pa.array([wkb.dumps(r["geometry"]) for r in rows], type=pa.binary()),
+        }
+    )
+
+
+def test_derive_region_lookup_filters_subtype_region_and_country():
+    """_derive_region_lookup_svy21 returns only rows where subtype='region' AND country='SG'."""
+    # Two SG regions + one MY region + one SG locality
+    rows = [
+        {
+            "subtype": "region",
+            "country": "SG",
+            "name": "Central Region",
+            "geometry": Polygon([(103.8, 1.3), (103.9, 1.3), (103.9, 1.4), (103.8, 1.4)]),
+        },
+        {
+            "subtype": "region",
+            "country": "SG",
+            "name": "West Region",
+            "geometry": Polygon([(103.6, 1.2), (103.8, 1.2), (103.8, 1.4), (103.6, 1.4)]),
+        },
+        {
+            "subtype": "region",
+            "country": "MY",
+            "name": "Johor",
+            "geometry": Polygon([(103.5, 1.1), (104.5, 1.1), (104.5, 1.8), (103.5, 1.8)]),
+        },
+        {
+            "subtype": "locality",  # wrong subtype — should be excluded
+            "country": "SG",
+            "name": "Some Locality",
+            "geometry": Polygon([(103.81, 1.31), (103.82, 1.31), (103.82, 1.32), (103.81, 1.32)]),
+        },
+    ]
+    table = _make_divisions_table(rows)
+    lookup = _derive_region_lookup_svy21(table, country_code="SG")
+
+    # Should have exactly the 2 SG regions (sorted alphabetically by name).
+    assert len(lookup) == 2
+    names = [p[0] for p in lookup]
+    assert names == ["Central Region", "West Region"]  # alphabetical order
+
+
+def test_derive_region_lookup_returns_empty_when_no_region_rows():
+    """Returns empty list when no rows match subtype='region' for the given country."""
+    rows = [
+        {
+            "subtype": "locality",
+            "country": "SG",
+            "name": "Some Locality",
+            "geometry": Polygon([(103.8, 1.3), (103.9, 1.3), (103.9, 1.4), (103.8, 1.4)]),
+        },
+    ]
+    table = _make_divisions_table(rows)
+    lookup = _derive_region_lookup_svy21(table, country_code="SG")
+    assert lookup == []
+
+
+def test_lookup_admin_region_centroid_in_region():
+    """_lookup_admin_region returns the matching region name for a point inside a polygon."""
+    # Build a synthetic lookup with two non-overlapping regions in SVY21 coords.
+    # Region A: x ∈ [0, 500], y ∈ [0, 500]
+    # Region B: x ∈ [500, 1000], y ∈ [0, 500]
+    region_a = Polygon([(0, 0), (500, 0), (500, 500), (0, 500)])
+    region_b = Polygon([(500, 0), (1000, 0), (1000, 500), (500, 500)])
+    lookup = [("Alpha Region", region_a), ("Beta Region", region_b)]
+
+    centroid_in_a = Point(250, 250)
+    centroid_in_b = Point(750, 250)
+
+    assert _lookup_admin_region(centroid_in_a, lookup) == "Alpha Region"
+    assert _lookup_admin_region(centroid_in_b, lookup) == "Beta Region"
+
+
+def test_lookup_admin_region_centroid_outside_all_regions():
+    """_lookup_admin_region returns None when the point doesn't fall inside any region."""
+    region = Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])
+    lookup = [("Some Region", region)]
+
+    outside_point = Point(500, 500)
+    assert _lookup_admin_region(outside_point, lookup) is None
+
+
+def test_lookup_admin_region_empty_lookup_returns_none():
+    """_lookup_admin_region returns None when region_lookup_svy21 is empty."""
+    centroid = Point(100, 100)
+    assert _lookup_admin_region(centroid, []) is None
+
+
+def test_derive_region_lookup_sorted_alphabetically_for_determinism():
+    """Lookup list is sorted alphabetically by region name (byte-determinism)."""
+    rows = [
+        {
+            "subtype": "region",
+            "country": "SG",
+            "name": "West Region",
+            "geometry": Polygon([(103.6, 1.2), (103.8, 1.2), (103.8, 1.4), (103.6, 1.4)]),
+        },
+        {
+            "subtype": "region",
+            "country": "SG",
+            "name": "East Region",
+            "geometry": Polygon([(103.8, 1.3), (104.0, 1.3), (104.0, 1.4), (103.8, 1.4)]),
+        },
+        {
+            "subtype": "region",
+            "country": "SG",
+            "name": "Central Region",
+            "geometry": Polygon([(103.7, 1.25), (103.85, 1.25), (103.85, 1.35), (103.7, 1.35)]),
+        },
+    ]
+    table = _make_divisions_table(rows)
+    lookup = _derive_region_lookup_svy21(table, country_code="SG")
+    names = [p[0] for p in lookup]
+    assert names == sorted(names), f"Region lookup not alphabetically sorted: {names}"

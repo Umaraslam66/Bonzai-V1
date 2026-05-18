@@ -8,6 +8,11 @@ apply_missing_value_policy. The base.class not-in-vocab drop_row policy
 below Strict-300 floor), leaving sea-mask with no polygons to work with.
 Sea polygons are masks, not features — features.parquet does NOT contain
 sea polygons; the policied themes correctly drop them.
+
+derive_inland_water_polygons, by contrast, runs against the POLICIED base
+theme — inland-water classes (river, stream, reservoir, …) are in the
+Phase 1 BASE_ vocab and survive the policy step, so the policied table is
+the correct source.  Per spec §9.2 + §11.3.
 """
 
 from __future__ import annotations
@@ -24,6 +29,62 @@ from cfm.data.sub_c.epsilon import EPS_RATIO
 # Module-level frozensets — immutable, fast membership test
 SEA_CLASS_VALUES = frozenset({"ocean", "strait", "bay"})
 SEA_SUBTYPE_VALUES = frozenset({"ocean"})
+
+# Inland-water classes per spec §9.2 canonical list.  These classes are all in
+# the Phase 1 BASE_ vocab, so they survive apply_missing_value_policy and are
+# present in the policied base theme.
+#
+# DECISION: chose this exact set from spec §9.2 text over dynamically deriving
+# from vocab YAML at runtime.  Spec text is the authority; the vocab YAML is
+# the downstream consumer.  If a new water class is added to the vocab, it
+# should be added here too — that linkage is documented in the spec, not
+# auto-wired.  Revisit if inland-water classification expands in Phase 2.
+INLAND_WATER_CLASSES: frozenset[str] = frozenset(
+    {
+        "river",
+        "stream",
+        "reservoir",
+        "lake",
+        "pond",
+        "swimming_pool",
+        "canal",
+        "drain",
+    }
+)
+
+
+def derive_inland_water_polygons(base_theme: pa.Table) -> BaseGeometry:
+    """Extract inland-water polygons from the POLICIED base theme.
+
+    Filter: class IN INLAND_WATER_CLASSES (river, stream, reservoir, lake,
+    pond, swimming_pool, canal, drain — spec §9.2 canonical set).
+
+    Unlike derive_sea_polygons, this MUST be called on the POLICIED base theme
+    (after apply_missing_value_policy), because inland-water classes are in the
+    Phase 1 BASE_ vocab and survive the policy step.  Calling it on the raw
+    theme would include rows that policy subsequently drops for other reasons,
+    but in practice only the sea rows (ocean, strait, bay) are policy-dropped,
+    so the ordering difference is cosmetic for the current vocab.
+
+    Returns: unary_union of all matching geometries as a single (Multi)Polygon
+    or GeometryCollection.  Returns empty MultiPolygon if no matching rows.
+
+    DECISION: LineString rivers/streams have zero area; their contribution to
+    water_fraction (an area ratio) is mathematically zero regardless.  We
+    include them in the union anyway — the call is cheap, the union is correct
+    (unary_union of mixed Polygon + LineString returns a GeometryCollection
+    whose .area sums only the polygon components), and it avoids a filtering
+    step that could silently exclude future polygon-typed rivers from sources
+    that store some rivers as LineStrings.  If profiling shows the mixed-type
+    union is slow, filter to Polygon-typed rows here.  Per spec §11.3.
+    """
+    class_col = base_theme.column("class")
+    mask = pc.is_in(class_col, value_set=pa.array(list(INLAND_WATER_CLASSES)))
+    rows = base_theme.filter(mask)
+    if len(rows) == 0:
+        return MultiPolygon()
+    geometries = [wkb.loads(g) for g in rows.column("geometry").to_pylist()]
+    return unary_union(geometries)
 
 
 def derive_sea_polygons(base_theme: pa.Table) -> BaseGeometry:
@@ -55,17 +116,27 @@ def apply_sea_mask(
     cell_box_admin_clipped: BaseGeometry,
     cell_features: list,  # list[CellSubFeature]; circular-import avoided via untyped list
     sea_polygons_svy21: BaseGeometry,
+    inland_water_polygons_svy21: BaseGeometry | None = None,
 ) -> tuple[float, float, bool]:
     """For a single cell, compute (sea_water_fraction, water_fraction, drop_flag).
 
     sea_water_fraction = area(cell ∩ admin ∩ sea_polygons) / area(cell ∩ admin)
+    inland_fraction    = area(cell ∩ admin ∩ inland_water_polygons) / area(cell ∩ admin)
+                         (0.0 if inland_water_polygons_svy21 is None or empty)
+    water_fraction     = min(1.0, sea_water_fraction + inland_fraction)
     drop_flag = (sea_water_fraction >= 1.0 - EPS_RATIO) AND (zero non-sea features)
 
-    Per spec §9.2 + §4.3 alpha structural-boundary EPSILON.
+    Per spec §9.2 + §4.3 alpha structural-boundary EPSILON.  Per spec §11.3
+    water_fraction = "all-water (sea + inland)" coverage of the cell.
 
-    The water_fraction returned here is a placeholder equal to sea_water_fraction.
-    The pipeline orchestrator (Task 12) combines sea + inland water into the
-    final water_fraction written to cells.parquet.
+    The min(1.0, ...) cap handles FP arithmetic: sea and inland polygons do
+    not overlap by definition, but floating-point area sums can produce
+    1.0 + epsilon.  The cap satisfies inline-validator invariant #5
+    (water_fraction <= 1 + EPS_RATIO) strictly.
+
+    inland_water_polygons_svy21 defaults to None for backward compatibility
+    with callers that pre-date Fix #1.  Passing None yields
+    water_fraction == sea_water_fraction (the previous behaviour).
     """
     cell_admin_area = cell_box_admin_clipped.area
     if cell_admin_area <= 0:
@@ -75,8 +146,15 @@ def apply_sea_mask(
     sea_overlap = cell_box_admin_clipped.intersection(sea_polygons_svy21)
     sea_water_fraction = sea_overlap.area / cell_admin_area
 
-    # water_fraction: placeholder — orchestrator overrides with combined value
-    water_fraction = sea_water_fraction
+    # Inland-water contribution (spec §11.3).  Only computed when the caller
+    # passes the derived inland geometry (Fix #1); defaults to 0.0 otherwise.
+    if inland_water_polygons_svy21 is not None and not inland_water_polygons_svy21.is_empty:
+        inland_overlap = cell_box_admin_clipped.intersection(inland_water_polygons_svy21)
+        inland_fraction = inland_overlap.area / cell_admin_area
+    else:
+        inland_fraction = 0.0
+
+    water_fraction = min(1.0, sea_water_fraction + inland_fraction)
 
     # "Zero non-sea features": under the pipeline order (sea polygons are removed
     # from policied themes before feature extraction), every feature in cell_features
