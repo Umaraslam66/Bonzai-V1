@@ -130,7 +130,7 @@ def _make_tile_meta(
     tile_j: int = 17,
 ) -> TileMeta:
     return TileMeta(
-        schema_version="1.0",
+        schema_version="1.1",
         tile_i=tile_i,
         tile_j=tile_j,
         aggregates={
@@ -165,7 +165,7 @@ def _make_tile_provenance(
     tile_j: int = 17,
 ) -> TileProvenance:
     return TileProvenance(
-        schema_version="1.0",
+        schema_version="1.1",
         tile_i=tile_i,
         tile_j=tile_j,
         crs="EPSG:3414",
@@ -550,7 +550,7 @@ def test_write_meta_yaml_includes_aggregates_and_conditioning(tmp_path: Path) ->
     # --- tile identity ---
     assert data["tile_i"] == 12
     assert data["tile_j"] == 17
-    assert data["schema_version"] == "1.0"
+    assert data["schema_version"] == "1.1"
 
     # --- config key (spec §11.5) ---
     assert "sliver_drop_rule" in data["config"]
@@ -600,7 +600,7 @@ def test_write_provenance_yaml_inputs_and_outputs_digests(tmp_path: Path) -> Non
     assert data["tile_i"] == 12
     assert data["tile_j"] == 17
     assert data["crs"] == "EPSG:3414"
-    assert data["schema_version"] == "1.0"
+    assert data["schema_version"] == "1.1"
 
 
 # ---------------------------------------------------------------------------

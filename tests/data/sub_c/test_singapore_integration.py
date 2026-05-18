@@ -16,7 +16,7 @@ Region's admin_polygon to a bounding box that contains both tiles:
 
   SVY21: x ∈ [26000, 32000],  y ∈ [28000, 36000]
 
-This produces 15 tiles (a 6x4 grid inside the admin polygon), which
+This produces up to 12 tiles (a 3x4 grid inside the admin polygon), which
 completes in < 60 s wall-clock on a MacBook Pro with pool_size=4.
 
 Pre-condition: ``data/cache/overture/2026-04-15.0/singapore/`` must exist.
@@ -176,13 +176,13 @@ def test_singapore_two_tile_extraction_shape(singapore_sub_region_output: Path) 
             assert (tile_dir / fname).exists(), f"{fname} missing in {tile_dir}"
 
         # cells.parquet: 1 <= rows <= 64  (8x8 grid; sea drops reduce the count)
-        cells = pq.read_table(tile_dir / "cells.parquet")
+        cells = pq.ParquetFile(tile_dir / "cells.parquet").read()
         assert 1 <= cells.num_rows <= 64, (
             f"tile {tile_name}: cells.parquet has unexpected row count {cells.num_rows}"
         )
 
         # features.parquet: ≥ 1 feature in a real-world non-empty tile
-        features = pq.read_table(tile_dir / "features.parquet")
+        features = pq.ParquetFile(tile_dir / "features.parquet").read()
         assert features.num_rows >= 1, (
             f"tile {tile_name}: features.parquet is empty — expected real-world features"
         )

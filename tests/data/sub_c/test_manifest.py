@@ -40,8 +40,8 @@ def _make_manifest(tiles: list[dict] | None = None) -> RegionManifest:
             {"tile_i": 12, "tile_j": 17, "provenance_sha256": "bbbb" * 16},
         ]
     return RegionManifest(
-        schema_version="1.0",
-        sub_c_schema_version="1.0",
+        schema_version="1.1",
+        sub_c_schema_version="1.1",
         release="2026-04-15.0",
         region="singapore",
         region_crs="EPSG:3414",
@@ -198,7 +198,7 @@ def test_aggregate_tile_inventory_computes_provenance_sha256(tmp_path: Path) -> 
     """aggregate_tile_inventory: each tile's provenance_sha256 matches
     compute_sha256_excluding on the provenance.yaml content dict."""
     prov = TileProvenance(
-        schema_version="1.0",
+        schema_version="1.1",
         tile_i=3,
         tile_j=7,
         crs="EPSG:3414",

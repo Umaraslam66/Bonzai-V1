@@ -164,7 +164,7 @@ def _make_clean_tile_dir(tmp_path: Path) -> Path:
     mean_sea_wf = (0.1 * 62500.0 + 0.2 * 50000.0) / (62500.0 + 50000.0)
 
     meta = TileMeta(
-        schema_version="1.0",
+        schema_version="1.1",
         tile_i=0,
         tile_j=0,
         aggregates={
