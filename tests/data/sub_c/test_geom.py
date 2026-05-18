@@ -75,6 +75,14 @@ def test_corner_crossing_emits_two_records_one_per_axis():
     assert axis_codes == [encode_enum(AXIS, "x"), encode_enum(AXIS, "y")]
     # Both share source_feature_id
     assert all(c.source_feature_id == "road_003" for c in crossings)
+    # Spec §8.3: corner records are anchored at the lower-left corner cell;
+    # both records must share lower_cell_i / lower_cell_j.
+    x_records = [c for c in crossings if c.axis == encode_enum(AXIS, "x")]
+    y_records = [c for c in crossings if c.axis == encode_enum(AXIS, "y")]
+    assert len(x_records) == 1
+    assert len(y_records) == 1
+    assert x_records[0].lower_cell_i == y_records[0].lower_cell_i
+    assert x_records[0].lower_cell_j == y_records[0].lower_cell_j
 
 
 def test_polygon_interior_ring_emits_multiple_records_per_source_feature():
@@ -90,6 +98,10 @@ def test_polygon_interior_ring_emits_multiple_records_per_source_feature():
     )
     # Many crossings expected; at least one should have ring_index >= 1 (interior ring)
     assert any(c.ring_index >= 1 for c in crossings)
+    # Spec §8.2: ring_index=0 for exterior shell; ≥1 for interior rings.
+    assert any(c.ring_index == 0 for c in crossings), "exterior ring records expected"
+    ring1_count = sum(1 for c in crossings if c.ring_index == 1)
+    assert ring1_count >= 1, "interior ring (index 1) records expected"
 
 
 def test_co_linear_entirety_emits_zero_records_attaches_to_higher_ij():
@@ -218,3 +230,19 @@ def test_apply_sliver_drop_removes_below_threshold_features():
     )
     assert len(kept) == 1
     assert kept[0].source_feature_id == "n"
+    # Spec §4.3 β user-threshold: strict comparison; at-threshold features are kept.
+    at_threshold = CellSubFeature(
+        cell_i=0,
+        cell_j=0,
+        source_feature_id="at",
+        feature_class="road",
+        geometry=LineString([(0, 0), (0.01, 0)]),  # length exactly 0.01 m
+        geometry_type="LineString",
+    )
+    kept_all = apply_sliver_drop(
+        [normal_sub, sliver_sub, at_threshold],
+        area_threshold_m2=0.01,
+        length_threshold_m=0.01,
+    )
+    assert len(kept_all) == 2  # normal + at_threshold; sliver dropped
+    assert {sf.source_feature_id for sf in kept_all} == {"n", "at"}

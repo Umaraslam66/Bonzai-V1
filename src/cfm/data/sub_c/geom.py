@@ -415,6 +415,13 @@ def _derive_axis_line_crossings(
                 )
             )
     elif isinstance(rel_geom, MultiPolygon):
+        # DECISION: ring_index restarts at idx+1 per sub-polygon, matching the
+        # Polygon case. For a MultiPolygon where multiple sub-polygons have holes
+        # crossing the same axis line, distinct sub-polygon holes can share
+        # ring_index values. Spec §8.2 requires ring_index >= 1 for interior rings
+        # but does not require global uniqueness across sub-polygons. Revisit if
+        # sub-E needs per-sub-polygon disambiguation (would require adding a
+        # sub_polygon_index column to CrossingRecord).
         # multi-polygon source: iterate component polygons + their interior rings
         for sub in rel_geom.geoms:
             if not isinstance(sub, Polygon):
