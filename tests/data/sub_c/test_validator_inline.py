@@ -238,13 +238,31 @@ def test_validate_tile_inline_passes_on_clean_synthetic_tile(tmp_path: Path) -> 
 
 
 # ---------------------------------------------------------------------------
-# Layer-2 torture tile — deferred to Task 16 (fixture not yet built)
+# Layer-2 torture tile — wired up in Task 16 via session-scoped fixture
+# (conftest.py re-exports torture_tile_output from test_fixture_builders).
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="Layer-2 torture-tile fixture built in Task 16")
-def test_inline_validator_passes_on_clean_torture_tile_output(tmp_path: Path) -> None:
-    """Placeholder; the real test lives in Task 16 (torture-tile fixture)."""
+def test_inline_validator_passes_on_clean_torture_tile_output(
+    torture_tile_output: Path,
+) -> None:
+    """validate_tile_inline on the torture tile output must not raise.
+
+    Equivalent to test_torture_tile_inline_validator_passes_on_clean_output in
+    test_fixture_builders.py but kept here so the spec §13.2 named-test list
+    has a one-to-one mapping with the suite.  Both tests share the same
+    session-scoped fixture and add no measurable wall-clock cost.
+
+    Per feedback_test_weakening_to_pass.md: if this raises, STOP and escalate;
+    do NOT weaken the assertion.
+    """
+    from tests.fixtures.sub_c.build_torture_tile import (
+        TORTURE_TILE_I,
+        TORTURE_TILE_J,
+    )
+
+    tile_dir = torture_tile_output / f"tile=EPSG3414_i{TORTURE_TILE_I}_j{TORTURE_TILE_J}"
+    validate_tile_inline(tile_dir)
 
 
 # ---------------------------------------------------------------------------

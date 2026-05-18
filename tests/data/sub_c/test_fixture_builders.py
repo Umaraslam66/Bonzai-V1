@@ -21,8 +21,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from cfm.data.sub_c.pipeline import extract_region
 from cfm.data.sub_c.validator_inline import validate_tile_inline
 from tests.fixtures.sub_c.build_cross_tile_fixture import (
@@ -35,7 +33,6 @@ from tests.fixtures.sub_c.build_torture_tile import (
     TORTURE_TILE_I,
     TORTURE_TILE_J,
     TortureFeatureDef,
-    build_torture_region,
     torture_tile_features,
 )
 
@@ -53,36 +50,10 @@ _COMMIT_SHA = "b86c509" + "0" * 33  # canonical 40-char sha
 
 
 # ---------------------------------------------------------------------------
-# Session-scoped fixture: run extract_region ONCE for torture tile
+# Session-scoped fixture: torture_tile_output is defined in conftest.py
+# (Task 16 promoted it from this module to conftest.py so other test modules
+# in tests/data/sub_c/ can share the same one-per-session extraction).
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="session")
-def torture_tile_output(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Extract the torture-tile synthetic region once per pytest session.
-
-    Returns the output directory. All torture-tile tests share this session-
-    level extraction to avoid the (small but non-zero) overhead of re-running
-    the pipeline for each test.
-
-    Tests that need to corrupt the output MUST copy this directory to their own
-    tmp_path before modifying anything (pattern is used in Task 16).
-    """
-    out = tmp_path_factory.mktemp("torture_tile_session", numbered=False)
-    region = build_torture_region()
-    extract_region(
-        region,
-        out,
-        policy_yaml_path=_POLICY_YAML,
-        vocab_yaml_path=_VOCAB_YAML,
-        release="2026-05-18.torture",
-        commit_sha=_COMMIT_SHA,
-        extracted_utc=_EXTRACTED_UTC,
-        started_utc=_EXTRACTED_UTC,
-        rerun_reason="initial",
-        pool_size=1,
-    )
-    return out
 
 
 # ---------------------------------------------------------------------------
