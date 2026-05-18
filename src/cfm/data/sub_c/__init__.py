@@ -14,6 +14,7 @@ from cfm.data.sub_c.enums import (
 )
 from cfm.data.sub_c.epsilon import EPS_AREA_M2, EPS_COORD_M, EPS_LENGTH_M, EPS_RATIO
 from cfm.data.sub_c.errors import PolicyError, TileValidationError
+from cfm.data.sub_c.validator_cross_tile import validate_extraction_cross_tile
 
 __all__ = [
     "AXIS",
@@ -29,4 +30,5 @@ __all__ = [
     "TileValidationError",
     "decode_enum",
     "encode_enum",
+    "validate_extraction_cross_tile",
 ]
