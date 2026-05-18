@@ -11,7 +11,14 @@ sub_c_schema_version bump per spec §14.9.
 
 from __future__ import annotations
 
-GEOMETRY_TYPE: dict[int, str] = {0: "Point", 1: "LineString", 2: "Polygon"}
+GEOMETRY_TYPE: dict[int, str] = {
+    0: "Point",
+    1: "LineString",
+    2: "Polygon",
+    3: "MultiPoint",  # append-only §14.3; schema-version bump → 1.1
+    4: "MultiLineString",  # append-only §14.3; schema-version bump → 1.1
+    5: "MultiPolygon",  # append-only §14.3; schema-version bump → 1.1
+}
 FEATURE_CLASS: dict[int, str] = {0: "road", 1: "building", 2: "poi", 3: "base"}
 AXIS: dict[int, str] = {0: "x", 1: "y"}
 EVENT_TYPE: dict[int, str] = {0: "enter", 1: "exit", 2: "interval"}

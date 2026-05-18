@@ -657,7 +657,7 @@ def test_pipeline_extract_tile_produces_complete_directory_artifacts(tmp_path: P
         tile_dir = out / f"tile=EPSG3414_i{tile['tile_i']}_j{tile['tile_j']}"
         meta = yaml.safe_load((tile_dir / "meta.yaml").read_text())
 
-        assert meta["schema_version"] == "1.0"
+        assert meta["schema_version"] == "1.1"  # bumped in v1.1 for Multi* enum extension
         assert meta["tile_i"] == tile["tile_i"]
         assert meta["tile_j"] == tile["tile_j"]
 

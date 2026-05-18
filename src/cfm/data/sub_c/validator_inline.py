@@ -38,9 +38,9 @@ from cfm.data.sub_c.errors import TileValidationError
 from cfm.data.sub_c.io import _CELLS_SCHEMA, _CROSSINGS_SCHEMA, _FEATURES_SCHEMA
 
 # WKB geometry type codes (ISO WKB / little-endian NDR)
-# Our int8 enum: 0=Point, 1=LineString, 2=Polygon
-# WKB type bytes: 1=Point, 2=LineString, 3=Polygon
-_ENUM_TO_WKB_TYPE: dict[int, int] = {0: 1, 1: 2, 2: 3}
+# Our int8 enum: 0=Point, 1=LineString, 2=Polygon, 3=MultiPoint, 4=MultiLineString, 5=MultiPolygon
+# WKB type bytes: 1=Point, 2=LineString, 3=Polygon, 4=MultiPoint, 5=MultiLineString, 6=MultiPolygon
+_ENUM_TO_WKB_TYPE: dict[int, int] = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6}
 
 
 def _read_parquet(path: Path) -> pa.Table:

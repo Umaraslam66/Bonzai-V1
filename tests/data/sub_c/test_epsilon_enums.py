@@ -28,7 +28,14 @@ def test_epsilon_values_match_spec_table():
 
 
 def test_int8_enum_mappings_match_spec():
-    assert GEOMETRY_TYPE == {0: "Point", 1: "LineString", 2: "Polygon"}
+    assert GEOMETRY_TYPE == {
+        0: "Point",
+        1: "LineString",
+        2: "Polygon",
+        3: "MultiPoint",
+        4: "MultiLineString",
+        5: "MultiPolygon",
+    }
     assert FEATURE_CLASS == {0: "road", 1: "building", 2: "poi", 3: "base"}
     assert AXIS == {0: "x", 1: "y"}
     assert EVENT_TYPE == {0: "enter", 1: "exit", 2: "interval"}

@@ -92,8 +92,9 @@ from cfm.data.sub_c.sea_mask import apply_sea_mask, derive_sea_polygons
 from cfm.data.sub_c.validator_inline import validate_tile_inline
 
 # Sub-C schema versions (spec §11.5/§11.6/§11.7). Bumped on append-only changes.
-_SCHEMA_VERSION: str = "1.0"
-_SUB_C_SCHEMA_VERSION: str = "1.0"
+# 1.1: GEOMETRY_TYPE enum extended with MultiPoint/MultiLineString/MultiPolygon (§14.9).
+_SCHEMA_VERSION: str = "1.1"
+_SUB_C_SCHEMA_VERSION: str = "1.1"
 # Per spec §11.5 — stringified, per-tile-tunable sliver-drop rule.
 _SLIVER_DROP_RULE: str = "drop iff geometry has area < 0.01 m² OR length < 0.01 m"
 # Default sliver thresholds per spec §11.5.
