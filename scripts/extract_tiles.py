@@ -241,9 +241,9 @@ def main(argv: list[str] | None = None) -> int:
         }
         log.error(
             "Cross-tile validator FAILED: %s",
-            json.dumps(payload, indent=2),
+            json.dumps(payload, indent=2, sort_keys=True),
         )
-        print(json.dumps(payload, indent=2), file=sys.stderr)
+        print(json.dumps(payload, indent=2, sort_keys=True), file=sys.stderr)
         return 1
     except Exception as exc:
         log.error("Cross-tile validator raised unexpected error: %s", exc)

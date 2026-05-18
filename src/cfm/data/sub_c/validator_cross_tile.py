@@ -53,13 +53,6 @@ log = logging.getLogger(__name__)
 # Public API
 # ---------------------------------------------------------------------------
 
-_OUTPUTS_SHA_KEYS: tuple[str, ...] = (
-    "cells_parquet_sha256",
-    "features_parquet_sha256",
-    "crossings_parquet_sha256",
-    "meta_yaml_sha256",
-)
-
 _OUTPUTS_FILENAMES: dict[str, str] = {
     "cells_parquet_sha256": "cells.parquet",
     "features_parquet_sha256": "features.parquet",
