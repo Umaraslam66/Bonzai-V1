@@ -203,8 +203,6 @@ def build_cross_tile_micro_region() -> SimpleNamespace:
 
     # Merge both buildings into a single table (both tiles share the same theme
     # in the region's themes dict; the orchestrator filters per-tile at extract time).
-    import pyarrow as pa
-
     all_buildings = pa.concat_tables([left_bldg, right_bldg])
 
     themes = {
