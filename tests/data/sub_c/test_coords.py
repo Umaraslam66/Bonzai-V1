@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from shapely.geometry import Point
+
 from cfm.data.sub_c.coords import (
     SVY21_EPSG_CODE,
     TILE_SIZE_M,
+    reproject_geometry_to_svy21,
     reproject_lonlat_to_svy21,
     tile_id_from_svy21,
 )
@@ -46,3 +49,13 @@ def test_co_linear_feature_attaches_to_higher_ij_cell():
 
 def test_tile_size_constant():
     assert TILE_SIZE_M == 2000
+
+
+def test_reproject_geometry_to_svy21_point_in_marina_bay_range():
+    """Geometry-level reprojection wraps the scalar reprojection;
+    verifies the shapely.ops.transform pathway works."""
+    p = Point(103.8587, 1.2839)  # Marina Bay (lon, lat)
+    out = reproject_geometry_to_svy21(p)
+    assert isinstance(out, Point)
+    assert 25000 < out.x < 35000
+    assert 25000 < out.y < 35000

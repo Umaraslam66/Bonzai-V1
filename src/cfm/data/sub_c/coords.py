@@ -39,13 +39,11 @@ def reproject_lonlat_to_svy21(lon: float, lat: float) -> tuple[float, float]:
 
 
 def reproject_geometry_to_svy21(geom: BaseGeometry) -> BaseGeometry:
-    """Reproject a shapely geometry from EPSG:4326 to EPSG:3414 SVY21."""
+    """Reproject a shapely geometry from EPSG:4326 to EPSG:3414 SVY21.
 
-    def _xy(x: float, y: float, z: float | None = None) -> tuple[float, float]:
-        nx, ny = _TRANSFORMER_4326_TO_SVY21.transform(x, y)
-        return float(nx), float(ny)
-
-    return shapely_transform(_xy, geom)
+    Z coordinates, if present, are dropped; output is always 2D.
+    """
+    return shapely_transform(_TRANSFORMER_4326_TO_SVY21.transform, geom)
 
 
 def tile_id_from_svy21(x: float, y: float) -> tuple[int, int]:
