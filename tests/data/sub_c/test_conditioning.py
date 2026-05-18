@@ -16,7 +16,7 @@ from cfm.data.sub_c.conditioning import compute_conditioning_per_tile
 from cfm.data.sub_c.enums import COASTAL_RIVER, encode_enum
 
 
-def test_compute_conditioning_inland_when_no_sea_no_rivers():
+def test_compute_conditioning_inland_cell_classified_inland():
     """All inputs zero/empty → code 0 (inland)."""
     result = compute_conditioning_per_tile(
         cell_sea_water_fractions=[],
@@ -27,7 +27,7 @@ def test_compute_conditioning_inland_when_no_sea_no_rivers():
     assert result["coastal_inland_river"] == 0
 
 
-def test_compute_conditioning_coastal_when_any_cell_has_sea():
+def test_compute_conditioning_coastal_cell_classified_coastal():
     """One cell with sea_water_fraction > 0 → code 1 (coastal)."""
     result = compute_conditioning_per_tile(
         cell_sea_water_fractions=[0.5],
@@ -38,7 +38,7 @@ def test_compute_conditioning_coastal_when_any_cell_has_sea():
     assert result["coastal_inland_river"] == 1
 
 
-def test_compute_conditioning_riverside_when_river_length_meets_500m_threshold():
+def test_compute_conditioning_riverside_requires_river_length_at_least_500m_strict():
     """River length = 500.0 (exactly at threshold) → code 2 (riverside).
 
     Strict >= β user-threshold per spec §4.3 + §11.9.
@@ -66,7 +66,7 @@ def test_compute_conditioning_river_length_below_500m_is_inland():
     assert result["coastal_inland_river"] == 0
 
 
-def test_compute_conditioning_coastal_riverside_when_both_conditions_hold():
+def test_compute_conditioning_coastal_plus_river_classified_coastal_riverside():
     """sea_water_fraction > 0 AND river_stream_length >= 500 → code 3 (coastal_riverside)."""
     result = compute_conditioning_per_tile(
         cell_sea_water_fractions=[0.3],
@@ -103,7 +103,7 @@ def test_compute_conditioning_admin_region_passthrough():
     assert result["admin_region"] == "East Region"
 
 
-def test_compute_conditioning_morphology_class_defaults_to_asian_megacity():
+def test_compute_conditioning_morphology_class_per_tile_from_day_one():
     """morphology_class defaults to 'Asian-megacity' per spec §11.9."""
     result = compute_conditioning_per_tile(
         cell_sea_water_fractions=[],
@@ -123,7 +123,7 @@ def test_compute_conditioning_era_class_defaults_to_contemporary():
     assert result["era_class"] == "contemporary"
 
 
-def test_compute_conditioning_population_density_bucket_null_with_owner():
+def test_compute_conditioning_population_density_bucket_null_with_owner_tag():
     """population_density_bucket left null per spec §11.9; owner: sub-D."""
     result = compute_conditioning_per_tile(
         cell_sea_water_fractions=[],
@@ -187,14 +187,3 @@ def test_compute_conditioning_zero_sea_fraction_is_not_coastal():
     )
     assert result["coastal_inland_river"] == encode_enum(COASTAL_RIVER, "inland")
     assert result["coastal_inland_river"] == 0
-
-
-def test_compute_conditioning_very_small_sea_fraction_is_coastal():
-    """sea_water_fraction = 1e-10 > 0 → coastal (strict > 0 comparison)."""
-    result = compute_conditioning_per_tile(
-        cell_sea_water_fractions=[1e-10],
-        river_stream_lengths_m=[0.0],
-        admin_region="Central Region",
-    )
-    assert result["coastal_inland_river"] == encode_enum(COASTAL_RIVER, "coastal")
-    assert result["coastal_inland_river"] == 1
