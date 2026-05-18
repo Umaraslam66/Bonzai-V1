@@ -415,11 +415,20 @@ def test_derive_phase1_policy_enum_values_per_field():
         run_timestamp_utc=datetime(2026, 5, 16, 15, 25, 43, tzinfo=UTC),
     )
     by_field = {p.field: p for p in policy.field_policies}
-    assert by_field["buildings.class"].type == "emit_unknown_token"
-    assert by_field["transportation.class"].type == "drop_row"
-    assert by_field["base.class"].type == "n_a"
-    assert by_field["places.categories.primary"].type == "emit_unknown_token"
-    assert by_field["places.categories.alternate"].type == "n_a"
+
+    # missing_value axis (per sub-C spec §10.2):
+    assert by_field["buildings.class"].missing_value.type == "emit_unknown_token"
+    assert by_field["transportation.class"].missing_value.type == "drop_row"
+    assert by_field["base.class"].missing_value.type == "n_a"
+    assert by_field["places.categories.primary"].missing_value.type == "emit_unknown_token"
+    assert by_field["places.categories.alternate"].missing_value.type == "n_a"
+
+    # not_in_vocab axis (added by B2 follow-up per sub-C spec §10.2 four-case table):
+    assert by_field["buildings.class"].not_in_vocab.type == "emit_unknown_token"
+    assert by_field["transportation.class"].not_in_vocab.type == "drop_row"
+    assert by_field["base.class"].not_in_vocab.type == "drop_row"
+    assert by_field["places.categories.primary"].not_in_vocab.type == "emit_unknown_token"
+    assert by_field["places.categories.alternate"].not_in_vocab.type == "drop_element"
 
     # list_cap policy on alternate.
     assert len(policy.list_field_caps) == 1
@@ -458,13 +467,58 @@ def test_policy_to_dict_uses_unified_policies_dict():
     )
     d = policy_to_dict(policy)
     assert "fields" in d
-    # places.categories.alternate has both missing_value (n_a) and list_cap.
+    # places.categories.alternate has missing_value (n_a) + not_in_vocab (drop_element) + list_cap.
     alt = d["fields"]["places.categories.alternate"]
     assert "policies" in alt
     assert alt["policies"]["missing_value"]["type"] == "n_a"
+    assert alt["policies"]["not_in_vocab"]["type"] == "drop_element"
     assert alt["policies"]["list_cap"]["cap_value"] == 2
-    # buildings.class has only missing_value.
+    # buildings.class has both missing_value + not_in_vocab; no list_cap.
     assert "list_cap" not in d["fields"]["buildings.class"]["policies"]
     assert (
         d["fields"]["buildings.class"]["policies"]["missing_value"]["type"] == "emit_unknown_token"
     )
+    assert (
+        d["fields"]["buildings.class"]["policies"]["not_in_vocab"]["type"] == "emit_unknown_token"
+    )
+    # Every field has BOTH axes (PolicyAxis sub-fields: type, rationale, is_provisional).
+    for field_name in d["fields"]:
+        for axis_name in ("missing_value", "not_in_vocab"):
+            axis = d["fields"][field_name]["policies"][axis_name]
+            assert "type" in axis
+            assert "rationale" in axis
+            assert "is_provisional" in axis
+
+
+def test_locked_missing_policies_four_case_table_matches_sub_c_spec_10_2():
+    """Verify _LOCKED_MISSING_POLICIES matches sub-C spec §10.2 four-case table verbatim.
+
+    Spec: docs/superpowers/specs/2026-05-17-phase-1-sub-C-tile-extraction-design.md §10.2.
+    Drift between code and spec = test failure (catches accidental edits).
+    """
+    from cfm.data.vocab_derivation import _LOCKED_MISSING_POLICIES
+
+    expected_table = {
+        "buildings.class": ("emit_unknown_token", "emit_unknown_token"),
+        "transportation.class": ("drop_row", "drop_row"),
+        "base.class": ("n_a", "drop_row"),
+        "places.categories.primary": ("emit_unknown_token", "emit_unknown_token"),
+        "places.categories.alternate": ("n_a", "drop_element"),
+    }
+    assert set(_LOCKED_MISSING_POLICIES.keys()) == set(expected_table.keys())
+    for field, (expected_mv, expected_niv) in expected_table.items():
+        axes = _LOCKED_MISSING_POLICIES[field]
+        assert axes["missing_value"][0] == expected_mv, (
+            f"{field}.missing_value: expected {expected_mv}, got {axes['missing_value'][0]}"
+        )
+        assert axes["not_in_vocab"][0] == expected_niv, (
+            f"{field}.not_in_vocab: expected {expected_niv}, got {axes['not_in_vocab'][0]}"
+        )
+
+    # is_provisional semantic (a): not_in_vocab tracks floor-provisionality;
+    # all 5 fields are True per B2 spec §7 + §7.1 (Sweden re-run pending).
+    for field in expected_table:
+        assert _LOCKED_MISSING_POLICIES[field]["not_in_vocab"][2] is True, (
+            f"{field}.not_in_vocab.is_provisional must be True per "
+            "B2-followup plan semantic (a) — floor-provisionality tracking"
+        )
