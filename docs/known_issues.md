@@ -51,49 +51,6 @@ Half a day of work. The extraction plumbing and manifest update logic are alread
 
 ---
 
-## #6 — `admin_region = "Central Region"` placeholder
-
-- **Filed:** 2026-05-18 (Phase 1 sub-C closeout)
-- **Severity:** low (conditioning vector; sub-D uses it as a feature)
-- **Status:** deferred — fix before sub-D needs disambiguated per-tile region conditioning
-- **Affects:** `src/cfm/data/sub_c/pipeline.py` (conditioning computation)
-
-### Context
-
-Sub-C currently writes a fixed string `"Central Region"` for `tile.meta.conditioning_per_tile.admin_region`. Per spec §11.9 the correct value is the second-level division (subtype=region for Singapore) from the divisions theme covering the tile centroid. The value is informational-only at sub-C scope; every Singapore tile happens to fall inside Central Region for the initial extraction, so the placeholder is not wrong, just imprecise.
-
-### Fix
-
-Look up the divisions theme (already cached by sub-A) for the tile centroid point, filter to `subtype = "region"`, and return the matching `name` field.
-
-### Tracking
-
-- Source: `src/cfm/data/sub_c/pipeline.py` (see `# DECISION:` near conditioning computation)
-- Spec: §11.9
-
----
-
-## #5 — `water_fraction` placeholder (inland-water computation deferred)
-
-- **Filed:** 2026-05-18 (Phase 1 sub-C closeout)
-- **Severity:** low-medium (correctness on inland-river cells; doesn't break any invariant)
-- **Status:** deferred — fix before sub-D macro-plan derivation needs accurate `water_fraction` distinction
-- **Affects:** `src/cfm/data/sub_c/pipeline.py` (see `# DECISION:` in `_extract_tile`)
-
-### Context
-
-Sub-C sets `water_fraction = sea_water_fraction` for every cell. Spec §11.3 defines `water_fraction` as "all-water (sea + inland)" coverage. Computing inland-water contribution requires intersecting inland-water base features (river, stream, reservoir, etc.) with each cell box. Today's value is a safe under-estimate: it satisfies inline-validator invariant #5 (`sea ≤ wf ≤ 1`). Affected cells are coastal inland-river tiles such as Singapore River → Marina Bay.
-
-### Fix
-
-Load the base theme, filter to water subtypes (river, stream, reservoir, …), intersect each filtered geometry with the cell box, compute area coverage, and add to `sea_water_fraction`.
-
-### Tracking
-
-- Source: `src/cfm/data/sub_c/pipeline.py` (see `# DECISION:` in `_extract_tile`)
-- Spec: §11.3
-
----
 
 ## #4 — Tokenizer `emit_unknown_token` fall-through not yet implemented (training-critical)
 

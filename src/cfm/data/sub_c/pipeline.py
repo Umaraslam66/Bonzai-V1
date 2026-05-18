@@ -9,8 +9,10 @@ Pipeline ordering (locked at spec §6; tested verbatim by Task 12 named tests):
 
     derive_sea_polygons(raw_base)             # §9.1: BEFORE policy (mask-not-feature)
     apply_missing_value_policy(themes)        # §10.1: raw-row level
+    derive_inland_water_polygons(policied)    # §11.3 Fix #1: AFTER policy (in-vocab classes)
+    build_region_lookup(divisions_theme)      # §11.9 Fix #2: admin_region lookup table
     densify_polygon(admin_polygon, None)      # §7.4: no-op for SG; signature for Sweden
-    reproject to SVY21                        # §7.1: themes, sea_polygons, admin_polygon
+    reproject to SVY21                        # §7.1: themes, sea/inland polys, admin_polygon
     clip themes to admin_polygon (SVY21)      # §7.3: reproject FIRST, then clip
     partition_into_tiles(admin)               # §7.2: 2km grid
     for tile in tiles:                         # §11.8: per-tile write order locked
@@ -88,7 +90,11 @@ from cfm.data.sub_c.io import (
 )
 from cfm.data.sub_c.manifest import RegionManifest, aggregate_tile_inventory, write_manifest
 from cfm.data.sub_c.policy import apply_missing_value_policy
-from cfm.data.sub_c.sea_mask import apply_sea_mask, derive_sea_polygons
+from cfm.data.sub_c.sea_mask import (
+    apply_sea_mask,
+    derive_inland_water_polygons,
+    derive_sea_polygons,
+)
 from cfm.data.sub_c.validator_inline import validate_tile_inline
 
 # Sub-C schema versions (spec §11.5/§11.6/§11.7). Bumped on append-only changes.
@@ -120,6 +126,88 @@ class _RegionLike(Protocol):
 
     @property
     def admin_polygon(self) -> BaseGeometry: ...
+
+
+# ---------------------------------------------------------------------------
+# Admin-region lookup helpers (Fix #2 — spec §11.9)
+# ---------------------------------------------------------------------------
+
+
+def _derive_region_lookup_svy21(
+    divisions_theme: pa.Table,
+    country_code: str = "SG",
+) -> list[tuple[str, BaseGeometry]]:
+    """Filter the divisions theme to subtype='region' for a specific country
+    and return (region_name, region_polygon_svy21) pairs sorted by name for
+    byte-determinism.
+
+    Overture's divisions theme covers neighbouring countries as well as the
+    target region — filter by country_code to avoid picking up Johor/Riau
+    polygons that share subtype='region'.  For Singapore: 5 rows (Central,
+    East, North, North-east, West).
+
+    The name comes from `names.primary` (Overture's struct field at
+    divisions.names.primary).  If a row has no names struct, the row is
+    silently skipped.
+
+    Returns an empty list if no matching rows exist (e.g. the divisions theme
+    is absent or the country code is wrong); callers treat empty list as
+    "all tiles get admin_region=None".
+
+    Per spec §11.9.
+    """
+    import pyarrow.compute as pc_local  # avoid shadowing module-level pc if aliased
+
+    # Filter subtype='region' AND country=country_code.
+    subtype_mask = pc_local.equal(divisions_theme.column("subtype"), pa.scalar("region"))
+    country_mask = pc_local.equal(divisions_theme.column("country"), pa.scalar(country_code))
+    mask = pc_local.and_(subtype_mask, country_mask)
+    rows = divisions_theme.filter(mask)
+
+    if len(rows) == 0:
+        return []
+
+    # Overture divisions.names is a struct with a 'primary' child field.
+    # Extract names.primary as a flat string column.  names is a ChunkedArray
+    # (not a StructArray), so pc.struct_field is needed instead of .field().
+    names_col = rows.column("names")
+    primary_names = pc_local.struct_field(names_col, "primary").to_pylist()
+    geom_col = rows.column("geometry").to_pylist()
+
+    pairs: list[tuple[str, BaseGeometry]] = []
+    for name, geom_wkb in zip(primary_names, geom_col, strict=False):
+        if name is None or geom_wkb is None:
+            continue
+        geom_4326 = shapely_wkb.loads(geom_wkb)
+        geom_svy21 = reproject_geometry_to_svy21(geom_4326)
+        pairs.append((str(name), geom_svy21))
+
+    # Sort alphabetically for byte-determinism: two regions with the same
+    # centroid point would otherwise produce ordering-dependent results.
+    return sorted(pairs, key=lambda p: p[0])
+
+
+def _lookup_admin_region(
+    tile_centroid_svy21: BaseGeometry,
+    region_lookup_svy21: list[tuple[str, BaseGeometry]],
+) -> str | None:
+    """Spatial join: which region polygon contains the tile centroid.
+
+    Returns the matching region's name, or None if no region polygon
+    contains the centroid (e.g. maritime tiles, or an empty lookup list).
+
+    DECISION: uses .contains() not .intersects() — a centroid sitting on a
+    shared boundary between two adjacent regions would match both with
+    intersects.  contains() is exclusive on boundaries (returns False for
+    boundary-only intersection), so boundary centroids naturally fall to
+    None rather than producing an ambiguous match.  In practice SG region
+    centroids are well interior to their polygons so this distinction
+    doesn't fire.  Per spec §11.9.
+    """
+    for name, region_poly in region_lookup_svy21:
+        if region_poly.contains(tile_centroid_svy21):
+            return name
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -168,10 +256,11 @@ def extract_region(
         only wall-clock.
 
     Workers receive shared inputs (densified admin polygon as WKB, sea
-    polygons as WKB, per-tile feature subset) by value via the pickled
-    `_TileWorkerArgs` dataclass. Workers MUST NOT call `densify_polygon` or
-    `derive_sea_polygons` — those are once-per-region invariants computed
-    here.
+    polygons as WKB, inland-water polygons as WKB, pre-computed
+    tile_admin_region, per-tile feature subset) by value via the pickled
+    `_TileWorkerArgs` dataclass. Workers MUST NOT call `densify_polygon`,
+    `derive_sea_polygons`, or `derive_inland_water_polygons` — those are
+    once-per-region invariants computed here.
 
     Determinism: byte-identical output across runs given identical inputs
     modulo EXCLUDED_FROM_SHA fields (timestamps). Tests pass a fixed
@@ -199,6 +288,20 @@ def extract_region(
         vocab_yaml_path=vocab_yaml_path,
     )
 
+    # ---- 2b. derive_inland_water_polygons FROM POLICIED BASE (Fix #1) ---
+    # Spec §11.3 + §9.2: inland-water classes (river, stream, reservoir, …)
+    # are in the Phase 1 BASE_ vocab and survive apply_missing_value_policy,
+    # so the policied base theme is the correct source.
+    # DECISION: compute once per region in the main process (deterministic);
+    # serialize as WKB and pass to workers.  Workers MUST NOT call
+    # derive_inland_water_polygons — once-per-region invariant (spec §14.5).
+    if "base" in policied_themes:
+        inland_water_polygons_4326: BaseGeometry = derive_inland_water_polygons(
+            policied_themes["base"]
+        )
+    else:
+        inland_water_polygons_4326 = MultiPolygon()
+
     # ---- 3. densify admin polygon (no-op for Singapore; signature for Sweden)
     # Spec §7.4 + §14.5: computed once in main process; shared input.
     densified_admin_polygon_4326 = densify_polygon(region.admin_polygon, None)
@@ -207,8 +310,24 @@ def extract_region(
     # Spec §7.1 + §7.3: reproject first, then clip — so the clip cut-points
     # are exactly metric-correct in SVY21.
     sea_polygons_svy21 = reproject_geometry_to_svy21(sea_polygons_4326)
+    inland_water_polygons_svy21 = reproject_geometry_to_svy21(inland_water_polygons_4326)
     densified_admin_polygon_svy21 = reproject_geometry_to_svy21(densified_admin_polygon_4326)
     themes_svy21_features = _reproject_and_extract_feature_records(policied_themes)
+
+    # ---- 4b. Build admin-region lookup for per-tile centroid join (Fix #2)
+    # Spec §11.9: admin_region is the second-level admin division (subtype=region)
+    # covering the tile centroid.  We build the lookup once in the main process
+    # (5 region polygons for Singapore) and perform a point-in-polygon test per
+    # tile before dispatching to workers.
+    # DECISION: filter by country='SG' to exclude Johor/Riau rows that also have
+    # subtype='region' in Overture's divisions theme.  If the divisions theme is
+    # absent, region_lookup_svy21 is empty and all tiles get admin_region=None.
+    if "divisions" in region.themes and region.themes["divisions"].num_rows > 0:
+        region_lookup_svy21 = _derive_region_lookup_svy21(
+            region.themes["divisions"], country_code="SG"
+        )
+    else:
+        region_lookup_svy21 = []
 
     # ---- 5. Clip themes to admin polygon (in SVY21) ---------------------
     # Spec §7.3: intersection happens AFTER reprojection.
@@ -236,17 +355,22 @@ def extract_region(
 
     # Build per-tile worker args once in the main process. Each entry is a
     # pickle-friendly dataclass carrying everything the worker needs; the
-    # shared SVY21 sea polygons are serialized as WKB so the worker re-hydrates
-    # with a single shapely.wkb.loads call (no re-derivation, no re-densification
-    # — spec §14.5 invariant). The densified admin polygon is consumed entirely
-    # in the main process (clip + partition_into_tiles); workers receive the
-    # per-tile admin-clipped footprint instead, so the full admin polygon does
-    # not need to ship to each worker.
+    # shared SVY21 sea polygons and inland-water polygons are serialized as WKB
+    # so the worker re-hydrates with a single shapely.wkb.loads call (no
+    # re-derivation — spec §14.5 invariant). The densified admin polygon is
+    # consumed entirely in the main process (clip + partition_into_tiles);
+    # workers receive the per-tile admin-clipped footprint instead, so the full
+    # admin polygon does not need to ship to each worker.
     sea_polygons_svy21_wkb = dump_wkb(sea_polygons_svy21)
+    inland_water_polygons_svy21_wkb = dump_wkb(inland_water_polygons_svy21)
 
     tile_args_list: list[_TileWorkerArgs] = []
     for (tile_i, tile_j), tile_admin_footprint in tile_inventory.items():
         tile_features = _filter_features_to_tile(clipped_features, tile_i, tile_j)
+        # Compute tile admin_region via centroid point-in-polygon (Fix #2).
+        # Tile centroid in SVY21 for region lookup; footprint centroid is stable.
+        tile_centroid_svy21 = tile_admin_footprint.centroid
+        tile_admin_region = _lookup_admin_region(tile_centroid_svy21, region_lookup_svy21)
         tile_args_list.append(
             _TileWorkerArgs(
                 tile_i=tile_i,
@@ -254,6 +378,8 @@ def extract_region(
                 tile_admin_footprint_wkb=dump_wkb(tile_admin_footprint),
                 features_in_tile=tile_features,
                 sea_polygons_svy21_wkb=sea_polygons_svy21_wkb,
+                inland_water_polygons_svy21_wkb=inland_water_polygons_svy21_wkb,
+                tile_admin_region=tile_admin_region,
                 output_dir=output_dir,
                 inputs_shared=inputs_shared,
                 commit_sha=commit_sha,
@@ -340,6 +466,14 @@ class _TileWorkerArgs:
     with a single shapely.wkb.loads call — never by re-running
     derive_sea_polygons or densify_polygon.
 
+    inland_water_polygons_svy21_wkb: WKB of the inland-water union geometry
+    (derive_inland_water_polygons result, reprojected to SVY21).  Passed by
+    value so the worker can rehydrate and pass to apply_sea_mask.  Fix #1.
+
+    tile_admin_region: Pre-computed admin_region string (or None) for this
+    tile's centroid.  Computed once per tile in the main process via
+    _lookup_admin_region and passed to the worker.  Fix #2.
+
     The per-tile features list is shapely-resident (already-clipped,
     already-reprojected _FeatureRecords); shapely geometries pickle natively
     so we don't need a WKB round-trip on the per-tile feature stream.
@@ -350,6 +484,8 @@ class _TileWorkerArgs:
     tile_admin_footprint_wkb: bytes
     features_in_tile: list[_FeatureRecord]
     sea_polygons_svy21_wkb: bytes
+    inland_water_polygons_svy21_wkb: bytes  # Fix #1
+    tile_admin_region: str | None  # Fix #2
     output_dir: Path
     inputs_shared: dict
     commit_sha: str
@@ -367,6 +503,7 @@ def _extract_one_tile(args: _TileWorkerArgs) -> TileProvenance:
     """
     tile_admin_footprint = shapely_wkb.loads(args.tile_admin_footprint_wkb)
     sea_polygons_svy21 = shapely_wkb.loads(args.sea_polygons_svy21_wkb)
+    inland_water_polygons_svy21 = shapely_wkb.loads(args.inland_water_polygons_svy21_wkb)
 
     return _extract_tile(
         tile_i=args.tile_i,
@@ -374,6 +511,8 @@ def _extract_one_tile(args: _TileWorkerArgs) -> TileProvenance:
         tile_admin_footprint=tile_admin_footprint,
         features_in_tile=args.features_in_tile,
         sea_polygons_svy21=sea_polygons_svy21,
+        inland_water_polygons_svy21=inland_water_polygons_svy21,
+        tile_admin_region=args.tile_admin_region,
         output_dir=args.output_dir,
         inputs_shared=args.inputs_shared,
         commit_sha=args.commit_sha,
@@ -405,6 +544,8 @@ def _extract_tile(
     tile_admin_footprint: BaseGeometry,
     features_in_tile: list[_FeatureRecord],
     sea_polygons_svy21: BaseGeometry,
+    inland_water_polygons_svy21: BaseGeometry,
+    tile_admin_region: str | None,
     output_dir: Path,
     inputs_shared: dict,
     commit_sha: str,
@@ -486,21 +627,12 @@ def _extract_tile(
                 cell_box_admin_clipped=cell_box_admin,
                 cell_features=cell_subs,
                 sea_polygons_svy21=sea_polygons_svy21,
+                inland_water_polygons_svy21=inland_water_polygons_svy21,
             )
             if drop_flag:
                 # Sea-mask drop: pure-sea cell with zero non-sea features.
                 sea_drop_count += 1
                 continue
-
-            # DECISION: water_fraction == sea_water_fraction for Task 12.
-            # Spec §11.3 defines water_fraction as "all-water (sea + inland)"
-            # coverage. Refining with inland water requires intersecting
-            # inland-water base features (river, stream, reservoir, ...) with
-            # the cell box — non-trivial enough to defer to a follow-up task.
-            # Setting wf = sea_water_fraction is a safe under-estimate that
-            # passes invariant #5 (sea <= wf <= 1) trivially. Revisit when
-            # downstream consumers need accurate inland-water coverage.
-            water_fraction = sea_water_fraction
 
             # Cell-local sea geometry: cached once per cell, translated to
             # cell-local coords (spec §9.3 fast-path optimization).
@@ -588,14 +720,14 @@ def _extract_tile(
     ]
 
     # ---- conditioning_per_tile (spec §11.9) -----------------------------
+    # tile_admin_region: pre-computed in main process via _lookup_admin_region;
+    # may be None for tiles whose centroid falls outside all known division
+    # polygons (e.g. maritime boundary tiles).  Fix #2 — replaces the
+    # hardcoded "Central Region" placeholder.
     conditioning = compute_conditioning_per_tile(
         cell_sea_water_fractions=[c.sea_water_fraction for c in kept_cells],
         river_stream_lengths_m=cell_river_stream_lengths,
-        admin_region="Central Region",  # DECISION: placeholder until divisions-theme lookup
-        # is wired in (deferred — sub-A divisions theme lookup TBD). Spec §11.9
-        # acknowledges admin_region needs second-level division resolution; for
-        # Singapore Phase 1 a single region label is acceptable as the user-facing
-        # value. Revisit when sub-D needs disambiguated tile-conditioning.
+        admin_region=tile_admin_region,
         morphology_class="Asian-megacity",
         era_class="contemporary",
     )

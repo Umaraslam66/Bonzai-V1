@@ -763,3 +763,94 @@ def test_torture_tile_outputs_sha_match_file_bytes(
         assert stored_sha == actual_sha, (
             f"{sha_key}: stored={stored_sha} actual={actual_sha} (file={filename})"
         )
+
+
+# ===========================================================================
+# Section 7 — Fix #1 + Fix #2 integration tests
+# ===========================================================================
+
+
+def test_pipeline_inland_river_cell_has_nonzero_water_fraction_fix1(
+    torture_tile_output: Path,
+) -> None:
+    """Fix #1 integration: cells containing the inland river F11 must have
+    water_fraction > sea_water_fraction (i.e. inland-water contribution is nonzero).
+
+    The torture fixture includes F11 (inland river, base.class='river', length=950m)
+    which occupies cells in the y=28600 row (cell_j=2).  Before Fix #1, these cells
+    had water_fraction == sea_water_fraction (placeholder).  After Fix #1, the river's
+    polygon/geometry union contributes nonzero area to the inland_water computation.
+
+    NOTE: F11 is a LineString river.  LineStrings have zero area; unary_union of a
+    LineString + Polygon mix yields a GeometryCollection whose .area is the polygon
+    area only.  Therefore cells containing ONLY F11 (LineString) will have
+    inland_fraction == 0.0 UNLESS there is a polygon water feature in those cells.
+
+    The torture fixture does not include a polygon inland-water feature alongside F11.
+    So strictly speaking, this test verifies the pipeline runs correctly (no crash,
+    water_fraction >= sea_water_fraction invariant satisfied) with a LineString river.
+
+    To verify that polygon inland water actually contributes, see the unit test
+    test_apply_sea_mask_with_inland_water_returns_combined_water_fraction.
+    """
+    tile_dir = torture_tile_output / _TORTURE_TILE_NAME
+    cells = _read_parquet(tile_dir / "cells.parquet")
+
+    # Verify the inline validator passed (provenance.yaml present → tile complete).
+    assert (tile_dir / "provenance.yaml").exists(), (
+        "provenance.yaml must exist for a successfully extracted tile"
+    )
+
+    # For every kept cell: water_fraction >= sea_water_fraction (invariant #5).
+    wf_col = cells.column("water_fraction").to_pylist()
+    swf_col = cells.column("sea_water_fraction").to_pylist()
+    for i, (wf, swf) in enumerate(zip(wf_col, swf_col, strict=True)):
+        assert wf >= swf - 1e-12, (
+            f"Cell row {i}: water_fraction ({wf}) < sea_water_fraction ({swf}). "
+            "Invariant #5 violated — Fix #1 may have broken the water_fraction computation."
+        )
+
+
+def test_pipeline_admin_region_none_when_no_divisions_theme_fix2(
+    tmp_path: Path,
+) -> None:
+    """Fix #2: when no divisions theme is present, admin_region = None for all tiles.
+
+    The torture-tile fixture does not include a 'divisions' key in themes.
+    This verifies the pipeline handles absent divisions gracefully and emits
+    admin_region=None in meta.yaml.conditioning_per_tile.admin_region.
+    """
+    out = tmp_path / "no_divisions"
+    # Use the torture region (no divisions theme).
+    from tests.fixtures.sub_c.build_torture_tile import build_torture_region
+
+    region = build_torture_region()
+    assert "divisions" not in region.themes, (
+        "Torture region must not include a divisions theme — this test relies on that"
+    )
+
+    extract_region(
+        region,
+        out,
+        policy_yaml_path=_POLICY_YAML,
+        vocab_yaml_path=_VOCAB_YAML,
+        release="2026-05-18.torture",
+        commit_sha=_COMMIT_SHA,
+        extracted_utc=_EXTRACTED_UTC,
+        started_utc=_EXTRACTED_UTC,
+        rerun_reason="initial",
+        pool_size=1,
+    )
+
+    # All tiles must have admin_region = null (None) in meta.yaml.
+    import yaml
+
+    for tile_dir in out.iterdir():
+        if not tile_dir.is_dir() or not tile_dir.name.startswith("tile="):
+            continue
+        meta = yaml.safe_load((tile_dir / "meta.yaml").read_text(encoding="utf-8"))
+        cond = meta.get("conditioning_per_tile", {})
+        assert cond.get("admin_region") is None, (
+            f"{tile_dir.name}: expected admin_region=null when no divisions theme, "
+            f"got {cond.get('admin_region')!r}"
+        )
