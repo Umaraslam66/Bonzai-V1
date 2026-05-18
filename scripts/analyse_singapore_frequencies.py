@@ -7,6 +7,7 @@ markdown report + log-log rank-frequency PNGs.
 
 The report is a build artefact. To change it, edit this script and re-run.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -80,8 +81,7 @@ def _git_commit_sha() -> str:
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as e:
         raise RuntimeError(
-            "could not resolve git commit sha; "
-            "refusing to write a report with bogus provenance"
+            "could not resolve git commit sha; refusing to write a report with bogus provenance"
         ) from e
     return result.stdout.strip()
 
@@ -173,8 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=("real", "fixture"),
         default="real",
         help=(
-            "real = S3DuckDBBackend (production); "
-            "fixture = LocalFixtureBackend (integration test)."
+            "real = S3DuckDBBackend (production); fixture = LocalFixtureBackend (integration test)."
         ),
     )
     parser.add_argument(
@@ -232,16 +231,12 @@ def main(argv: list[str] | None = None) -> int:
         binds_to_prd_framing_only = cut_rows[-1].n_kept <= 3
 
         plot_relative = f"{REPORT_NAME}_plots/{plan.plot_basename}.png"
-        _render_plot(
-            label, result.counts, cut_rows, plots_dir / f"{plan.plot_basename}.png"
-        )
+        _render_plot(label, result.counts, cut_rows, plots_dir / f"{plan.plot_basename}.png")
 
         list_length = None
         if plan.is_list_field:
             try:
-                list_length = compute_list_length_distribution(
-                    table, plan.column_path, label=label
-                )
+                list_length = compute_list_length_distribution(table, plan.column_path, label=label)
             except ValueError:
                 list_length = None
 
@@ -256,9 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
 
-        coverage_pct = (
-            100.0 * result.n_present / result.n_total if result.n_total > 0 else 0.0
-        )
+        coverage_pct = 100.0 * result.n_present / result.n_total if result.n_total > 0 else 0.0
         coverage_rows.append((label, result.n_total, result.n_present, coverage_pct))
 
     manifest_shas = _load_manifest_shas(region.manifest_path)

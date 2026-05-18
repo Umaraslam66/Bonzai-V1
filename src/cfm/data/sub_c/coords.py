@@ -116,6 +116,9 @@ def partition_into_tiles(
     min_x, min_y, max_x, max_y = admin_polygon.bounds
     min_i = math.floor(min_x / TILE_SIZE_M)
     min_j = math.floor(min_y / TILE_SIZE_M)
+    # Subtract epsilon so a bbox max that lands exactly on a tile boundary
+    # (e.g. max_x = 2*TILE_SIZE_M = 4000) maps to the last real tile (i=1),
+    # not to an empty degenerate tile one step beyond (i=2).
     max_i = math.floor((max_x - 1e-9) / TILE_SIZE_M)
     max_j = math.floor((max_y - 1e-9) / TILE_SIZE_M)
 

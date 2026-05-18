@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import itertools
+
 import pytest
 from shapely.geometry import LineString, Point, Polygon
 
@@ -100,8 +102,6 @@ def test_densify_polygon_with_real_threshold_inserts_vertices_on_long_edges():
     out_n = len(list(out.exterior.coords))
     assert out_n > len(list(poly.exterior.coords))
     # Every edge now <= 1000m
-    import itertools
-
     coords = list(out.exterior.coords)
     for a, b in itertools.pairwise(coords):
         edge_len = ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
