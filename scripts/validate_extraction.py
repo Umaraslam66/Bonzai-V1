@@ -153,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
             "detail": exc.detail,
         }
         log.error("Validation FAILED: %s", exc)
-        print(json.dumps(payload, indent=2), file=sys.stderr)
+        print(json.dumps(payload, indent=2, sort_keys=True), file=sys.stderr)
         return 1
     except Exception as exc:
         log.error("Validation raised unexpected error: %s", exc)
