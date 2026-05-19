@@ -223,6 +223,22 @@ def test_frequency_analysis_enforces_non_empty_locked_buckets():
     with pytest.raises(SubDValidationError, match="locked_proxy"):
         validate_frequency_analysis(tampered)
 
+    # Empty candidate_proxies must be rejected: Layer 1 emits at least one
+    # proxy on real data, and a missing list would silently break the
+    # reviewer's proxy comparison at Gate 2.
+    tampered = copy.deepcopy(analysis)
+    tampered["tile_population_density_proposal"]["candidate_proxies"] = []
+    with pytest.raises(SubDValidationError, match="candidate_proxies"):
+        validate_frequency_analysis(tampered)
+
+    # A proxy whose candidate_strategies is empty must also be rejected.
+    tampered = copy.deepcopy(analysis)
+    tampered["tile_population_density_proposal"]["candidate_proxies"][0][
+        "candidate_strategies"
+    ] = []
+    with pytest.raises(SubDValidationError, match="candidate_strategies"):
+        validate_frequency_analysis(tampered)
+
     # per_tile_evidence is required: select_layer3_subset depends on it and
     # silently returns [] if it's missing. Validation must catch that drop
     # as a contract violation rather than letting the silent empty subset
@@ -233,6 +249,22 @@ def test_frequency_analysis_enforces_non_empty_locked_buckets():
         validate_frequency_analysis(tampered)
 
 
+def _candidate_strategies_for_section(analysis: dict, section: str) -> list[list[dict]]:
+    """Return list-of-strategy-lists for *section*.
+
+    For flat sections (zoning, cell_density, road_skeleton) returns a
+    single-element list. For tile_population_density (which has one
+    candidate_strategies list per proxy under candidate_proxies[]) returns
+    one entry per proxy.
+    """
+    if section == "tile_population_density_proposal":
+        return [
+            list(proxy["candidate_strategies"])
+            for proxy in analysis[section]["candidate_proxies"]
+        ]
+    return [list(analysis[section]["candidate_strategies"])]
+
+
 def test_frequency_analysis_records_marginal_cost_monotonicity():
     analysis = build_frequency_analysis(_build_synthetic_inputs())
     for section in (
@@ -241,30 +273,30 @@ def test_frequency_analysis_records_marginal_cost_monotonicity():
         "tile_population_density_proposal",
         "road_skeleton_proposal",
     ):
-        cs = analysis[section]["candidate_strategies"]
-        assert isinstance(cs, list)
-        assert len(cs) >= 2, f"{section} candidate_strategies too short: {cs}"
-        # Entries are ordered from least-aggressive cut (most categories) to
-        # most-aggressive cut (fewest categories). The first entry has
-        # marginal_cost == None (no prior to compare to); the rest are
-        # non-decreasing floats on synthetic data — each additional cut hurts
-        # coverage more per category dropped. (Real bimodal data can violate
-        # monotonicity; validate_frequency_analysis reports values without
-        # enforcing this property.)
-        assert cs[0]["marginal_cost"] is None
-        prior = -1.0
-        for entry in cs[1:]:
-            assert isinstance(entry["marginal_cost"], float)
-            assert entry["marginal_cost"] >= prior - 1e-9, (
-                f"{section} candidate_strategies marginal_cost not monotonic: {cs}"
-            )
-            prior = entry["marginal_cost"]
-        # Categories strictly decrease, coverage non-strictly decreases.
-        cats = [e["categories"] for e in cs]
-        covs = [e["coverage"] for e in cs]
-        assert cats == sorted(cats, reverse=True)
-        for i in range(1, len(covs)):
-            assert covs[i] <= covs[i - 1] + 1e-9
+        # tile_population_density has one strategies list per proxy; check
+        # each independently. Other sections expose a single flat list.
+        for cs in _candidate_strategies_for_section(analysis, section):
+            assert isinstance(cs, list)
+            assert len(cs) >= 2, f"{section} candidate_strategies too short: {cs}"
+            # Entries are ordered from least-aggressive cut (most categories)
+            # to most-aggressive cut. The first entry has marginal_cost==None
+            # (no prior to compare to); the rest are non-decreasing floats on
+            # synthetic data. Real bimodal data can violate monotonicity;
+            # validate_frequency_analysis reports values without enforcing.
+            assert cs[0]["marginal_cost"] is None
+            prior = -1.0
+            for entry in cs[1:]:
+                assert isinstance(entry["marginal_cost"], float)
+                assert entry["marginal_cost"] >= prior - 1e-9, (
+                    f"{section} candidate_strategies marginal_cost not monotonic: {cs}"
+                )
+                prior = entry["marginal_cost"]
+            # Categories strictly decrease, coverage non-strictly decreases.
+            cats = [e["categories"] for e in cs]
+            covs = [e["coverage"] for e in cs]
+            assert cats == sorted(cats, reverse=True)
+            for i in range(1, len(covs)):
+                assert covs[i] <= covs[i - 1] + 1e-9
 
 
 def test_frequency_analysis_writes_reviewable_proposal_sections(tmp_path: Path):
@@ -297,36 +329,44 @@ def test_frequency_analysis_writes_reviewable_proposal_sections(tmp_path: Path):
         "road_skeleton",
     }
 
-    # Each proposal section exposes the locked_buckets + candidate_strategies
-    # series so the reviewer can see what alternatives were considered.
+    # Flat-section sanity: locked_buckets + a single candidate_strategies
+    # list at the section's top level. (tile_population_density is handled
+    # separately below because it carries strategies *per proxy*.)
     for section in (
         "zoning_proposal",
         "cell_density_proposal",
-        "tile_population_density_proposal",
         "road_skeleton_proposal",
     ):
         assert "locked_buckets" in loaded[section]
         assert "candidate_strategies" in loaded[section]
         assert isinstance(loaded[section]["locked_buckets"], list)
         assert len(loaded[section]["locked_buckets"]) >= 1
-        # Each candidate entry carries its bucket definition so the reviewer
-        # can hand-edit locked_buckets without consulting source code.
         for entry in loaded[section]["candidate_strategies"]:
             assert "strategy" in entry
             assert "categories" in entry
             assert "coverage" in entry
             assert "marginal_cost" in entry
-            # Bucket-definition field varies by section but at least one of
-            # the documented keys is present.
             assert any(
                 k in entry
                 for k in ("kept_tokens", "bucket_boundaries", "bucket_lower_bounds")
             ), f"{section} candidate entry missing bucket definition: {entry}"
 
-    # tile_population_density also carries locked_proxy + candidate_proxies.
+    # tile_population_density carries candidate_proxies[] (each with its own
+    # candidate_strategies) plus locked_proxy + locked_buckets at the section
+    # level. There is NO top-level candidate_strategies mirror — consumers
+    # look up the locked proxy in candidate_proxies[].
     tpd = loaded["tile_population_density_proposal"]
     assert "locked_proxy" in tpd and tpd["locked_proxy"]
+    assert "locked_buckets" in tpd and len(tpd["locked_buckets"]) >= 1
     assert "candidate_proxies" in tpd and len(tpd["candidate_proxies"]) >= 1
+    assert "candidate_strategies" not in tpd, (
+        "tile_population_density_proposal must not carry a top-level "
+        "candidate_strategies mirror; strategies live under candidate_proxies[]"
+    )
+    for proxy_entry in tpd["candidate_proxies"]:
+        assert "proxy_name" in proxy_entry and proxy_entry["proxy_name"]
+        assert "candidate_strategies" in proxy_entry
+        assert len(proxy_entry["candidate_strategies"]) >= 1
 
     # Bytes are identical on a second write of the same dict.
     other = tmp_path / "frequency_analysis_2.yaml"
@@ -535,15 +575,31 @@ def test_proposal_artifacts_split_into_four_namespace_files_plus_index(tmp_path:
     # Namespace files MUST NOT contain locked_buckets / locked_proxy — those
     # reviewer-editable fields live exclusively in the index, otherwise an
     # edit there would invalidate the namespace digest without anyone noticing.
-    for filename in NAMESPACE_ARTIFACT_FILENAMES.values():
+    for section_key, filename in NAMESPACE_ARTIFACT_FILENAMES.items():
         loaded = yaml.safe_load((tmp_path / filename).read_text(encoding="utf-8"))
         assert "locked_buckets" not in loaded
         assert "locked_proxy" not in loaded
-        # But each namespace file does carry its candidate_strategies + its
-        # own derivation_version stamp.
-        assert "candidate_strategies" in loaded
+        # Every namespace file carries its own derivation_version stamp +
+        # the namespace label so an isolated file is self-describing.
         assert "derivation_version" in loaded
         assert "namespace" in loaded
+        # Strategy storage shape varies by namespace:
+        # - flat sections (zoning, cell_density, road_skeleton) carry a
+        #   single top-level candidate_strategies list.
+        # - tile_population_density carries candidate_proxies[] with
+        #   strategies nested per proxy (no top-level mirror).
+        if section_key == "tile_population_density_proposal":
+            assert "candidate_strategies" not in loaded, (
+                "tile_population_density namespace file must not carry a "
+                "top-level candidate_strategies mirror"
+            )
+            assert "candidate_proxies" in loaded
+            assert len(loaded["candidate_proxies"]) >= 1
+            for proxy_entry in loaded["candidate_proxies"]:
+                assert "candidate_strategies" in proxy_entry
+                assert "proxy_name" in proxy_entry
+        else:
+            assert "candidate_strategies" in loaded
 
     # Determinism: a second call with the same analysis writes byte-identical
     # files. Use a separate dir to avoid mutating the first run's output.

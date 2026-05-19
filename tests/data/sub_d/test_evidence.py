@@ -299,3 +299,176 @@ def test_per_namespace_derivation_versions_are_stamped_independently():
     assert by_name["area_weighted_building_density"] == pytest.approx(0.16)
     assert by_name["median_building_footprint_ratio"] == pytest.approx(0.16)
     assert by_name["p75_building_footprint_ratio"] == pytest.approx(0.16)
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests for derive_tile_population_density_evidence (F2)
+# ---------------------------------------------------------------------------
+
+
+_EXPECTED_TILE_POPULATION_DENSITY_PROXIES: set[str] = {
+    "mean_building_footprint_ratio",
+    "area_weighted_building_density",
+    "median_building_footprint_ratio",
+    "p75_building_footprint_ratio",
+}
+
+
+def test_tile_population_density_emits_exactly_four_proxies_with_documented_shape():
+    """Cardinality + slot-kind + namespace + bounded-value contract."""
+    cells = pa.table(
+        {
+            "cell_i": [0, 1],
+            "cell_j": [0, 1],
+            "cell_area_admin_clipped_m2": [100.0, 100.0],
+        }
+    )
+    # Two buildings of different sizes in two active cells, so mean/median/
+    # area-weighted differ enough to be distinguishable.
+    big = Polygon([(0.0, 0.0), (8.0, 0.0), (8.0, 8.0), (0.0, 8.0)])   # 64 m^2
+    small = Polygon([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)])  # 4 m^2
+    features = pa.table(
+        {
+            "cell_i": [0, 1],
+            "cell_j": [0, 1],
+            "feature_class": [1, 1],
+            "source_feature_id": ["b_big", "b_small"],
+            "geometry": [_wkb(big), _wkb(small)],
+        }
+    )
+
+    metrics = derive_tile_population_density_evidence(cells, features)
+
+    # F2 cardinality lock: exactly four rows per tile, one per proxy.
+    assert len(metrics) == 4
+
+    # F2 proxy-name lock: exact set, no extra, no missing.
+    proxy_names = {m.metric_name for m in metrics}
+    assert proxy_names == _EXPECTED_TILE_POPULATION_DENSITY_PROXIES
+
+    # F2 schema lock: every row is slot_kind=TILE, slot_index=0,
+    # metric_namespace=TILE_POPULATION_DENSITY, derivation_version stamped.
+    for m in metrics:
+        assert m.slot_kind == SlotKind.TILE
+        assert m.slot_index == 0
+        assert m.metric_namespace == MetricNamespace.TILE_POPULATION_DENSITY
+        assert m.derivation_version == TILE_POPULATION_DENSITY_DERIVATION_VERSION
+
+    # F2 value-bound lock: every proxy value is a float in [0.0, 1.0] (a
+    # ratio of building area to cell area is bounded above by 1.0; any value
+    # outside that range is a derivation bug).
+    by_name = {m.metric_name: float(m.value) for m in metrics}
+    for name, value in by_name.items():
+        assert isinstance(value, float), f"{name} value not float"
+        assert 0.0 <= value <= 1.0, f"{name}={value} outside [0, 1]"
+
+    # The four proxies disagree on this fixture, which is the whole point of
+    # emitting all of them: mean and area-weighted are (0.64+0.04)/2 = 0.34
+    # (equal cell areas make these match); median sits between the two
+    # ratios; p75 sits at the higher value.
+    assert by_name["mean_building_footprint_ratio"] == pytest.approx(0.34)
+    assert by_name["area_weighted_building_density"] == pytest.approx(0.34)
+    # median of [0.04, 0.64] depends on the implementation; my _percentile_of
+    # returns the value at the rounded index, which lands at the higher entry.
+    assert by_name["median_building_footprint_ratio"] in (
+        pytest.approx(0.04),
+        pytest.approx(0.64),
+    )
+    assert by_name["p75_building_footprint_ratio"] == pytest.approx(0.64)
+
+
+def test_tile_population_density_empty_tile_returns_zero_for_all_four_proxies():
+    """Pinned empty-tile convention: all four proxies return 0.0, never NaN.
+
+    See evidence.py docstring for the rationale. The reviewer's instruction
+    is to lock this convention in a test so it cannot drift silently.
+    """
+    cells = pa.table(
+        {
+            "cell_i": [],
+            "cell_j": [],
+            "cell_area_admin_clipped_m2": [],
+        },
+        schema=pa.schema(
+            [
+                pa.field("cell_i", pa.int8()),
+                pa.field("cell_j", pa.int8()),
+                pa.field("cell_area_admin_clipped_m2", pa.float64()),
+            ]
+        ),
+    )
+    features = pa.table(
+        {
+            "cell_i": [],
+            "cell_j": [],
+            "feature_class": [],
+            "source_feature_id": [],
+            "geometry": [],
+        },
+        schema=pa.schema(
+            [
+                pa.field("cell_i", pa.int8()),
+                pa.field("cell_j", pa.int8()),
+                pa.field("feature_class", pa.int8()),
+                pa.field("source_feature_id", pa.string()),
+                pa.field("geometry", pa.binary()),
+            ]
+        ),
+    )
+
+    metrics = derive_tile_population_density_evidence(cells, features)
+
+    # Still emit all four — dense metric stream regardless of tile content.
+    assert len(metrics) == 4
+    assert {m.metric_name for m in metrics} == _EXPECTED_TILE_POPULATION_DENSITY_PROXIES
+    # All four exactly 0.0. NOT NaN, NOT None.
+    import math
+
+    for m in metrics:
+        value = float(m.value)
+        assert value == 0.0, (
+            f"empty-tile convention requires {m.metric_name}=0.0, got {value}"
+        )
+        assert not math.isnan(value), (
+            f"empty-tile convention forbids NaN; {m.metric_name} returned NaN"
+        )
+
+
+def test_tile_population_density_proxies_disagree_on_skewed_distributions():
+    """When per-cell ratios are skewed, mean and area_weighted/median/p75
+    diverge — which is exactly the point of emitting all four candidates.
+    The Gate 2 reviewer picks the proxy with the most discriminative power.
+
+    Three active cells of equal area, one with a large building and two
+    with no buildings. The mean and area-weighted density are both 1/3 of
+    the large ratio (because equal cell areas), but the median is 0.0
+    (two zero cells dominate the middle of the sorted list).
+    """
+    cells = pa.table(
+        {
+            "cell_i": [0, 1, 2],
+            "cell_j": [0, 0, 0],
+            "cell_area_admin_clipped_m2": [100.0, 100.0, 100.0],
+        }
+    )
+    big = Polygon([(0.0, 0.0), (9.0, 0.0), (9.0, 9.0), (0.0, 9.0)])  # 81 m^2
+    features = pa.table(
+        {
+            "cell_i": [0],
+            "cell_j": [0],
+            "feature_class": [1],
+            "source_feature_id": ["b1"],
+            "geometry": [_wkb(big)],
+        }
+    )
+
+    metrics = derive_tile_population_density_evidence(cells, features)
+    by_name = {m.metric_name: float(m.value) for m in metrics}
+
+    # mean and area-weighted both = 0.81/3 = 0.27.
+    assert by_name["mean_building_footprint_ratio"] == pytest.approx(0.27)
+    assert by_name["area_weighted_building_density"] == pytest.approx(0.27)
+    # median of [0.0, 0.0, 0.81] sits at index round(0.5 * 2) = 1, i.e. 0.0.
+    assert by_name["median_building_footprint_ratio"] == pytest.approx(0.0)
+    # p75 of [0.0, 0.0, 0.81] sits at index round(0.75 * 2) = 2, i.e. 0.81.
+    assert by_name["p75_building_footprint_ratio"] == pytest.approx(0.81)

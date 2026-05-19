@@ -415,10 +415,10 @@ def validate_frequency_analysis(analysis: dict) -> None:
         raise SubDValidationError(
             f"frequency analysis missing required top-level sections: {sorted(missing)}"
         )
+    # Sections that carry a flat top-level candidate_strategies list.
     for section_name in (
         "zoning_proposal",
         "cell_density_proposal",
-        "tile_population_density_proposal",
         "road_skeleton_proposal",
     ):
         section = analysis[section_name]
@@ -432,13 +432,31 @@ def validate_frequency_analysis(analysis: dict) -> None:
                 f"frequency analysis section {section_name!r} has empty "
                 "candidate_strategies series"
             )
-    # tile_population_density also requires a locked_proxy alongside its
-    # locked_buckets — the reviewer picks both the proxy and the cut points.
-    if not analysis["tile_population_density_proposal"].get("locked_proxy"):
+    # tile_population_density carries one candidate_strategies list PER PROXY
+    # (under candidate_proxies[]), plus a locked_proxy + locked_buckets. There
+    # is no flat top-level candidate_strategies; consumers look up the locked
+    # proxy in candidate_proxies[] to get its strategies.
+    tpd = analysis["tile_population_density_proposal"]
+    if not tpd.get("locked_buckets"):
+        raise SubDValidationError(
+            "tile_population_density_proposal has empty locked_buckets"
+        )
+    if not tpd.get("locked_proxy"):
         raise SubDValidationError(
             "tile_population_density_proposal has empty locked_proxy; "
             "reviewer must lock a proxy name (e.g. mean_building_footprint_ratio)"
         )
+    if not tpd.get("candidate_proxies"):
+        raise SubDValidationError(
+            "tile_population_density_proposal has empty candidate_proxies; "
+            "Layer 1 must emit at least one proxy"
+        )
+    for entry in tpd["candidate_proxies"]:
+        if not entry.get("candidate_strategies"):
+            raise SubDValidationError(
+                f"tile_population_density_proposal proxy {entry.get('proxy_name')!r} "
+                "has empty candidate_strategies series"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -545,20 +563,16 @@ def _tile_population_density_proposal_section(by_proxy: dict[str, list[float]]) 
                 zip(_DENSITY_CANDIDATE_BUCKETS[0], _DENSITY_CANDIDATE_BUCKETS[0][1:])
             )
         ]
-    # Surface the chosen proxy's candidate_strategies at the top level so the
-    # reviewer can read marginal_cost-of-cut for the locked proxy without
-    # drilling into candidate_proxies[i].
-    locked_proxy_strategies: list[dict] = []
-    if locked_proxy is not None:
-        for entry in candidate_proxies:
-            if entry["proxy_name"] == locked_proxy:
-                locked_proxy_strategies = list(entry["candidate_strategies"])
-                break
+    # NOTE: no top-level ``candidate_strategies`` mirror. Consumers read
+    # ``locked_proxy`` from the index and look up that proxy's full
+    # candidate_strategies inside ``candidate_proxies[]``. Mirroring at the
+    # section level would create two sources of truth for the same data and
+    # invite the namespace-file sha to silently include reviewer-editable
+    # state from the index.
     return {
         "candidate_proxies": candidate_proxies,
         "locked_proxy": locked_proxy,
         "locked_buckets": locked_buckets,
-        "candidate_strategies": locked_proxy_strategies,
     }
 
 

@@ -278,8 +278,32 @@ def derive_tile_population_density_evidence(
     - ``p75_building_footprint_ratio`` — p75 of per-cell ratios.
 
     Rows have ``slot_kind=TILE`` and ``slot_index=0`` (tile-level rows do
-    not index into the 64/112/32 lattices). When there are no active cells,
-    all proxies emit ``value=0.0`` so the metric stream stays dense.
+    not index into the 64/112/32 lattices). The four metric names above are
+    the locked-for-Phase-1 proxy set; the Gate 2 reviewer picks one as
+    ``locked_proxy`` at vocab-lock time.
+
+    Empty-tile convention (pinned)
+    ------------------------------
+
+    When a tile has zero active cells, **all four proxies emit
+    ``value=0.0``** rather than NaN or null. Rationale:
+
+    1. *Consistency across proxies.* Ratio-based proxies (mean,
+       area-weighted) are naturally 0.0 on an empty tile — there are no
+       buildings, so the proportion is zero. We extend the same convention
+       to median/percentile proxies so downstream bucket-assignment logic
+       does not have to special-case NaN inputs.
+    2. *Semantic match.* An empty tile is genuinely "zero density," not
+       "missing data." If the meaning ever shifts to "missing data" (e.g.
+       a tile rejected mid-extraction), the validator gates that case
+       upstream — sub-D only sees tiles sub-C kept.
+    3. *Downstream simplicity.* Frequency analysis, bucket-cut proposal,
+       and the eventual ``cell_density_bucket`` lookup all treat 0.0 as
+       the floor of the distribution. NaN would propagate through
+       percentile calculations and require explicit guards.
+
+    Bumping ``TILE_POPULATION_DENSITY_DERIVATION_VERSION`` is required if
+    this convention changes.
     """
     cell_density_metrics = derive_density_evidence(features, cells)
     per_cell_ratios = [float(m.value) for m in cell_density_metrics]
