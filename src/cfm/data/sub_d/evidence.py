@@ -40,10 +40,16 @@ from shapely import wkb as shapely_wkb
 from cfm.data.sub_d.enums import FeatureClass, MetricNamespace, SlotKind
 from cfm.data.sub_d.lattice import CELL_GRID_SIZE, iter_internal_edge_slots
 
-#: Bumped whenever the derivation algorithm changes. Recorded on every
-#: EvidenceMetric so the validator (Task 13) can detect drift between
-#: pinned-vocab assumptions and the algorithm that produced the metrics.
-DERIVATION_VERSION: str = "1.0"
+#: Per-namespace derivation versions. Each ``derive_*_evidence`` function
+#: stamps the appropriate constant on every emitted ``EvidenceMetric``.
+#: Bumping one of these is the signal that *this namespace's algorithm*
+#: changed; bumps are independent so a zoning fix doesn't invalidate cached
+#: density artifacts. Recorded in every metric, in the locked macro vocab
+#: artifact (spec §11.7), and in per-tile provenance.yaml (spec §11.5).
+ZONING_DERIVATION_VERSION: str = "1.0"
+CELL_DENSITY_DERIVATION_VERSION: str = "1.0"
+TILE_POPULATION_DENSITY_DERIVATION_VERSION: str = "1.0"
+ROAD_SKELETON_DERIVATION_VERSION: str = "1.0"
 
 
 @dataclass(frozen=True)
@@ -125,7 +131,7 @@ def derive_zoning_evidence(features: pa.Table, cells: pa.Table) -> list[Evidence
                     metric_namespace=MetricNamespace.ZONING,
                     metric_name=f"feature_count_{fc.name.lower()}",
                     value=counts.get((cell_i, cell_j, int(fc)), 0),
-                    derivation_version=DERIVATION_VERSION,
+                    derivation_version=ZONING_DERIVATION_VERSION,
                 )
             )
     return metrics
@@ -181,7 +187,7 @@ def derive_density_evidence(features: pa.Table, cells: pa.Table) -> list[Evidenc
                 metric_namespace=MetricNamespace.CELL_DENSITY,
                 metric_name="building_footprint_ratio",
                 value=ratio,
-                derivation_version=DERIVATION_VERSION,
+                derivation_version=CELL_DENSITY_DERIVATION_VERSION,
             )
         )
     return metrics
@@ -233,7 +239,99 @@ def derive_road_skeleton_evidence(
                 metric_namespace=MetricNamespace.ROAD_SKELETON,
                 metric_name="road_crossing_count",
                 value=counts.get(key, 0),
-                derivation_version=DERIVATION_VERSION,
+                derivation_version=ROAD_SKELETON_DERIVATION_VERSION,
             )
         )
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Tile-level population-density proxy evidence (one row per candidate proxy)
+# ---------------------------------------------------------------------------
+
+
+#: Candidate proxies for tile-level population density (spec §8). Layer-1
+#: emits *all* of these so the Gate 2 reviewer can compare distributions
+#: across candidate aggregations and pick one at lock time. Do not pre-commit
+#: to one formula here; the choice belongs in the reviewer-locked vocab.
+_POPULATION_DENSITY_PROXY_NAMES: tuple[str, ...] = (
+    "mean_building_footprint_ratio",
+    "area_weighted_building_density",
+    "median_building_footprint_ratio",
+    "p75_building_footprint_ratio",
+)
+
+
+def derive_tile_population_density_evidence(
+    cells: pa.Table, features: pa.Table
+) -> list[EvidenceMetric]:
+    """Emit one ``EvidenceMetric`` per candidate population-density proxy.
+
+    All proxies are computed from per-active-cell building footprint ratios
+    plus the cells' ``cell_area_admin_clipped_m2`` (for area-weighting). Each
+    proxy summarises the per-cell distribution differently:
+
+    - ``mean_building_footprint_ratio`` — arithmetic mean of per-cell ratios.
+    - ``area_weighted_building_density`` — sum(building_area) / sum(cell_area)
+      across all active cells.
+    - ``median_building_footprint_ratio`` — p50 of per-cell ratios.
+    - ``p75_building_footprint_ratio`` — p75 of per-cell ratios.
+
+    Rows have ``slot_kind=TILE`` and ``slot_index=0`` (tile-level rows do
+    not index into the 64/112/32 lattices). When there are no active cells,
+    all proxies emit ``value=0.0`` so the metric stream stays dense.
+    """
+    cell_density_metrics = derive_density_evidence(features, cells)
+    per_cell_ratios = [float(m.value) for m in cell_density_metrics]
+
+    cell_area_by_cell: dict[tuple[int, int], float] = {}
+    ci = cells["cell_i"].to_pylist()
+    cj = cells["cell_j"].to_pylist()
+    ca = cells["cell_area_admin_clipped_m2"].to_pylist()
+    for i, j, area in zip(ci, cj, ca):
+        cell_area_by_cell[(int(i), int(j))] = float(area)
+
+    # Reconstruct per-cell building area (ratio * cell_area) so the
+    # area-weighted aggregation has the numerator/denominator it needs
+    # without re-running shapely on the WKB bytes.
+    total_building_area = 0.0
+    total_cell_area = 0.0
+    for m in cell_density_metrics:
+        ci_, cj_ = divmod(m.slot_index, CELL_GRID_SIZE)
+        area = cell_area_by_cell.get((ci_, cj_), 0.0)
+        total_building_area += float(m.value) * area
+        total_cell_area += area
+
+    proxy_values: dict[str, float] = {
+        "mean_building_footprint_ratio": (
+            sum(per_cell_ratios) / len(per_cell_ratios) if per_cell_ratios else 0.0
+        ),
+        "area_weighted_building_density": (
+            total_building_area / total_cell_area if total_cell_area > 0.0 else 0.0
+        ),
+        "median_building_footprint_ratio": _percentile_of(per_cell_ratios, 0.50),
+        "p75_building_footprint_ratio": _percentile_of(per_cell_ratios, 0.75),
+    }
+
+    metrics: list[EvidenceMetric] = []
+    for proxy_name in _POPULATION_DENSITY_PROXY_NAMES:
+        metrics.append(
+            EvidenceMetric(
+                slot_kind=SlotKind.TILE,
+                slot_index=0,
+                metric_namespace=MetricNamespace.TILE_POPULATION_DENSITY,
+                metric_name=proxy_name,
+                value=float(proxy_values[proxy_name]),
+                derivation_version=TILE_POPULATION_DENSITY_DERIVATION_VERSION,
+            )
+        )
+    return metrics
+
+
+def _percentile_of(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    idx = int(round(q * (len(ordered) - 1)))
+    idx = max(0, min(idx, len(ordered) - 1))
+    return float(ordered[idx])

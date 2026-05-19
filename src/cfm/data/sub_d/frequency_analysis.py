@@ -55,14 +55,19 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+from cfm.data.determinism import compute_sha256
 from cfm.data.io import canonicalize_yaml
 from cfm.data.sub_d.enums import FeatureClass, Scope
 from cfm.data.sub_d.errors import SubDValidationError
 from cfm.data.sub_d.evidence import (
-    DERIVATION_VERSION,
+    CELL_DENSITY_DERIVATION_VERSION,
+    ROAD_SKELETON_DERIVATION_VERSION,
+    TILE_POPULATION_DENSITY_DERIVATION_VERSION,
+    ZONING_DERIVATION_VERSION,
     derive_cell_scope_metrics,
     derive_density_evidence,
     derive_road_skeleton_evidence,
+    derive_tile_population_density_evidence,
     derive_zoning_evidence,
 )
 from cfm.data.sub_d.lattice import (
@@ -119,11 +124,19 @@ def build_frequency_analysis(inputs: list[SubCTileInputs]) -> dict:
         Scope.FULLY_MASKED.name.lower(): 0,
     }
 
+    # Per-tile rows of tile_population_density proxies keyed by proxy name.
+    tile_pop_density_by_proxy: dict[str, list[float]] = {}
+
     for tile in inputs:
         scope = derive_cell_scope_metrics(tile.cells)
         zoning_metrics = derive_zoning_evidence(tile.features, tile.cells)
         density_metrics = derive_density_evidence(tile.features, tile.cells)
         road_metrics = derive_road_skeleton_evidence(tile.crossings, tile.features)
+        tile_pop_density_metrics = derive_tile_population_density_evidence(
+            tile.cells, tile.features
+        )
+        for m in tile_pop_density_metrics:
+            tile_pop_density_by_proxy.setdefault(m.metric_name, []).append(float(m.value))
 
         for m in zoning_metrics:
             cls = m.metric_name.removeprefix("feature_count_")
@@ -161,12 +174,20 @@ def build_frequency_analysis(inputs: list[SubCTileInputs]) -> dict:
     zoning_proposal = _zoning_proposal_section(zoning_counts)
     density_proposal = _density_proposal_section(density_values)
     road_proposal = _road_proposal_section(road_counts_active, edge_scope_counts)
+    tile_pop_density_proposal = _tile_population_density_proposal_section(
+        tile_pop_density_by_proxy
+    )
     orthogonality = _orthogonality_section(ortho_building_counts, ortho_density_ratios)
     per_tile = _per_tile_evidence_summary(inputs)
 
     return {
         "analysis_version": ANALYSIS_VERSION,
-        "derivation_version": DERIVATION_VERSION,
+        "derivation_versions": {
+            "zoning": ZONING_DERIVATION_VERSION,
+            "cell_density": CELL_DENSITY_DERIVATION_VERSION,
+            "tile_population_density": TILE_POPULATION_DENSITY_DERIVATION_VERSION,
+            "road_skeleton": ROAD_SKELETON_DERIVATION_VERSION,
+        },
         "tile_count": len(inputs),
         "input_digests": sorted(
             [{"tile_i": t.paths.tile_i, "tile_j": t.paths.tile_j, **t.digests} for t in inputs],
@@ -175,15 +196,199 @@ def build_frequency_analysis(inputs: list[SubCTileInputs]) -> dict:
         "per_tile_evidence": per_tile,
         "zoning_proposal": zoning_proposal,
         "cell_density_proposal": density_proposal,
+        "tile_population_density_proposal": tile_pop_density_proposal,
         "road_skeleton_proposal": road_proposal,
         "zoning_orthogonality": orthogonality,
     }
 
 
 def write_frequency_analysis(analysis: dict, path: Path) -> None:
-    """Serialise *analysis* to *path* using the neutral canonical YAML helper."""
+    """Serialise *analysis* to *path* using the neutral canonical YAML helper.
+
+    Default-mode write (non-proposal). For the Gate 2 reviewer-facing 4+1
+    artifact layout, use :func:`write_proposal_artifacts`.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(canonicalize_yaml(analysis), encoding="utf-8")
+
+
+#: Filename mapping from internal section key -> on-disk namespace file.
+#: The four namespace files plus one index file are the Gate 2 layout.
+NAMESPACE_ARTIFACT_FILENAMES: dict[str, str] = {
+    "zoning_proposal": "zoning_analysis.yaml",
+    "cell_density_proposal": "cell_density_analysis.yaml",
+    "tile_population_density_proposal": "tile_population_density_analysis.yaml",
+    "road_skeleton_proposal": "road_skeleton_analysis.yaml",
+}
+
+INDEX_ARTIFACT_FILENAME: str = "macro_vocab_proposal.yaml"
+
+
+def write_proposal_artifacts(
+    analysis: dict,
+    output_dir: Path,
+    *,
+    layer3_subset: list[dict] | None = None,
+    status: str = "proposal",
+) -> dict:
+    """Split *analysis* into 4 namespace files + 1 index file.
+
+    The four namespace files (``zoning_analysis.yaml``,
+    ``cell_density_analysis.yaml``,
+    ``tile_population_density_analysis.yaml``,
+    ``road_skeleton_analysis.yaml``) carry distributions, candidate
+    strategies, and (where applicable) candidate proxies. They are
+    content-pinned via sha256 references in the index. The reviewer does
+    not edit namespace files at Gate 2 — if a different cut is wanted,
+    the reviewer edits ``locked_buckets`` in the index.
+
+    The index file (``macro_vocab_proposal.yaml``) carries the
+    reviewer-editable bits: ``status``, ``locked_buckets`` per namespace,
+    ``locked_proxy`` for tile_population_density, ``namespace_files``
+    (name + sha256), ``per_tile_evidence``, ``zoning_orthogonality``,
+    ``input_digests``, and (when supplied) ``selected_layer3_tiles``.
+    Task 8's promote-script flips ``status: proposal`` ->
+    ``status: locked`` with byte-identity to the rest of the file.
+
+    Returns the index dict for inspection.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build and write the four namespace files first; their sha256s feed
+    # the index. We strip ``locked_buckets``/``locked_proxy`` from each
+    # namespace file because those reviewer-editable choices live in the
+    # index — keeping them out of the digest-pinned content prevents drift
+    # between locked-buckets edits and the namespace-file sha.
+    namespace_file_records: list[dict] = []
+    for section_key, filename in NAMESPACE_ARTIFACT_FILENAMES.items():
+        section = analysis[section_key]
+        namespace_content = _build_namespace_file_content(section_key, section, analysis)
+        text = canonicalize_yaml(namespace_content)
+        (output_dir / filename).write_text(text, encoding="utf-8")
+        namespace_file_records.append(
+            {
+                "filename": filename,
+                "section_key": section_key,
+                "sha256": compute_sha256(text.encode("utf-8")),
+            }
+        )
+    namespace_file_records.sort(key=lambda r: r["filename"])
+
+    index = _build_index_content(
+        analysis=analysis,
+        namespace_file_records=namespace_file_records,
+        layer3_subset=layer3_subset,
+        status=status,
+    )
+    index_path = output_dir / INDEX_ARTIFACT_FILENAME
+    index_path.write_text(canonicalize_yaml(index), encoding="utf-8")
+
+    return index
+
+
+def _build_namespace_file_content(
+    section_key: str, section: dict, analysis: dict
+) -> dict:
+    """Strip reviewer-editable fields from a namespace section.
+
+    Namespace files are content-pinned; the reviewer must not edit them
+    between Task 7's CLI run and Task 8's promote. Reviewer-editable
+    fields (``locked_buckets``, ``locked_proxy``) move to the index.
+    """
+    namespace_name = section_key.removesuffix("_proposal")
+    derivation_version = analysis.get("derivation_versions", {}).get(namespace_name)
+    pruned = {k: v for k, v in section.items() if k not in {"locked_buckets", "locked_proxy"}}
+    return {
+        "analysis_version": analysis["analysis_version"],
+        "namespace": namespace_name,
+        "derivation_version": derivation_version,
+        "input_digests": analysis["input_digests"],
+        "tile_count": analysis["tile_count"],
+        **pruned,
+    }
+
+
+def _build_index_content(
+    *,
+    analysis: dict,
+    namespace_file_records: list[dict],
+    layer3_subset: list[dict] | None,
+    status: str,
+) -> dict:
+    """Build the Gate 2 reviewer-facing index file.
+
+    Locked-bucket choices live here (per namespace + locked_proxy for
+    tile_population_density). Reviewer edits this file; Task 8's promote
+    flips the ``status`` marker only.
+    """
+    locked_buckets_by_namespace: dict[str, list[dict]] = {}
+    locked_proxy_by_namespace: dict[str, str | None] = {}
+    for section_key in NAMESPACE_ARTIFACT_FILENAMES:
+        section = analysis[section_key]
+        namespace_name = section_key.removesuffix("_proposal")
+        locked_buckets_by_namespace[namespace_name] = list(section.get("locked_buckets", []))
+        if "locked_proxy" in section:
+            locked_proxy_by_namespace[namespace_name] = section["locked_proxy"]
+
+    index = {
+        "status": status,
+        "analysis_version": analysis["analysis_version"],
+        "derivation_versions": dict(analysis["derivation_versions"]),
+        "tile_count": analysis["tile_count"],
+        "input_digests": list(analysis["input_digests"]),
+        "per_tile_evidence": list(analysis["per_tile_evidence"]),
+        "zoning_orthogonality": dict(analysis["zoning_orthogonality"]),
+        "namespace_files": namespace_file_records,
+        "locked_buckets": locked_buckets_by_namespace,
+        "locked_proxy": locked_proxy_by_namespace,
+    }
+    if layer3_subset is not None:
+        index["selected_layer3_tiles"] = list(layer3_subset)
+    return index
+
+
+def validate_proposal_index(index: dict) -> None:
+    """Validate the Gate 2 index file shape (separate from
+    :func:`validate_frequency_analysis` which validates the consolidated
+    in-memory analysis dict).
+    """
+    required = {
+        "status",
+        "analysis_version",
+        "derivation_versions",
+        "tile_count",
+        "input_digests",
+        "per_tile_evidence",
+        "zoning_orthogonality",
+        "namespace_files",
+        "locked_buckets",
+        "locked_proxy",
+    }
+    missing = required - index.keys()
+    if missing:
+        raise SubDValidationError(
+            f"proposal index missing required keys: {sorted(missing)}"
+        )
+    if index["status"] not in {"proposal", "locked"}:
+        raise SubDValidationError(
+            f"proposal index status must be 'proposal' or 'locked'; got {index['status']!r}"
+        )
+    # Every namespace must have non-empty locked_buckets in the index.
+    for namespace_name in (
+        "zoning",
+        "cell_density",
+        "tile_population_density",
+        "road_skeleton",
+    ):
+        if not index["locked_buckets"].get(namespace_name):
+            raise SubDValidationError(
+                f"proposal index has empty locked_buckets for namespace {namespace_name!r}"
+            )
+    # tile_population_density also needs a locked_proxy.
+    if not index["locked_proxy"].get("tile_population_density"):
+        raise SubDValidationError(
+            "proposal index has empty locked_proxy for tile_population_density"
+        )
 
 
 def validate_frequency_analysis(analysis: dict) -> None:
@@ -195,12 +400,13 @@ def validate_frequency_analysis(analysis: dict) -> None:
     """
     required_top = {
         "analysis_version",
-        "derivation_version",
+        "derivation_versions",
         "tile_count",
         "input_digests",
         "per_tile_evidence",
         "zoning_proposal",
         "cell_density_proposal",
+        "tile_population_density_proposal",
         "road_skeleton_proposal",
         "zoning_orthogonality",
     }
@@ -209,7 +415,12 @@ def validate_frequency_analysis(analysis: dict) -> None:
         raise SubDValidationError(
             f"frequency analysis missing required top-level sections: {sorted(missing)}"
         )
-    for section_name in ("zoning_proposal", "cell_density_proposal", "road_skeleton_proposal"):
+    for section_name in (
+        "zoning_proposal",
+        "cell_density_proposal",
+        "tile_population_density_proposal",
+        "road_skeleton_proposal",
+    ):
         section = analysis[section_name]
         if not section.get("locked_buckets"):
             raise SubDValidationError(
@@ -221,6 +432,13 @@ def validate_frequency_analysis(analysis: dict) -> None:
                 f"frequency analysis section {section_name!r} has empty "
                 "candidate_strategies series"
             )
+    # tile_population_density also requires a locked_proxy alongside its
+    # locked_buckets — the reviewer picks both the proxy and the cut points.
+    if not analysis["tile_population_density_proposal"].get("locked_proxy"):
+        raise SubDValidationError(
+            "tile_population_density_proposal has empty locked_proxy; "
+            "reviewer must lock a proxy name (e.g. mean_building_footprint_ratio)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +495,70 @@ def _density_proposal_section(values: list[float]) -> dict:
         "ratio_distribution": distribution,
         "locked_buckets": locked_buckets,
         "candidate_strategies": candidate_strategies,
+    }
+
+
+def _tile_population_density_proposal_section(by_proxy: dict[str, list[float]]) -> dict:
+    """Build the tile_population_density proposal section.
+
+    Records per-candidate-proxy distribution and bucket strategies plus a
+    default ``locked_proxy`` (first proxy alphabetically) and
+    ``locked_buckets`` (most-granular cut of the default proxy). The
+    reviewer hand-edits both fields at Gate 2.
+    """
+    proxy_names = sorted(by_proxy.keys())
+    candidate_proxies: list[dict] = []
+    for proxy_name in proxy_names:
+        values = by_proxy[proxy_name]
+        per_proxy_strategies: list[dict] = []
+        for buckets in _DENSITY_CANDIDATE_BUCKETS:
+            counts_per_bucket = _bucket_count_floats(values, buckets)
+            coverage = sum(counts_per_bucket) / len(values) if values else 1.0
+            per_proxy_strategies.append(
+                {
+                    "strategy": f"{len(counts_per_bucket)}_buckets",
+                    "categories": len(counts_per_bucket),
+                    "bucket_boundaries": list(buckets),
+                    "bucket_counts": counts_per_bucket,
+                    "coverage": float(coverage),
+                    "marginal_cost": None,
+                }
+            )
+        _fill_marginal_cost(per_proxy_strategies)
+        candidate_proxies.append(
+            {
+                "proxy_name": proxy_name,
+                "value_distribution": _summarise_distribution(values),
+                "candidate_strategies": per_proxy_strategies,
+            }
+        )
+
+    # Default locked_proxy: first proxy alphabetically. Reviewer edits at
+    # Gate 2 to switch proxies. locked_buckets uses the most-granular cut
+    # of that proxy.
+    locked_proxy = proxy_names[0] if proxy_names else None
+    locked_buckets: list[dict] = []
+    if locked_proxy is not None:
+        locked_buckets = [
+            {"token_id": idx, "lower_inclusive": lo, "upper_exclusive": hi}
+            for idx, (lo, hi) in enumerate(
+                zip(_DENSITY_CANDIDATE_BUCKETS[0], _DENSITY_CANDIDATE_BUCKETS[0][1:])
+            )
+        ]
+    # Surface the chosen proxy's candidate_strategies at the top level so the
+    # reviewer can read marginal_cost-of-cut for the locked proxy without
+    # drilling into candidate_proxies[i].
+    locked_proxy_strategies: list[dict] = []
+    if locked_proxy is not None:
+        for entry in candidate_proxies:
+            if entry["proxy_name"] == locked_proxy:
+                locked_proxy_strategies = list(entry["candidate_strategies"])
+                break
+    return {
+        "candidate_proxies": candidate_proxies,
+        "locked_proxy": locked_proxy,
+        "locked_buckets": locked_buckets,
+        "candidate_strategies": locked_proxy_strategies,
     }
 
 

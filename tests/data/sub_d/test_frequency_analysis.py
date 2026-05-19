@@ -20,13 +20,18 @@ import yaml
 from shapely import wkb as shapely_wkb
 from shapely.geometry import Polygon
 
+from cfm.data.determinism import compute_sha256
 from cfm.data.sub_d.errors import SubDValidationError
 from cfm.data.sub_d.frequency_analysis import (
+    INDEX_ARTIFACT_FILENAME,
+    NAMESPACE_ARTIFACT_FILENAMES,
     build_frequency_analysis,
     is_eligible_for_subset,
     select_layer3_subset,
     validate_frequency_analysis,
+    validate_proposal_index,
     write_frequency_analysis,
+    write_proposal_artifacts,
 )
 from cfm.data.sub_d.sub_c_reader import SubCTileInputs, SubCTilePaths
 
@@ -206,6 +211,18 @@ def test_frequency_analysis_enforces_non_empty_locked_buckets():
     with pytest.raises(SubDValidationError, match="locked_buckets"):
         validate_frequency_analysis(tampered)
 
+    # tile_population_density carries TWO reviewer-editable handles:
+    # locked_buckets AND locked_proxy. Both must be non-empty.
+    tampered = copy.deepcopy(analysis)
+    tampered["tile_population_density_proposal"]["locked_buckets"] = []
+    with pytest.raises(SubDValidationError, match="locked_buckets"):
+        validate_frequency_analysis(tampered)
+
+    tampered = copy.deepcopy(analysis)
+    tampered["tile_population_density_proposal"]["locked_proxy"] = None
+    with pytest.raises(SubDValidationError, match="locked_proxy"):
+        validate_frequency_analysis(tampered)
+
     # per_tile_evidence is required: select_layer3_subset depends on it and
     # silently returns [] if it's missing. Validation must catch that drop
     # as a contract violation rather than letting the silent empty subset
@@ -218,7 +235,12 @@ def test_frequency_analysis_enforces_non_empty_locked_buckets():
 
 def test_frequency_analysis_records_marginal_cost_monotonicity():
     analysis = build_frequency_analysis(_build_synthetic_inputs())
-    for section in ("zoning_proposal", "cell_density_proposal", "road_skeleton_proposal"):
+    for section in (
+        "zoning_proposal",
+        "cell_density_proposal",
+        "tile_population_density_proposal",
+        "road_skeleton_proposal",
+    ):
         cs = analysis[section]["candidate_strategies"]
         assert isinstance(cs, list)
         assert len(cs) >= 2, f"{section} candidate_strategies too short: {cs}"
@@ -247,28 +269,42 @@ def test_frequency_analysis_records_marginal_cost_monotonicity():
 
 def test_frequency_analysis_writes_reviewable_proposal_sections(tmp_path: Path):
     analysis = build_frequency_analysis(_build_synthetic_inputs())
-    out_path = tmp_path / "macro_plan_proposal.yaml"
+    out_path = tmp_path / "frequency_analysis.yaml"
     write_frequency_analysis(analysis, out_path)
 
     # File is written and round-trips.
     loaded = yaml.safe_load(out_path.read_text(encoding="utf-8"))
 
-    # Top-level reviewer-facing keys.
+    # Top-level reviewer-facing keys. ``derivation_versions`` is the
+    # per-namespace dict (4 entries) — never a bare global string.
     for key in (
         "analysis_version",
-        "derivation_version",
+        "derivation_versions",
         "tile_count",
         "input_digests",
         "zoning_proposal",
         "cell_density_proposal",
+        "tile_population_density_proposal",
         "road_skeleton_proposal",
         "zoning_orthogonality",
     ):
         assert key in loaded, f"missing reviewer-facing section: {key}"
+    # The four derivation versions are present and stamped per namespace.
+    assert set(loaded["derivation_versions"].keys()) == {
+        "zoning",
+        "cell_density",
+        "tile_population_density",
+        "road_skeleton",
+    }
 
     # Each proposal section exposes the locked_buckets + candidate_strategies
     # series so the reviewer can see what alternatives were considered.
-    for section in ("zoning_proposal", "cell_density_proposal", "road_skeleton_proposal"):
+    for section in (
+        "zoning_proposal",
+        "cell_density_proposal",
+        "tile_population_density_proposal",
+        "road_skeleton_proposal",
+    ):
         assert "locked_buckets" in loaded[section]
         assert "candidate_strategies" in loaded[section]
         assert isinstance(loaded[section]["locked_buckets"], list)
@@ -287,8 +323,13 @@ def test_frequency_analysis_writes_reviewable_proposal_sections(tmp_path: Path):
                 for k in ("kept_tokens", "bucket_boundaries", "bucket_lower_bounds")
             ), f"{section} candidate entry missing bucket definition: {entry}"
 
+    # tile_population_density also carries locked_proxy + candidate_proxies.
+    tpd = loaded["tile_population_density_proposal"]
+    assert "locked_proxy" in tpd and tpd["locked_proxy"]
+    assert "candidate_proxies" in tpd and len(tpd["candidate_proxies"]) >= 1
+
     # Bytes are identical on a second write of the same dict.
-    other = tmp_path / "macro_plan_proposal_2.yaml"
+    other = tmp_path / "frequency_analysis_2.yaml"
     write_frequency_analysis(analysis, other)
     assert out_path.read_bytes() == other.read_bytes()
 
@@ -444,3 +485,88 @@ def test_frequency_analysis_records_zoning_orthogonality_comparison():
     assert "sample_size" in comparison
     assert isinstance(comparison["sample_size"], int)
     assert comparison["sample_size"] >= 1
+
+
+def test_proposal_artifacts_split_into_four_namespace_files_plus_index(tmp_path: Path):
+    """The Gate 2 layout: 4 namespace files + 1 index file.
+
+    Namespace files are content-pinned via sha256 references in the index;
+    the reviewer-editable ``locked_buckets`` / ``locked_proxy`` live in the
+    index, not in the namespace files. Task 8's promote-script flips
+    ``status`` on the index file only.
+    """
+    analysis = build_frequency_analysis(_build_synthetic_inputs())
+    layer3_subset = select_layer3_subset(analysis, max_tiles=3)
+
+    index = write_proposal_artifacts(
+        analysis, tmp_path, layer3_subset=layer3_subset, status="proposal"
+    )
+
+    # Five files on disk: 4 namespace + 1 index.
+    expected_files = set(NAMESPACE_ARTIFACT_FILENAMES.values()) | {INDEX_ARTIFACT_FILENAME}
+    actual_files = {p.name for p in tmp_path.iterdir() if p.is_file()}
+    assert expected_files == actual_files
+
+    # Index file shape.
+    validate_proposal_index(index)
+    assert index["status"] == "proposal"
+    assert "selected_layer3_tiles" in index
+    assert index["selected_layer3_tiles"] == layer3_subset
+
+    # locked_buckets lives in the index keyed by namespace; locked_proxy
+    # is set for tile_population_density.
+    for namespace in (
+        "zoning",
+        "cell_density",
+        "tile_population_density",
+        "road_skeleton",
+    ):
+        assert namespace in index["locked_buckets"]
+        assert len(index["locked_buckets"][namespace]) >= 1
+    assert index["locked_proxy"]["tile_population_density"]
+
+    # Each namespace_files entry has the actual file's sha256.
+    for record in index["namespace_files"]:
+        on_disk = (tmp_path / record["filename"]).read_bytes()
+        assert record["sha256"] == compute_sha256(on_disk), (
+            f"sha mismatch for {record['filename']!r}: index pin diverges from disk bytes"
+        )
+
+    # Namespace files MUST NOT contain locked_buckets / locked_proxy — those
+    # reviewer-editable fields live exclusively in the index, otherwise an
+    # edit there would invalidate the namespace digest without anyone noticing.
+    for filename in NAMESPACE_ARTIFACT_FILENAMES.values():
+        loaded = yaml.safe_load((tmp_path / filename).read_text(encoding="utf-8"))
+        assert "locked_buckets" not in loaded
+        assert "locked_proxy" not in loaded
+        # But each namespace file does carry its candidate_strategies + its
+        # own derivation_version stamp.
+        assert "candidate_strategies" in loaded
+        assert "derivation_version" in loaded
+        assert "namespace" in loaded
+
+    # Determinism: a second call with the same analysis writes byte-identical
+    # files. Use a separate dir to avoid mutating the first run's output.
+    out_b = tmp_path / "run_b"
+    write_proposal_artifacts(
+        analysis, out_b, layer3_subset=layer3_subset, status="proposal"
+    )
+    for filename in expected_files:
+        assert (tmp_path / filename).read_bytes() == (out_b / filename).read_bytes(), (
+            f"{filename} not byte-identical across runs"
+        )
+
+    # Locked status flip-by-string: write a locked variant; only the
+    # ``status:`` line of the index differs. This is what Task 8's
+    # promote-script will rely on for its byte-identity-modulo-status test.
+    out_locked = tmp_path / "run_locked"
+    write_proposal_artifacts(
+        analysis, out_locked, layer3_subset=layer3_subset, status="locked"
+    )
+    # Namespace files unchanged across the proposal/locked variants.
+    for filename in NAMESPACE_ARTIFACT_FILENAMES.values():
+        assert (tmp_path / filename).read_bytes() == (out_locked / filename).read_bytes()
+    # Index bytes differ only on the status line.
+    proposal_bytes = (tmp_path / INDEX_ARTIFACT_FILENAME).read_text(encoding="utf-8")
+    locked_bytes = (out_locked / INDEX_ARTIFACT_FILENAME).read_text(encoding="utf-8")
+    assert proposal_bytes.replace("status: proposal", "status: locked", 1) == locked_bytes

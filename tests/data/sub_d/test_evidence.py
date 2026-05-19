@@ -16,10 +16,15 @@ from shapely.geometry import Polygon
 
 from cfm.data.sub_d.enums import FeatureClass, MetricNamespace, SlotKind
 from cfm.data.sub_d.evidence import (
+    CELL_DENSITY_DERIVATION_VERSION,
+    ROAD_SKELETON_DERIVATION_VERSION,
+    TILE_POPULATION_DENSITY_DERIVATION_VERSION,
+    ZONING_DERIVATION_VERSION,
     EvidenceMetric,
     derive_cell_scope_metrics,
     derive_density_evidence,
     derive_road_skeleton_evidence,
+    derive_tile_population_density_evidence,
     derive_zoning_evidence,
 )
 
@@ -215,7 +220,82 @@ def test_road_evidence_ignores_non_road_crossings():
     # EvidenceMetric dataclass is frozen and records derivation_version.
     sample = metrics[0]
     assert isinstance(sample, EvidenceMetric)
-    assert isinstance(sample.derivation_version, str) and sample.derivation_version
+    # Per-namespace derivation versions: road metrics carry the
+    # ROAD_SKELETON version, never the zoning/density/tile-pop versions.
+    assert sample.derivation_version == ROAD_SKELETON_DERIVATION_VERSION
     # FeatureClass enum mirrors sub-C encoding without importing from cfm.data.sub_c.
     assert FeatureClass.ROAD == 0
     assert FeatureClass.BUILDING == 1
+
+
+def test_per_namespace_derivation_versions_are_stamped_independently():
+    # One synthetic tile with mixed features so every derive_* function emits
+    # at least one metric.
+    cells = pa.table(
+        {
+            "cell_i": [0],
+            "cell_j": [0],
+            "cell_area_admin_clipped_m2": [100.0],
+        }
+    )
+    building = Polygon([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)])
+    features = pa.table(
+        {
+            "cell_i": [0, 0],
+            "cell_j": [0, 0],
+            "feature_class": [0, 1],
+            "source_feature_id": ["r1", "b1"],
+            "geometry": [b"", _wkb(building)],
+        }
+    )
+    crossings = pa.table(
+        {
+            "source_feature_id": ["r1"],
+            "lower_cell_i": [0],
+            "lower_cell_j": [0],
+            "axis": [0],
+        }
+    )
+
+    zoning = derive_zoning_evidence(features, cells)
+    density = derive_density_evidence(features, cells)
+    roads = derive_road_skeleton_evidence(crossings, features)
+    tile_pop = derive_tile_population_density_evidence(cells, features)
+
+    assert zoning and all(
+        m.derivation_version == ZONING_DERIVATION_VERSION for m in zoning
+    )
+    assert density and all(
+        m.derivation_version == CELL_DENSITY_DERIVATION_VERSION for m in density
+    )
+    assert roads and all(
+        m.derivation_version == ROAD_SKELETON_DERIVATION_VERSION for m in roads
+    )
+    assert tile_pop and all(
+        m.derivation_version == TILE_POPULATION_DENSITY_DERIVATION_VERSION
+        for m in tile_pop
+    )
+
+    # All four namespaces' tile_pop metrics live at slot_kind=TILE, slot_index=0.
+    assert all(m.slot_kind == SlotKind.TILE for m in tile_pop)
+    assert all(m.slot_index == 0 for m in tile_pop)
+    assert all(
+        m.metric_namespace == MetricNamespace.TILE_POPULATION_DENSITY for m in tile_pop
+    )
+    # Multiple candidate proxies emitted as distinct metric_names so the
+    # reviewer picks one at Gate 2. Layer 1 does not pre-commit to a formula.
+    proxy_names = {m.metric_name for m in tile_pop}
+    expected = {
+        "mean_building_footprint_ratio",
+        "area_weighted_building_density",
+        "median_building_footprint_ratio",
+        "p75_building_footprint_ratio",
+    }
+    assert proxy_names == expected
+    # All proxy values are floats; values are consistent for a single-cell
+    # tile with one 16 m^2 building in a 100 m^2 cell (ratio == 0.16).
+    by_name = {m.metric_name: float(m.value) for m in tile_pop}
+    assert by_name["mean_building_footprint_ratio"] == pytest.approx(0.16)
+    assert by_name["area_weighted_building_density"] == pytest.approx(0.16)
+    assert by_name["median_building_footprint_ratio"] == pytest.approx(0.16)
+    assert by_name["p75_building_footprint_ratio"] == pytest.approx(0.16)

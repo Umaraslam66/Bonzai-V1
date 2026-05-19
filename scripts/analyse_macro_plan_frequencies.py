@@ -1,18 +1,25 @@
 """CLI for sub-D macro frequency analysis + Gate 2 proposal generation.
 
 Reads a sub-C region directory, derives Layer-1 evidence per tile, and
-writes a reviewer-facing YAML artifact to ``--output-dir``.
+writes reviewer-facing YAML artifact(s) to ``--output-dir``.
 
-Default mode writes ``frequency_analysis.yaml`` (the raw analysis dict).
+Default mode writes ``frequency_analysis.yaml`` (the raw analysis dict —
+single file, for ad-hoc inspection only).
 
-``--proposal-only`` mode writes ``macro_vocab_proposal.yaml``, which is the
-same analysis dict plus a deterministic Layer-3 tile subset and a
-``status: proposal`` marker. The proposal file is the reviewer-facing
-document at Gate 2; the reviewer hand-edits ``locked_buckets`` in place to
-pick from each section's ``candidate_strategies``. Task 8's
-``scripts/promote_macro_vocab.py`` then writes
-``configs/macro_plan/v1/macro_plan_vocab.yaml`` with byte-identity modulo
-only the ``status`` marker flipping to ``locked``.
+``--proposal-only`` mode writes the **4+1 Gate 2 artifact layout**:
+
+  zoning_analysis.yaml                            (namespace file)
+  cell_density_analysis.yaml                      (namespace file)
+  tile_population_density_analysis.yaml           (namespace file)
+  road_skeleton_analysis.yaml                     (namespace file)
+  macro_vocab_proposal.yaml                       (index file)
+
+Namespace files are content-pinned via sha256 references in the index. The
+reviewer at Gate 2 reads the index first, drills into namespace files for
+``candidate_strategies`` detail, then hand-edits ``locked_buckets`` /
+``locked_proxy`` in the **index** to lock different cuts. Task 8's
+``scripts/promote_macro_vocab.py`` flips ``status: proposal`` ->
+``status: locked`` on the index file with byte-identity to the rest.
 
 Examples
 --------
@@ -33,10 +40,14 @@ import argparse
 from pathlib import Path
 
 from cfm.data.sub_d.frequency_analysis import (
+    INDEX_ARTIFACT_FILENAME,
+    NAMESPACE_ARTIFACT_FILENAMES,
     build_frequency_analysis,
     select_layer3_subset,
     validate_frequency_analysis,
+    validate_proposal_index,
     write_frequency_analysis,
+    write_proposal_artifacts,
 )
 from cfm.data.sub_d.sub_c_reader import (
     iter_sub_c_tile_paths,
@@ -58,14 +69,14 @@ def main() -> None:
         "--output-dir",
         type=Path,
         required=True,
-        help="Directory to write the analysis or proposal artifact into.",
+        help="Directory to write the analysis or proposal artifact(s) into.",
     )
     parser.add_argument(
         "--proposal-only",
         action="store_true",
         help=(
-            "Write macro_vocab_proposal.yaml (analysis + Layer-3 subset + "
-            "status: proposal marker) instead of plain frequency_analysis.yaml."
+            "Write the 4+1 Gate 2 artifact layout (4 namespace files + 1 "
+            "index file) instead of the single-file frequency_analysis.yaml."
         ),
     )
     parser.add_argument(
@@ -88,18 +99,20 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.proposal_only:
-        proposal = dict(analysis)
-        proposal["status"] = "proposal"
-        proposal["selected_layer3_tiles"] = select_layer3_subset(
-            analysis, max_tiles=args.max_subset_tiles
+        layer3_subset = select_layer3_subset(analysis, max_tiles=args.max_subset_tiles)
+        index = write_proposal_artifacts(
+            analysis,
+            args.output_dir,
+            layer3_subset=layer3_subset,
+            status="proposal",
         )
-        output_path = args.output_dir / "macro_vocab_proposal.yaml"
-        write_frequency_analysis(proposal, output_path)
+        validate_proposal_index(index)
+        namespace_filenames = sorted(NAMESPACE_ARTIFACT_FILENAMES.values())
         print(
-            f"wrote {output_path} "
+            f"wrote {INDEX_ARTIFACT_FILENAME} + {len(namespace_filenames)} namespace "
+            f"files to {args.output_dir} "
             f"(tile_count={analysis['tile_count']}, "
-            f"subset={len(proposal['selected_layer3_tiles'])}, "
-            f"status=proposal)"
+            f"subset={len(layer3_subset)}, status=proposal)"
         )
     else:
         output_path = args.output_dir / "frequency_analysis.yaml"
