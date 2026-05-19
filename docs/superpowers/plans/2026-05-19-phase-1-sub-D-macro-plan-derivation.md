@@ -908,7 +908,17 @@ uv run pytest tests/data/sub_d/test_frequency_analysis.py -q
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Run the proposal CLI if sub-C output exists**
+- [ ] **Step 5: Write the proposal README**
+
+Create `reports/phase-1-sub-D/README.md` with:
+
+- a list of expected proposal artifacts in `reports/phase-1-sub-D/`
+- the Gate 2 review process
+- the exact file reviewers inspect first: `macro_vocab_proposal.yaml`
+- what reviewers check: enum tokens, bucket cuts, subset rationale, marginal-cost-of-cut justifications, and frequency-analysis digests
+- the rule that Gate 2 cannot close without real Singapore sub-C output
+
+- [ ] **Step 6: Run the proposal CLI if sub-C output exists**
 
 Run:
 
@@ -921,9 +931,9 @@ uv run python scripts/analyse_macro_plan_frequencies.py \
 ```
 
 Expected if sub-C output exists: proposal YAML files are written under `reports/phase-1-sub-D/`.
-Expected if sub-C output does not exist: command exits before running; note the absence in the review handoff and do not invent proposal artifacts.
+Expected if sub-C output does not exist: command exits before running; note the absence in the review handoff and do not invent proposal artifacts. Gate 2 cannot close without real Singapore sub-C output; there is no synthetic-data shortcut for vocab approval.
 
-- [ ] **Step 6: Commit proposal machinery and any generated proposal artifacts**
+- [ ] **Step 7: Commit proposal machinery and any generated proposal artifacts**
 
 Run:
 
@@ -944,7 +954,7 @@ Stop here. Report:
 - Marginal-cost-of-cut justifications.
 - Whether sub-C output was unavailable locally.
 
-Reviewer must approve before Task 8 commits locked vocab/config. No sidecar derivation artifacts are written before this gate closes.
+Reviewer must approve before Task 8 commits locked vocab/config. No sidecar derivation artifacts are written before this gate closes. If real Singapore sub-C output was unavailable, halt here until it is available and the proposal CLI has produced real-data artifacts.
 
 ## Task 8: Lock Macro Vocab And Golden Frequency Artifacts
 
@@ -956,6 +966,7 @@ Reviewer must approve before Task 8 commits locked vocab/config. No sidecar deri
 - Create: `configs/macro_plan/v1/macro_plan_vocab.yaml`
 - Create: `tests/golden/sub_d/frequency_analysis/*.yaml`
 - Create: `src/cfm/data/sub_d/macro_vocab.py`
+- Create: `scripts/promote_macro_vocab.py`
 - Create: `tests/data/sub_d/test_macro_vocab.py`
 
 - [ ] **Step 1: Write failing macro vocab loader tests**
@@ -967,6 +978,8 @@ Tests:
 - `test_macro_vocab_rejects_duplicate_token_names`
 - `test_macro_vocab_records_frequency_analysis_digests`
 - `test_macro_vocab_has_append_only_flags_for_every_enum`
+- `test_promote_macro_vocab_derives_locked_artifact_from_proposal`
+- `test_promote_macro_vocab_diff_is_status_marker_only`
 
 - [ ] **Step 2: Run focused tests and confirm failure**
 
@@ -976,13 +989,33 @@ Run:
 uv run pytest tests/data/sub_d/test_macro_vocab.py -q
 ```
 
-Expected: import failure or missing `configs/macro_plan/v1/macro_plan_vocab.yaml`.
+Expected: import failure, missing `scripts/promote_macro_vocab.py`, or missing `configs/macro_plan/v1/macro_plan_vocab.yaml`.
 
-- [ ] **Step 3: Create locked vocab artifact from approved proposal**
+- [ ] **Step 3: Implement promotion script**
 
-Create `configs/macro_plan/v1/macro_plan_vocab.yaml` using the approved proposal. It must include the schema from spec Section 11.7 and no `pending Section 6 empirical lock` literal values.
+Create `scripts/promote_macro_vocab.py`. It accepts:
 
-- [ ] **Step 4: Copy approved golden frequency-analysis artifacts**
+```bash
+uv run python scripts/promote_macro_vocab.py \
+  --proposal reports/phase-1-sub-D/macro_vocab_proposal.yaml \
+  --output configs/macro_plan/v1/macro_plan_vocab.yaml
+```
+
+The script canonicalizes YAML and derives the locked artifact from the approved proposal. The only allowed byte diff from proposal to locked artifact is the status marker, for example `status: proposal` to `status: locked`. `test_promote_macro_vocab_diff_is_status_marker_only` must read both files as bytes, normalize that marker back to `status: proposal`, and assert byte identity. No human hand-editing is allowed between the reviewed proposal and the locked artifact.
+
+- [ ] **Step 4: Run promotion script after Gate 2 approval**
+
+Run:
+
+```bash
+uv run python scripts/promote_macro_vocab.py \
+  --proposal reports/phase-1-sub-D/macro_vocab_proposal.yaml \
+  --output configs/macro_plan/v1/macro_plan_vocab.yaml
+```
+
+Expected: `configs/macro_plan/v1/macro_plan_vocab.yaml` is written. Do not hand-edit this file.
+
+- [ ] **Step 5: Copy approved golden frequency-analysis artifacts**
 
 Copy approved analysis artifacts to:
 
@@ -990,7 +1023,7 @@ Copy approved analysis artifacts to:
 tests/golden/sub_d/frequency_analysis/<analysis_name>.yaml
 ```
 
-- [ ] **Step 5: Implement macro vocab loader**
+- [ ] **Step 6: Implement macro vocab loader**
 
 Implement these exact functions:
 
@@ -999,7 +1032,7 @@ Implement these exact functions:
 - `token_name_to_id(section: str, token_name: str, vocab: dict) -> int`
 - `token_id_to_name(section: str, token_id: int, vocab: dict) -> str`
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **Step 7: Run focused tests**
 
 Run:
 
@@ -1009,12 +1042,12 @@ uv run pytest tests/data/sub_d/test_macro_vocab.py tests/data/sub_d/test_frequen
 
 Expected: all selected tests pass and golden comparisons pass.
 
-- [ ] **Step 7: Commit locked vocab**
+- [ ] **Step 8: Commit locked vocab**
 
 Run:
 
 ```bash
-git add configs/macro_plan/v1/macro_plan_vocab.yaml tests/golden/sub_d/frequency_analysis src/cfm/data/sub_d/macro_vocab.py tests/data/sub_d/test_macro_vocab.py tests/data/sub_d/test_frequency_analysis.py
+git add configs/macro_plan/v1/macro_plan_vocab.yaml tests/golden/sub_d/frequency_analysis src/cfm/data/sub_d/macro_vocab.py scripts/promote_macro_vocab.py tests/data/sub_d/test_macro_vocab.py tests/data/sub_d/test_frequency_analysis.py
 git commit -m "data(sub_d): lock macro plan vocab v1"
 ```
 
@@ -1091,6 +1124,7 @@ Use these exact test names:
 - `test_effective_conditioning_fills_population_density_bucket`
 - `test_effective_conditioning_does_not_copy_owner_marker_as_conditioning`
 - `test_effective_conditioning_records_composite_versions_and_digests`
+- `test_effective_conditioning_schema_uses_effective_conditioning_schema_version`
 - `test_effective_conditioning_yaml_is_canonical`
 
 - [ ] **Step 2: Run focused tests and confirm failure**
@@ -1268,6 +1302,7 @@ Use these exact test names:
 - `test_validator_rejects_effective_conditioning_digest_mismatch`
 - `test_validator_rejects_sub_c_input_digest_mismatch`
 - `test_validator_uses_compare_version_for_namespace_checks`
+- `test_validator_files_do_not_compare_version_strings_directly`
 - `test_validator_rejects_manifest_config_drift_from_sub_c`
 - `test_validator_rejects_provenance_output_sha_mismatch`
 
@@ -1289,6 +1324,8 @@ Implement these exact functions:
 - `validate_region(region_dir: Path, sub_c_region_dir: Path) -> None`
 
 All version comparisons use `compare_version`.
+
+The meta-test `test_validator_files_do_not_compare_version_strings_directly` scans `src/cfm/data/sub_d/validator.py` and any future `src/cfm/data/sub_d/validator_*.py` files with `ast.parse`. It fails on any `ast.Compare` using `==` or `!=` where either side references a name, attribute, or subscript containing `_version` or `version`. The only sanctioned version equality path is `compare_version` from `src/cfm/data/sub_d/versions.py`; validator files must not compare version strings directly.
 
 - [ ] **Step 4: Run focused tests**
 
