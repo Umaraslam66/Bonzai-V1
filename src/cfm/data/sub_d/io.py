@@ -80,7 +80,21 @@ class MacroCoreRow:
 
 
 def write_macro_core_parquet(rows: list[MacroCoreRow], path: Path) -> None:
-    """Write macro_core.parquet with the pinned schema and canonical sort key."""
+    """Write macro_core.parquet with the pinned schema and canonical sort key.
+
+    Refuses ``SlotKind.TILE`` rows: macro_core's slot_kind domain is
+    ``{CELL, INTERNAL_EDGE, EXTERNAL_EDGE}`` per spec §11.2. ``TILE``-scoped
+    metrics (e.g. ``tile_population_density``) live only in
+    ``derivation_evidence.parquet`` (§11.3). Silently accepting a TILE row
+    would produce a slot_kind=3 row that downstream consumers cannot index
+    into the 64-cell / 112-internal-edge / 32-external-edge lattice.
+    """
+    bad = [r for r in rows if r.slot_kind == SlotKind.TILE]
+    if bad:
+        raise ValueError(
+            f"macro_core.parquet rejects SlotKind.TILE rows; got {len(bad)} such row(s). "
+            "TILE-scoped metrics belong in derivation_evidence.parquet only."
+        )
     sorted_rows = sorted(rows, key=lambda r: (int(r.slot_kind), int(r.slot_index)))
     columns: dict[str, list] = {
         "slot_kind": [int(r.slot_kind) for r in sorted_rows],

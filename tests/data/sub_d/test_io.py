@@ -284,6 +284,28 @@ def test_derivation_evidence_value_type_dispatches_bool_before_int(tmp_path: Pat
     assert value_string[by_name["as_string"]] == "x"
 
 
+def test_macro_core_writer_rejects_slot_kind_tile(tmp_path: Path):
+    """macro_core's slot_kind domain is {CELL, INTERNAL_EDGE, EXTERNAL_EDGE}.
+
+    TILE-scoped metrics live only in derivation_evidence.parquet (spec §11.3
+    extends slot_kind to include TILE for tile-level rows); the macro_core
+    schema (§11.2) excludes TILE. Writing a TILE row to macro_core would
+    silently produce a slot_kind=3 row that downstream consumers cannot
+    index into the 3-kind lattice.
+    """
+    valid_row = MacroCoreRow(
+        SlotKind.CELL, 0, 0, 0, None, None, None, Scope.ACTIVE, 0, 0, None
+    )
+    tile_row = MacroCoreRow(
+        SlotKind.TILE, 0, None, None, None, None, None, Scope.ACTIVE, None, None, None
+    )
+    path = tmp_path / "macro_core.parquet"
+    with pytest.raises(ValueError, match="SlotKind.TILE"):
+        write_macro_core_parquet([valid_row, tile_row], path)
+    # File must not be created on failed write.
+    assert not path.exists()
+
+
 def test_read_helpers_round_trip(tmp_path: Path):
     """read_*_parquet returns the rows as dataclasses, byte-stable."""
     macro_rows = [
