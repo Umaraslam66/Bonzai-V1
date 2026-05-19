@@ -14,9 +14,47 @@ from enum import IntEnum
 
 
 class SlotKind(IntEnum):
+    """Macro-lattice slot category.
+
+    ``derivation_evidence.parquet`` (spec section 11.3) uses ``TILE`` for
+    tile-level metrics (e.g. tile_population_density). ``macro_core.parquet``
+    only emits rows with ``CELL``, ``INTERNAL_EDGE``, or ``EXTERNAL_EDGE``.
+    """
+
     CELL = 0
     INTERNAL_EDGE = 1
     EXTERNAL_EDGE = 2
+    TILE = 3
+
+
+class MetricNamespace(IntEnum):
+    """Metric namespace for derivation_evidence rows (spec section 11.3)."""
+
+    ZONING = 0
+    CELL_DENSITY = 1
+    TILE_POPULATION_DENSITY = 2
+    ROAD_SKELETON = 3
+
+
+class FeatureClass(IntEnum):
+    """Sub-C ``feature_class`` encoding.
+
+    Mirrored in sub-D so this package never has to import from
+    ``cfm.data.sub_c.*``. The integer codes are part of sub-C's on-disk
+    contract; if sub-C ever changes them, both modules bump together.
+    """
+
+    ROAD = 0
+    BUILDING = 1
+    POI = 2
+    BASE = 3
+
+
+class Axis(IntEnum):
+    """Sub-C ``axis`` encoding for crossings/edge slots."""
+
+    X = 0
+    Y = 1
 
 
 class Scope(IntEnum):
