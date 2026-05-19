@@ -6,6 +6,101 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #11 — Layer-3 subset selector skips sparse-side dimensions (negated-positive-score interaction with eligibility guard)
+
+- **Filed:** 2026-05-19 (Phase 1 sub-D Gate 2B review)
+- **Severity:** low (Layer-3 subset is still diverse on the positive-side dimensions; sparse-side coverage missing but not load-bearing)
+- **Status:** deferred — fix before any region enrollment whose Layer-3 subset must exercise sparse / low-density tiles
+- **Affects:** `src/cfm/data/sub_d/frequency_analysis.py::_SUBSET_DIMENSIONS` (sparse-side entries with negated scores)
+
+### Context
+
+`select_layer3_subset` ranks tiles by a fixed dimension list. Sparse-side dimensions like `density_low`, `road_skeleton_sparse`, `scope_sparse_tile` use a key function that negates the underlying positive quantity (`lambda e: -e["density_signal"]["max"]`, etc.). The "top" candidate then has the least-negative score, which is still `<= 0`. The selector's downstream guard `if key_fn(top) <= 0 and top_key not in selected_keys: continue` skips these dimensions entirely.
+
+Empirical evidence from Gate 2B on Singapore: 9 tiles selected, 3 sparse-side dimensions never picked a new tile.
+
+### Fix
+
+Replace the negation with a positive-magnitude reciprocal so sparse-side dimensions produce a positive score whose maximum corresponds to the sparsest tile:
+
+```python
+("density_low", lambda e: 1.0 / (e["density_signal"]["max"] + 1e-9)),
+```
+
+Same pattern for `road_skeleton_sparse`, `scope_sparse_tile`. The eligibility predicate (`active_cell_count > 0`) still filters empty tiles out before ranking; this fix just lets the survivors be ranked correctly.
+
+### Tracking
+
+- Source: `src/cfm/data/sub_d/frequency_analysis.py::_SUBSET_DIMENSIONS`
+- Surfaced by: Gate 2B review of real Singapore proposal, section G #3
+
+---
+
+## #10 — Bucket-merge marginal-cost-of-cut metric is degenerate
+
+- **Filed:** 2026-05-19 (Phase 1 sub-D Gate 2B review)
+- **Severity:** medium (reviewer-facing: hides the cut-point elbow for bucket-based vocabs; not a correctness issue but degrades Gate 2 review quality)
+- **Status:** deferred — replace before the next region enrollment that re-derives bucket cuts
+- **Affects:** `src/cfm/data/sub_d/frequency_analysis.py::_fill_marginal_cost` applied to `_density_proposal_section`, `_road_proposal_section`, `_tile_population_density_proposal_section`
+
+### Context
+
+The marginal-cost-of-cut formula `(Δcoverage) / (Δcategories)` is well-defined for token-dropping (zoning's case, where merging a class into "other" reduces coverage of the surviving tokens). For bucket-merging strategies (density, road skeleton, tile population density), every value still falls into some bucket regardless of strategy, so coverage stays at 1.0 across all cut strategies — marginal cost is 0.0 for every entry, and the elbow the reviewer wants to see cannot be derived from the metric.
+
+Empirical evidence from Gate 2B on Singapore: cell_density, road_skeleton, and all four tile_population_density proxies returned coverage=1.0, marginal_cost=0.0 for every strategy in `_DENSITY_CANDIDATE_BUCKETS` / `_ROAD_CANDIDATE_BUCKETS`. The Gate 2 reviewer made cut decisions from the section-C distribution summary instead.
+
+### Fix
+
+Replace coverage with a quantity that varies meaningfully under bucket-merging. Candidates:
+
+1. **Entropy loss**: information lost when merging buckets. Sensitive to which buckets merge and how mass is distributed.
+2. **Largest-bucket mass**: fraction of values in the biggest bucket. A bucketing that puts >50% in one bucket is degenerate; this metric catches that.
+3. **Quantile-fit goodness**: KL-divergence between the bucket distribution and an idealized equal-quantile bucketing of the same N.
+
+Recommend (1) or (3) for richer signal. Keep the `marginal_cost` field name on the candidate_strategies entries so the reviewer-facing table layout doesn't change.
+
+### Tracking
+
+- Source: `src/cfm/data/sub_d/frequency_analysis.py::_fill_marginal_cost`
+- Surfaced by: Gate 2B review of real Singapore proposal, section G #2
+
+---
+
+## #9 — Cell density ratio exceeds 1.0 in real Singapore data
+
+- **Filed:** 2026-05-19 (Phase 1 sub-D Gate 2B review)
+- **Severity:** medium (mathematical invariant violation; affects 0.03% of cells but the upper bound is no longer guaranteed by construction)
+- **Status:** deferred — investigate root cause before any region whose density bucketing depends on a strict `[0, 1]` bound
+- **Affects:** Sub-C extraction output. Sub-D `derive_density_evidence` consumes the per-cell ratio without checking it, and the Gate 2B-locked `cell_density.locked_buckets` top bucket `[0.35, inf)` absorbs the anomaly gracefully — sub-D is not currently mis-derived.
+
+### Context
+
+The `building_footprint_ratio` metric in `derive_density_evidence` is `sum(building polygon area within cell) / cell_area_admin_clipped_m2`. Mathematically this must be `≤ 1.0` (a cell cannot be more than 100% covered by buildings). Real Singapore sub-C data violates this: across 17,049 active cells, `max = 1.4096` and ~0.03% of values are above 1.0.
+
+Three plausible root causes:
+
+1. **Overlapping Overture building polygons.** A single physical building represented by two overlapping polygons in `buildings.parquet` would double-count area in the sum.
+2. **Multi-polygon cell-clipping edge cases.** Sub-C's int8 `GEOMETRY_TYPE` enum extension (known issue, project-memory `project_sub_c_multi_geometry_gap.md`) suggests Multi\* geometries are present; the cell-clipping logic might leave portions extending beyond cell bounds in some edge cases.
+3. **Sliver-drop rule not pruning microscopic polygons that round up.** `sliver_drop_rule: drop iff geometry has area < 0.01 m² OR length < 0.01 m` — if a building polygon barely passes the threshold but extends slightly beyond a cell boundary, area accounting could over-sum.
+
+### Investigation plan
+
+Pick 3-5 cells with `building_footprint_ratio > 1.0` from Singapore output. For each, list the `source_feature_id`s of buildings clipped into that cell. Inspect whether any pair has overlapping geometry, Multi\* parts, or sub-cell-edge slivers. Update sub-C clipping or de-duplication accordingly.
+
+### Why not weaken sub-D's invariant
+
+Sub-D's `derive_tile_population_density_evidence` F2 test asserts `0.0 ≤ value ≤ 1.0`. Tile aggregates of >1.0 per-cell ratios happen to stay under 1.0 in current data (max p75 = 0.50, max area_weighted = 0.36), but the bound is no longer guaranteed by construction. Per `feedback_test_weakening_to_pass`: when data violates an invariant, the assumption failed; fix the upstream, do not weaken the test. The F2 [0, 1] assertion stays strict.
+
+### Tracking
+
+- Source: `src/cfm/data/sub_c/pipeline.py` (sub-C extraction)
+- Spec: §11.3 (cells.parquet schema), §9.2 (sea-mask + sliver-drop order)
+- Surfaced by: Gate 2B review of real Singapore proposal, section G #1
+- Related: `project_sub_c_multi_geometry_gap.md` (memory) — Multi\* geometry handling
+- Mitigation in place: sub-D `cell_density.locked_buckets` top bucket open-ended `[0.35, inf)` absorbs anomalous values without leaking into intermediate buckets.
+
+---
+
 ## #8 — Cross-tile validator invariant #1 over-couples YAML-format version to data-shape version
 
 - **Filed:** 2026-05-18 (Phase 1 sub-C closeout)
