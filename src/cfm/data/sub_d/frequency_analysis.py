@@ -162,6 +162,7 @@ def build_frequency_analysis(inputs: list[SubCTileInputs]) -> dict:
     density_proposal = _density_proposal_section(density_values)
     road_proposal = _road_proposal_section(road_counts_active, edge_scope_counts)
     orthogonality = _orthogonality_section(ortho_building_counts, ortho_density_ratios)
+    per_tile = _per_tile_evidence_summary(inputs)
 
     return {
         "analysis_version": ANALYSIS_VERSION,
@@ -171,6 +172,7 @@ def build_frequency_analysis(inputs: list[SubCTileInputs]) -> dict:
             [{"tile_i": t.paths.tile_i, "tile_j": t.paths.tile_j, **t.digests} for t in inputs],
             key=lambda e: (e["tile_i"], e["tile_j"]),
         ),
+        "per_tile_evidence": per_tile,
         "zoning_proposal": zoning_proposal,
         "cell_density_proposal": density_proposal,
         "road_skeleton_proposal": road_proposal,
@@ -196,6 +198,7 @@ def validate_frequency_analysis(analysis: dict) -> None:
         "derivation_version",
         "tile_count",
         "input_digests",
+        "per_tile_evidence",
         "zoning_proposal",
         "cell_density_proposal",
         "road_skeleton_proposal",
@@ -444,6 +447,190 @@ def _open_ended_int_pairs(bucket_lower_bounds: list[int]) -> list[tuple[int, int
         hi = bucket_lower_bounds[i + 1] if i + 1 < n else None
         pairs.append((lo, hi))
     return pairs
+
+
+def _per_tile_evidence_summary(inputs: list[SubCTileInputs]) -> list[dict]:
+    """Per-tile evidence summary used by ``select_layer3_subset``.
+
+    Sorted by (tile_i, tile_j) for byte-determinism. Each entry is a small
+    aggregate over the per-tile Layer-1 metrics; ``select_layer3_subset``
+    consumes these aggregates rather than re-running evidence derivation.
+    """
+    edge_lookup = {s.slot_index: s for s in iter_internal_edge_slots()}
+    entries: list[dict] = []
+    for tile in inputs:
+        scope = derive_cell_scope_metrics(tile.cells)
+        zoning_metrics = derive_zoning_evidence(tile.features, tile.cells)
+        density_metrics = derive_density_evidence(tile.features, tile.cells)
+        road_metrics = derive_road_skeleton_evidence(tile.crossings, tile.features)
+
+        active_cell_count = sum(1 for v in scope.values() if v)
+        zoning_signal = {
+            FeatureClass.ROAD.name.lower(): 0,
+            FeatureClass.BUILDING.name.lower(): 0,
+            FeatureClass.POI.name.lower(): 0,
+            FeatureClass.BASE.name.lower(): 0,
+        }
+        for m in zoning_metrics:
+            cls = m.metric_name.removeprefix("feature_count_")
+            zoning_signal[cls] += int(m.value)
+
+        density_values = [float(m.value) for m in density_metrics]
+        density_signal = {
+            "cell_count": len(density_values),
+            "max": float(max(density_values)) if density_values else 0.0,
+            "mean": (
+                float(sum(density_values) / len(density_values))
+                if density_values
+                else 0.0
+            ),
+        }
+
+        active_road_counts: list[int] = []
+        for m in road_metrics:
+            edge = edge_lookup[m.slot_index]
+            lower_active = scope[(edge.lower_cell_i, edge.lower_cell_j)]
+            if edge.axis == 0:
+                upper_active = scope[(edge.lower_cell_i + 1, edge.lower_cell_j)]
+            else:
+                upper_active = scope[(edge.lower_cell_i, edge.lower_cell_j + 1)]
+            if derive_internal_edge_scope(lower_active, upper_active) == Scope.ACTIVE:
+                active_road_counts.append(int(m.value))
+        road_skeleton_signal = {
+            "active_edge_count": len(active_road_counts),
+            "mean_count": (
+                float(sum(active_road_counts) / len(active_road_counts))
+                if active_road_counts
+                else 0.0
+            ),
+        }
+
+        conditioning = tile.meta.get("conditioning_per_tile", {}) or {}
+        coastal_inland_river = int(conditioning.get("coastal_inland_river", 0))
+
+        entries.append(
+            {
+                "tile_i": tile.paths.tile_i,
+                "tile_j": tile.paths.tile_j,
+                "active_cell_count": active_cell_count,
+                "zoning_signal": dict(sorted(zoning_signal.items())),
+                "density_signal": density_signal,
+                "road_skeleton_signal": road_skeleton_signal,
+                "coastal_inland_river": coastal_inland_river,
+            }
+        )
+    return sorted(entries, key=lambda e: (e["tile_i"], e["tile_j"]))
+
+
+# Dimension list for deterministic subset selection. Each dimension is a
+# (name, key_fn) pair; the selector picks the unselected tile maximising
+# ``key_fn`` and tie-breaks lexicographically by (tile_i, tile_j). A tile
+# already selected for a prior dimension accumulates additional rationale
+# strings if it remains the maximiser, so the reviewer sees every dimension
+# the tile covers.
+_SUBSET_DIMENSIONS: list[tuple[str, "callable[[dict], float]"]] = [
+    ("zoning_road_dominant", lambda e: e["zoning_signal"]["road"]),
+    ("zoning_building_dominant", lambda e: e["zoning_signal"]["building"]),
+    ("zoning_poi_dominant", lambda e: e["zoning_signal"]["poi"]),
+    ("zoning_base_present", lambda e: e["zoning_signal"]["base"]),
+    ("density_high", lambda e: e["density_signal"]["max"]),
+    ("density_low", lambda e: -e["density_signal"]["max"]),
+    ("road_skeleton_high_density", lambda e: e["road_skeleton_signal"]["mean_count"]),
+    ("road_skeleton_sparse", lambda e: -e["road_skeleton_signal"]["active_edge_count"]),
+    ("scope_full_tile", lambda e: e["active_cell_count"]),
+    ("scope_sparse_tile", lambda e: -e["active_cell_count"]),
+    ("coastal_present", lambda e: 1 if e["coastal_inland_river"] == 1 else 0),
+    ("riverside_present", lambda e: 1 if e["coastal_inland_river"] in (2, 3) else 0),
+    ("inland_present", lambda e: 1 if e["coastal_inland_river"] == 0 else 0),
+]
+
+
+def is_eligible_for_subset(entry: dict) -> bool:
+    """Eligibility predicate for Layer-3 subset inclusion.
+
+    A tile is eligible iff it has at least one active cell
+    (``active_cell_count > 0``). Tiles with no active cells carry no
+    derivation evidence — zoning, density, and road-skeleton signals are all
+    zero — and provide nothing meaningful for a Layer-3 reviewer to inspect,
+    even when meta-level dimensions like ``coastal_inland_river`` would
+    otherwise rank them highly.
+
+    Keeping the predicate explicit and separate from dimension scoring is
+    defense in depth: a future dimension that scores positively for sparse
+    or empty tiles (e.g. a hypothetical ``scope_completely_masked`` dim)
+    cannot bypass eligibility through ranking alone.
+    """
+    return int(entry.get("active_cell_count", 0)) > 0
+
+
+def select_layer3_subset(analysis: dict, max_tiles: int = 12) -> list[dict]:
+    """Deterministically pick up to ``max_tiles`` tiles for Layer-3 review.
+
+    Two-layered filter:
+
+    1. Eligibility predicate (``is_eligible_for_subset``) removes tiles with
+       no derivation evidence before any ranking applies. This catches
+       active_cell_count==0 tiles regardless of how dimension scores might
+       rank them.
+    2. Dimension-driven ranking over eligible tiles. For each dimension in
+       ``_SUBSET_DIMENSIONS``, picks the eligible tile that maximises that
+       dimension's signal; ties break lexicographically on
+       ``(tile_i, tile_j)``. A tile already selected accumulates additional
+       rationale strings as more dimensions favour it.
+
+    Returns a list sorted by ``(tile_i, tile_j)``. Each entry has::
+
+        {"tile_i": int, "tile_j": int, "rationale": "selected for X, Y, Z"}
+
+    ``max_tiles`` defaults to 12 to match the plan's Task 7 spec; the CLI
+    exposes ``--max-subset-tiles`` for override.
+    """
+    per_tile = analysis.get("per_tile_evidence", [])
+    if not per_tile or max_tiles <= 0:
+        return []
+
+    eligible = [e for e in per_tile if is_eligible_for_subset(e)]
+    if not eligible:
+        return []
+
+    selected_keys: set[tuple[int, int]] = set()
+    rationales: dict[tuple[int, int], list[str]] = {}
+
+    for dim_name, key_fn in _SUBSET_DIMENSIONS:
+        ordered = sorted(eligible, key=lambda e: (-key_fn(e), e["tile_i"], e["tile_j"]))
+        top = ordered[0]
+        top_key = (top["tile_i"], top["tile_j"])
+        top_score = key_fn(top)
+
+        if len(selected_keys) >= max_tiles:
+            # Cap reached: only accumulate additional rationale for already-
+            # selected tiles. A zero-signal top is meaningless either way.
+            if top_score > 0 and top_key in selected_keys:
+                rationales[top_key].append(dim_name)
+            continue
+
+        # A dimension with a non-positive top score among eligible tiles
+        # does not justify picking a NEW tile. It can still accumulate
+        # rationale for a tile already selected on stronger grounds.
+        if top_score <= 0:
+            if top_key in selected_keys:
+                rationales[top_key].append(dim_name)
+            continue
+
+        if top_key in selected_keys:
+            rationales[top_key].append(dim_name)
+        else:
+            selected_keys.add(top_key)
+            rationales[top_key] = [dim_name]
+
+    return [
+        {
+            "tile_i": key[0],
+            "tile_j": key[1],
+            "rationale": "selected for " + ", ".join(rationales[key]),
+        }
+        for key in sorted(selected_keys)
+    ]
 
 
 def _pearson(xs: list[float], ys: list[float]) -> float:

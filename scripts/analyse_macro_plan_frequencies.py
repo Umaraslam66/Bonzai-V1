@@ -1,18 +1,30 @@
-"""CLI for sub-D macro frequency analysis (Task 6).
+"""CLI for sub-D macro frequency analysis + Gate 2 proposal generation.
 
 Reads a sub-C region directory, derives Layer-1 evidence per tile, and
-writes a reviewer-facing frequency-analysis YAML to ``--output-dir``.
+writes a reviewer-facing YAML artifact to ``--output-dir``.
 
-Example:
+Default mode writes ``frequency_analysis.yaml`` (the raw analysis dict).
+
+``--proposal-only`` mode writes ``macro_vocab_proposal.yaml``, which is the
+same analysis dict plus a deterministic Layer-3 tile subset and a
+``status: proposal`` marker. The proposal file is the reviewer-facing
+document at Gate 2; the reviewer hand-edits ``locked_buckets`` in place to
+pick from each section's ``candidate_strategies``. Task 8's
+``scripts/promote_macro_vocab.py`` then writes
+``configs/macro_plan/v1/macro_plan_vocab.yaml`` with byte-identity modulo
+only the ``status`` marker flipping to ``locked``.
+
+Examples
+--------
 
     uv run python scripts/analyse_macro_plan_frequencies.py \\
       --sub-c-dir data/processed/sub_c/2026-04-15.0/singapore \\
       --output-dir reports/phase-1-sub-D
 
-Task 7 will extend the CLI with deterministic Singapore subset selection and
-a ``--proposal-only`` flag for generating the reviewer-facing artifact prior
-to Gate 2. Until then, this script just produces ``frequency_analysis.yaml``
-from whichever tiles the sub-C manifest claims.
+    uv run python scripts/analyse_macro_plan_frequencies.py \\
+      --sub-c-dir data/processed/sub_c/2026-04-15.0/singapore \\
+      --output-dir reports/phase-1-sub-D \\
+      --proposal-only
 """
 
 from __future__ import annotations
@@ -22,6 +34,7 @@ from pathlib import Path
 
 from cfm.data.sub_d.frequency_analysis import (
     build_frequency_analysis,
+    select_layer3_subset,
     validate_frequency_analysis,
     write_frequency_analysis,
 )
@@ -45,12 +58,25 @@ def main() -> None:
         "--output-dir",
         type=Path,
         required=True,
-        help="Directory to write the frequency_analysis.yaml artifact into.",
+        help="Directory to write the analysis or proposal artifact into.",
     )
     parser.add_argument(
-        "--output-name",
-        default="frequency_analysis.yaml",
-        help="Filename for the analysis artifact (default: frequency_analysis.yaml).",
+        "--proposal-only",
+        action="store_true",
+        help=(
+            "Write macro_vocab_proposal.yaml (analysis + Layer-3 subset + "
+            "status: proposal marker) instead of plain frequency_analysis.yaml."
+        ),
+    )
+    parser.add_argument(
+        "--max-subset-tiles",
+        type=int,
+        default=12,
+        help=(
+            "Max tiles in the Layer-3 subset (only used with --proposal-only). "
+            "Default 12 — matches the plan's Task 7 spec and is large enough "
+            "for non-trivial per-tile rationale traces while staying review-able."
+        ),
     )
     args = parser.parse_args()
 
@@ -60,9 +86,25 @@ def main() -> None:
     validate_frequency_analysis(analysis)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = args.output_dir / args.output_name
-    write_frequency_analysis(analysis, output_path)
-    print(f"wrote {output_path} (tile_count={analysis['tile_count']})")
+
+    if args.proposal_only:
+        proposal = dict(analysis)
+        proposal["status"] = "proposal"
+        proposal["selected_layer3_tiles"] = select_layer3_subset(
+            analysis, max_tiles=args.max_subset_tiles
+        )
+        output_path = args.output_dir / "macro_vocab_proposal.yaml"
+        write_frequency_analysis(proposal, output_path)
+        print(
+            f"wrote {output_path} "
+            f"(tile_count={analysis['tile_count']}, "
+            f"subset={len(proposal['selected_layer3_tiles'])}, "
+            f"status=proposal)"
+        )
+    else:
+        output_path = args.output_dir / "frequency_analysis.yaml"
+        write_frequency_analysis(analysis, output_path)
+        print(f"wrote {output_path} (tile_count={analysis['tile_count']})")
 
 
 if __name__ == "__main__":
