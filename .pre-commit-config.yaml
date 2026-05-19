@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.5
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: no-pandas-in-write-path
+        name: No pandas in sub-C write-path
+        entry: uv run python scripts/lint/no_pandas_in_write_path.py
+        language: system
+        types: [python]
+        files: ^src/cfm/data/sub_c/.*\.py$

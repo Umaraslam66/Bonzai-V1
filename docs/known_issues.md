@@ -6,6 +6,103 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #8 — Cross-tile validator invariant #1 over-couples YAML-format version to data-shape version
+
+- **Filed:** 2026-05-18 (Phase 1 sub-C closeout)
+- **Severity:** low (works today; brittle on next schema change)
+- **Status:** deferred — fix at the next schema version bump in either dimension
+- **Affects:** `src/cfm/data/sub_c/validator_cross_tile.py::_check_schema_version_consistency`
+
+### Context
+
+`validate_extraction_cross_tile` invariant #1 (`sub_c_schema_version_consistency`) compares `manifest.sub_c_schema_version` (data-shape version) against `meta.yaml.schema_version` (YAML-format version). These are conceptually independent version series per spec §14.9. The current implementation forces `_SCHEMA_VERSION == _SUB_C_SCHEMA_VERSION` to satisfy the validator, which means any future YAML-format change forces a spurious data-shape version bump (or vice versa).
+
+### Fix
+
+Invariant #1 should compare like-for-like via a dedicated `features_parquet_schema_version` (or analogous data-shape version) on meta.yaml, keeping YAML-format version and data-shape version as separate fields.
+
+### Tracking
+
+- Source: `src/cfm/data/sub_c/validator_cross_tile.py::_check_schema_version_consistency`
+- Spec: §14.9
+- Surfaced by: Task 17 code review
+
+---
+
+## #7 — `--rerun` CLI path is a stub (`NotImplementedError`)
+
+- **Filed:** 2026-05-18 (Phase 1 sub-C closeout)
+- **Severity:** low (Singapore initial extraction works without re-run; deferred until needed)
+- **Status:** deferred — implement when the first per-tile re-extraction need arises
+- **Affects:** `scripts/extract_tiles.py`
+
+### Context
+
+`scripts/extract_tiles.py --rerun <i,j>` raises `NotImplementedError`. Per spec §11.8, per-tile re-extraction protocol is documented: read the existing manifest, re-extract just the named tile, update `manifest.tiles[<this_tile>].provenance_sha256`, and re-run the cross-tile validator. Not on the Singapore Phase 1 critical path.
+
+### Effort estimate
+
+Half a day of work. The extraction plumbing and manifest update logic are already in place; it is purely wiring and the per-tile re-run of the cross-tile validator.
+
+### Tracking
+
+- Source: `scripts/extract_tiles.py` (see `# DECISION:` near `--rerun` handler)
+- Spec: §11.8
+
+---
+
+
+## #4 — Tokenizer `emit_unknown_token` fall-through not yet implemented (training-critical)
+
+- **Filed:** 2026-05-18 (Phase 1 sub-C closeout)
+- **Severity:** high (training-critical path)
+- **Status:** deferred — fix before Phase 2 training run; NOT a sub-D/E/F/G blocker
+- **Affects:** `src/cfm/tokenizer/encode.py:59-60`
+
+### Context
+
+Sub-C output is unusable end-to-end for training without an enhancement at `src/cfm/tokenizer/encode.py:59-60`. Currently `_encode_feature` hard-raises `UnsupportedFeatureClass` on any class value not in the vocab YAML. Under Topic 3b Option A, sub-C stores raw class values; downstream tokenization at training time must fall through to `<prefix>__UNK__` when the field's `missing_value_policy` is `emit_unknown_token`. The change is estimated at ~10 lines but warrants its own brainstorm-spec-test cycle and a separate sub-project.
+
+Sub-D through sub-G consume per-cell rows directly, not tokens, so this is not a blocker for those sub-projects.
+
+### Fix
+
+In `_encode_feature`, after failing to look up the class in the vocab, check the field's policy. If `emit_unknown_token`, emit the appropriate `__UNK__` token. If `raise_error` (current behaviour), keep the raise.
+
+### Tracking
+
+- Source: `src/cfm/tokenizer/encode.py:59-60`
+- Spec: §3 + §20
+
+---
+
+## #3 — Sweden densification revisit required before first Sweden extraction (spec §7.4)
+
+- **Filed:** 2026-05-18 (Phase 1 sub-C closeout)
+- **Severity:** medium (correctness on coastline-heavy regions)
+- **Status:** deferred — measure and tune before `extract_tiles.py --region sweden` is first run
+- **Affects:** `src/cfm/data/sub_c/coords.py::densify_polygon`
+
+### Context
+
+Sub-C's `densify_polygon` is called with `max_edge_length_m=None` for Singapore. This is empirically a no-op: the Singapore polygon's maximum edge is 775 m and 99 % of edges are under 500 m, so inserting intermediate vertices would change nothing. Sweden is a different story: higher latitudes introduce a cos(lat) projection-compression effect, and archipelago coastlines can have far longer edges. Skipping densification on a 20 km coastline edge would place a sea/land boundary vertex far from the true geodesic path, corrupting cell-coverage fractions.
+
+### Fix
+
+Before the first Sweden extraction run:
+1. Measure the edge-length distribution of Sweden's administrative boundary polygon (same method as Singapore was measured).
+2. If any edge exceeds ~5 km, pass an appropriate `max_edge_length_m` value (e.g. 1000 m) to `densify_polygon`.
+3. Document the chosen value in `configs/regions/sweden.yaml`.
+
+The function signature is already in place; only the argument value needs tuning.
+
+### Tracking
+
+- Source: `src/cfm/data/sub_c/coords.py::densify_polygon`
+- Spec: §7.4
+
+---
+
 ## #2 — Subtype / subclass fields analyzed in B1 but not tokenized in Phase 1
 
 - **Filed:** 2026-05-16 (Phase 1 sub-B2 spec)

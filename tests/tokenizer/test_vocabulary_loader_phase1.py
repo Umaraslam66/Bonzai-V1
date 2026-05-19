@@ -131,7 +131,10 @@ def test_loader_accepts_data_derived_unknown_token_anywhere(tmp_path):
     # Mimic the real-world case: R_unknown is a data-derived category token,
     # not a placeholder, and sits somewhere in the middle of the road section.
     data["feature_class"]["road"]["tokens"] = [
-        "R_motorway", "R_primary", "R_unknown", "R_secondary",
+        "R_motorway",
+        "R_primary",
+        "R_unknown",
+        "R_secondary",
     ]
     p = _write_yaml(tmp_path, data)
     vocab = Vocabulary.load(p)

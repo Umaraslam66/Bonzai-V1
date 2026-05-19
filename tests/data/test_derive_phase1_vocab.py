@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 import yaml
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "derive_phase1_vocab.py"
@@ -18,8 +15,10 @@ def _run_script(output_dir: Path, *, rerun_reason: str = "initial") -> subproces
         [
             sys.executable,
             str(SCRIPT),
-            "--output-dir", str(output_dir),
-            "--rerun-reason", rerun_reason,
+            "--output-dir",
+            str(output_dir),
+            "--rerun-reason",
+            rerun_reason,
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -55,9 +54,11 @@ def test_script_runs_against_cached_singapore_and_produces_well_formed_artifacts
 
     # Pinned counts against the locked B2 decisions (§7 of the spec).
     # Investigate-first if any of these change.
-    assert len(fc["building"]["tokens"]) == 23   # 22 Moderate-kept + B__UNK__
-    assert len(fc["road"]["tokens"]) == 17       # 17 Moderate-kept (no __UNK__ placeholder; drop_row policy)
-    assert len(fc["base"]["tokens"]) == 7        # 7 Strict-kept (no __UNK__ placeholder; n_a policy)
+    assert len(fc["building"]["tokens"]) == 23  # 22 Moderate-kept + B__UNK__
+    assert (
+        len(fc["road"]["tokens"]) == 17
+    )  # 17 Moderate-kept (no __UNK__ placeholder; drop_row policy)
+    assert len(fc["base"]["tokens"]) == 7  # 7 Strict-kept (no __UNK__ placeholder; n_a policy)
     poi_len = len(fc["poi"]["tokens"])
     assert 291 <= poi_len <= 341, (
         f"POI section size {poi_len} outside expected [291, 341]; "
@@ -89,7 +90,9 @@ def test_policy_yaml_field_set_matches_expected(tmp_path):
         "places.categories.alternate",
     }
     actual = set(policy["fields"].keys())
-    assert actual == expected, f"unexpected diff: added={actual-expected}, removed={expected-actual}"
+    assert actual == expected, (
+        f"unexpected diff: added={actual - expected}, removed={expected - actual}"
+    )
 
     # Every field carries BOTH four-case axes per sub-C spec §10.2 (B2 follow-up).
     for field_name in expected:
@@ -130,9 +133,7 @@ def test_cross_artifact_consistency_unknown_tokens(tmp_path):
 
     for section_name, source_fields in section_to_fields.items():
         section = vocab["feature_class"][section_name]
-        policies = [
-            policy["fields"][f]["policies"]["missing_value"]["type"] for f in source_fields
-        ]
+        policies = [policy["fields"][f]["policies"]["missing_value"]["type"] for f in source_fields]
         has_emit = any(p == "emit_unknown_token" for p in policies)
         all_drop_or_na = all(p in ("drop_row", "n_a") for p in policies)
 
@@ -164,7 +165,8 @@ def test_script_byte_deterministic_modulo_generated_utc(tmp_path):
     def _stripped(path: Path) -> str:
         lines = path.read_text().splitlines()
         return "\n".join(
-            line for line in lines
+            line
+            for line in lines
             if not line.lstrip().startswith(("generated_utc:", "vocab_sha256:", "policy_sha256:"))
         )
 
