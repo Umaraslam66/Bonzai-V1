@@ -104,8 +104,9 @@ Sub-D writes a standalone sidecar dataset:
 data/processed/sub_d/<release>/<region>/
   manifest.yaml
   _SUCCESS
-  tile=<tile-id>/
+  tile=EPSG3414_i<tile_i>_j<tile_j>/
     macro_core.parquet
+    derivation_evidence.parquet
     effective_conditioning.yaml
     provenance.yaml
 ```
@@ -201,12 +202,26 @@ Each frequency-analysis output is a tested artifact:
   locked buckets.
 - Marginal-cost-of-cut monotonicity must hold where the cut strategy uses that
   framing.
-- After vocab lock, a golden frequency-analysis artifact is committed. Drift
-  triggers a vocab-version or derivation-version review, not silent
-  recomputation.
+- After vocab lock, a golden frequency-analysis artifact is committed under
+  `tests/golden/sub_d/frequency_analysis/<analysis_name>.yaml`. Drift triggers
+  a vocab-version or derivation-version review, not silent recomputation.
 
 Vocab-dependent schema fields in Section 11 carry an explicit "pending
 Section 6 empirical lock" marker until these gates complete.
+
+Sub-D has a two-stage execution model:
+
+1. Empirical-analysis phase. This reads pinned sub-C inputs and produces only
+   frequency-analysis artifacts. It selects and locks macro vocabularies,
+   bucket cuts, derivation versions, and the deterministic Layer 3 tile subset.
+2. Sidecar-derivation phase. This reads the locked macro vocab/config artifacts
+   and writes sub-D sidecar artifacts.
+
+No `macro_core.parquet`, `derivation_evidence.parquet`,
+`effective_conditioning.yaml`, per-tile `provenance.yaml`, region
+`manifest.yaml`, or `_SUCCESS` marker is shipped until the empirical gates
+close. The "pending Section 6 empirical lock" markers in this spec are design
+annotations only; they are never literal values in shipped artifacts.
 
 ## 7. Zoning Derivation
 
@@ -404,9 +419,10 @@ Support data categories:
 
 ## 11. Artifact Schemas And Layout
 
-All schemas here are the sub-D sidecar contract. Fields marked "pending
-Section 6 empirical lock" are structurally present, but their enum domains or
-bucket cuts are locked only after the frequency-analysis gates complete.
+All schemas here are the sub-D sidecar contract. Fields whose comments say
+"pending Section 6 empirical lock" are structurally present, but their enum
+domains or bucket cuts are locked only after the frequency-analysis gates
+complete.
 
 ### 11.1 Directory Layout
 
@@ -416,6 +432,7 @@ data/processed/sub_d/<release>/<region>/
   _SUCCESS
   tile=EPSG3414_i<tile_i>_j<tile_j>/
     macro_core.parquet
+    derivation_evidence.parquet
     effective_conditioning.yaml
     provenance.yaml
 ```
@@ -442,7 +459,6 @@ scope                             int8      # pending Section 6 empirical lock f
 zoning_class                      int16?    # pending Section 6 empirical lock; cell active slots only
 cell_density_bucket               int16?    # pending Section 6 empirical lock; cell active slots only
 road_skeleton_class               int16?    # pending Section 6 empirical lock; active internal edges only
-evidence_ref                      string?   # stable key into evidence/debug artifact if one is written
 ```
 
 Canonical sort key:
@@ -464,19 +480,63 @@ The concrete integer enum maps for `scope`, `zoning_class`,
 `cell_density_bucket`, and `road_skeleton_class` are supplied by the macro vocab
 artifact after Section 6 empirical lock.
 
-### 11.3 `effective_conditioning.yaml`
+### 11.3 `derivation_evidence.parquet`
+
+One row per deterministic derivation-evidence metric. Evidence is load-bearing:
+validators use it to confirm labels and buckets were produced from the pinned
+sub-C inputs and versioned derivation functions. Debug summaries are separate
+and non-load-bearing.
+
+Draft schema:
+
+```text
+slot_kind                         int8      # enum: 0=cell, 1=internal_edge, 2=external_edge, 3=tile
+slot_index                        int16     # canonical within slot_kind; 0 for tile-level rows
+metric_namespace                  int8      # enum: 0=zoning, 1=cell_density, 2=tile_population_density, 3=road_skeleton
+metric_name                       string
+value_type                        int8      # enum: 0=float64, 1=int64, 2=string, 3=bool
+value_float                       float64?
+value_int                         int64?
+value_string                      string?
+value_bool                        bool?
+derivation_version                string
+```
+
+Canonical sort key:
+
+```text
+(slot_kind, slot_index, metric_namespace, metric_name)
+```
+
+Per-tile evidence lives in each tile directory and includes:
+
+- zoning evidence metrics for active cell slots
+- per-cell density evidence metrics for active cell slots
+- tile-level population-density proxy evidence under `slot_kind=tile`
+- road-skeleton evidence metrics for active internal edge slots
+
+Per-region empirical-analysis outputs live outside tile directories because
+they summarize the whole analysis population. The implementation should write
+machine-readable analysis artifacts under `reports/phase-1-sub-D/` with stable
+names, and tests should store golden copies under
+`tests/golden/sub_d/frequency_analysis/<analysis_name>.yaml`.
+
+The empirical zoning orthogonality comparison belongs in the per-region
+frequency-analysis artifact, not in every tile's evidence parquet.
+
+### 11.4 `effective_conditioning.yaml`
 
 Draft shape:
 
 ```yaml
-schema_version: "1.0"
+effective_conditioning_schema_version: "1.0"
 tile_i: 12
 tile_j: 17
 
 versions:
   sub_c_conditioning_schema_version: "1.1"
-  tile_population_density_vocab_version: "pending Section 6 empirical lock"
-  tile_population_density_derivation_version: "pending Section 6 empirical lock"
+  tile_population_density_vocab_version: "<locked_tile_population_density_vocab_version>"
+  tile_population_density_derivation_version: "<locked_tile_population_density_derivation_version>"
 
 sub_c_inputs:
   manifest_sha256: "<sha>"
@@ -499,12 +559,12 @@ conditioning:
 The current sub-C-owned field examples above are illustrative. The
 implementation must not use this list as a static allowlist.
 
-### 11.4 `provenance.yaml`
+### 11.5 `provenance.yaml`
 
 Draft shape:
 
 ```yaml
-schema_version: "1.0"
+provenance_schema_version: "1.0"
 tile_i: 12
 tile_j: 17
 
@@ -527,27 +587,28 @@ inputs:
 
 versions:
   sub_d_schema_version: "1.0"
-  macro_plan_vocab_version: "pending Section 6 empirical lock"
-  zoning_vocab_version: "pending Section 6 empirical lock"
-  zoning_derivation_version: "pending Section 6 empirical lock"
-  cell_density_vocab_version: "pending Section 6 empirical lock"
-  cell_density_derivation_version: "pending Section 6 empirical lock"
-  tile_population_density_vocab_version: "pending Section 6 empirical lock"
-  tile_population_density_derivation_version: "pending Section 6 empirical lock"
-  road_skeleton_vocab_version: "pending Section 6 empirical lock"
-  road_skeleton_derivation_version: "pending Section 6 empirical lock"
+  macro_plan_vocab_version: "<locked_macro_plan_vocab_version>"
+  zoning_vocab_version: "<locked_zoning_vocab_version>"
+  zoning_derivation_version: "<locked_zoning_derivation_version>"
+  cell_density_vocab_version: "<locked_cell_density_vocab_version>"
+  cell_density_derivation_version: "<locked_cell_density_derivation_version>"
+  tile_population_density_vocab_version: "<locked_tile_population_density_vocab_version>"
+  tile_population_density_derivation_version: "<locked_tile_population_density_derivation_version>"
+  road_skeleton_vocab_version: "<locked_road_skeleton_vocab_version>"
+  road_skeleton_derivation_version: "<locked_road_skeleton_derivation_version>"
 
 outputs:
   macro_core_parquet_sha256: "<sha>"
+  derivation_evidence_parquet_sha256: "<sha>"
   effective_conditioning_yaml_sha256: "<sha>"
 ```
 
-### 11.5 `manifest.yaml`
+### 11.6 `manifest.yaml`
 
 Draft shape:
 
 ```yaml
-schema_version: "1.0"
+manifest_schema_version: "1.0"
 sub_d_schema_version: "1.0"
 release: "2026-04-15.0"
 region: "singapore"
@@ -558,16 +619,17 @@ inputs:
   sub_c_region_dir: "data/processed/sub_c/2026-04-15.0/singapore"
 
 versions:
-  macro_plan_vocab_version: "pending Section 6 empirical lock"
-  zoning_vocab_version: "pending Section 6 empirical lock"
-  zoning_derivation_version: "pending Section 6 empirical lock"
-  cell_density_vocab_version: "pending Section 6 empirical lock"
-  cell_density_derivation_version: "pending Section 6 empirical lock"
-  tile_population_density_vocab_version: "pending Section 6 empirical lock"
-  tile_population_density_derivation_version: "pending Section 6 empirical lock"
-  road_skeleton_vocab_version: "pending Section 6 empirical lock"
-  road_skeleton_derivation_version: "pending Section 6 empirical lock"
+  macro_plan_vocab_version: "<locked_macro_plan_vocab_version>"
+  zoning_vocab_version: "<locked_zoning_vocab_version>"
+  zoning_derivation_version: "<locked_zoning_derivation_version>"
+  cell_density_vocab_version: "<locked_cell_density_vocab_version>"
+  cell_density_derivation_version: "<locked_cell_density_derivation_version>"
+  tile_population_density_vocab_version: "<locked_tile_population_density_vocab_version>"
+  tile_population_density_derivation_version: "<locked_tile_population_density_derivation_version>"
+  road_skeleton_vocab_version: "<locked_road_skeleton_vocab_version>"
+  road_skeleton_derivation_version: "<locked_road_skeleton_derivation_version>"
 
+config_source: "sub_c_manifest.config"
 config:
   cell_grid: [8, 8]
   cell_size_m: 250
@@ -589,7 +651,11 @@ tiles:
 
 Tiles are sorted by `(tile_i, tile_j)`.
 
-### 11.6 Macro Vocab And Derivation Config
+The `config` block is copied from the pinned sub-C manifest for consumer
+convenience. The sub-D validator must assert these values match the referenced
+sub-C manifest; they are not an independent source of truth.
+
+### 11.7 Macro Vocab And Derivation Config
 
 Sub-D needs a versioned macro vocab/config artifact, likely under
 `configs/macro_plan/` or inside the sub-D region output. The exact path is an
@@ -645,7 +711,8 @@ Sub-D writes no geometry, so no WKB byte-order contract applies.
 
 Version namespaces:
 
-- Artifact format versions: manifest, effective conditioning, provenance.
+- Artifact format versions: manifest, macro core, derivation evidence,
+  effective conditioning, provenance.
 - Data-shape version: `sub_d_schema_version`.
 - Aggregate vocab package: `macro_plan_vocab_version`.
 - Individual vocab versions: zoning, cell-density, tile-population-density,
@@ -728,7 +795,9 @@ Frequency-analysis artifacts are tested:
 - Evidence-metric ranges are valid.
 - Marginal-cost-of-cut monotonicity holds where applicable.
 - After empirical vocab lock, a golden frequency-analysis artifact is
-  committed and compared in tests.
+  committed under
+  `tests/golden/sub_d/frequency_analysis/<analysis_name>.yaml` and compared in
+  tests.
 
 Layer 3 also validates real sidecar artifacts end to end and real-data
 deterministic reruns on the fixed subset. A full-Singapore run is optional and
@@ -769,6 +838,9 @@ update the PRD/spec if the data disagrees.
 Likely modules and scripts:
 
 ```text
+src/cfm/data/io.py                       # neutral canonical YAML/parquet write helpers
+src/cfm/data/determinism.py              # neutral digest helpers + exclusion grammar
+
 src/cfm/data/sub_d/
   __init__.py
   lattice.py
