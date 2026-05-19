@@ -657,18 +657,75 @@ sub-C manifest; they are not an independent source of truth.
 
 ### 11.7 Macro Vocab And Derivation Config
 
-Sub-D needs a versioned macro vocab/config artifact, likely under
-`configs/macro_plan/` or inside the sub-D region output. The exact path is an
-implementation-plan decision, but the artifact must include:
+Sub-D's Phase A to Phase B handoff is a committed macro-plan vocab/config
+artifact:
 
-- `macro_plan_vocab_version`.
-- Slot-kind, scope, zoning, cell-density, tile-population-density, and
-  road-skeleton enum definitions.
-- Append-only ordering discipline.
-- Derivation versions and config values.
-- Source frequency-analysis artifact digests.
+```text
+configs/macro_plan/v1/macro_plan_vocab.yaml
+```
 
-The artifact is pending Section 6 empirical lock.
+Draft shape:
+
+```yaml
+macro_plan_vocab_schema_version: "1.0"
+macro_plan_vocab_version: "1.0"
+phase: 1
+generated_from:
+  overture_release: "2026-04-15.0"
+  regions: ["singapore"]
+  frequency_analysis:
+    zoning_sha256: "<sha>"
+    cell_density_sha256: "<sha>"
+    tile_population_density_sha256: "<sha>"
+    road_skeleton_sha256: "<sha>"
+
+derivation_versions:
+  zoning_derivation_version: "<locked_zoning_derivation_version>"
+  cell_density_derivation_version: "<locked_cell_density_derivation_version>"
+  tile_population_density_derivation_version: "<locked_tile_population_density_derivation_version>"
+  road_skeleton_derivation_version: "<locked_road_skeleton_derivation_version>"
+
+slot_kind:
+  tokens:
+    - {id: 0, name: cell}
+    - {id: 1, name: internal_edge}
+    - {id: 2, name: external_edge}
+  append_only_within_phase: true
+
+scope:
+  scope_vocab_version: "<locked_scope_vocab_version>"
+  tokens:
+    - {id: 0, name: active}
+    - {id: 1, name: fully_masked}
+    - {id: 2, name: scope_boundary}
+    - {id: 3, name: external_deferred}
+  append_only_within_phase: true
+
+zoning:
+  zoning_vocab_version: "<locked_zoning_vocab_version>"
+  tokens: []        # filled after Section 6 empirical lock
+  append_only_within_phase: true
+
+cell_density:
+  cell_density_vocab_version: "<locked_cell_density_vocab_version>"
+  tokens: []        # filled after Section 6 empirical lock
+  append_only_within_phase: true
+
+tile_population_density:
+  tile_population_density_vocab_version: "<locked_tile_population_density_vocab_version>"
+  tokens: []        # filled after Section 6 empirical lock
+  append_only_within_phase: true
+
+road_skeleton:
+  road_skeleton_vocab_version: "<locked_road_skeleton_vocab_version>"
+  tokens: []        # filled after Section 6 empirical lock
+  append_only_within_phase: true
+```
+
+Phase B reads this artifact directly. No sidecar derivation code should carry
+hardcoded enum maps that duplicate it. The artifact is written only after the
+Section 6 empirical-analysis review gate approves the proposed vocabularies and
+derivation versions.
 
 ## 12. Versioning, Determinism, And Provenance
 
