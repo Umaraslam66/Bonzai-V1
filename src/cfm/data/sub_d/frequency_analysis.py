@@ -341,6 +341,17 @@ def _build_index_content(
         "namespace_files": namespace_file_records,
         "locked_buckets": locked_buckets_by_namespace,
         "locked_proxy": locked_proxy_by_namespace,
+        # Append-only-within-phase flag per dynamic vocab (spec §11.7). Sub-D
+        # never reorders or deletes tokens within a phase; new tokens are
+        # appended at the end. The flag is constant ``true`` here for every
+        # reviewer-locked enum; promote_macro_vocab carries it verbatim from
+        # proposal to locked artifact.
+        "append_only_within_phase": {
+            "cell_density": True,
+            "road_skeleton": True,
+            "tile_population_density": True,
+            "zoning": True,
+        },
     }
     if layer3_subset is not None:
         index["selected_layer3_tiles"] = list(layer3_subset)
@@ -504,7 +515,12 @@ def _density_proposal_section(values: list[float]) -> dict:
     _fill_marginal_cost(candidate_strategies)
     # Recommend the most granular (least-aggressive cut) as the locked default.
     locked_buckets = [
-        {"token_id": idx, "lower_inclusive": lo, "upper_exclusive": hi}
+        {
+            "token_id": idx,
+            "token_name": f"bucket_{idx}",
+            "lower_inclusive": lo,
+            "upper_exclusive": hi,
+        }
         for idx, (lo, hi) in enumerate(
             zip(_DENSITY_CANDIDATE_BUCKETS[0], _DENSITY_CANDIDATE_BUCKETS[0][1:])
         )
@@ -558,7 +574,12 @@ def _tile_population_density_proposal_section(by_proxy: dict[str, list[float]]) 
     locked_buckets: list[dict] = []
     if locked_proxy is not None:
         locked_buckets = [
-            {"token_id": idx, "lower_inclusive": lo, "upper_exclusive": hi}
+            {
+                "token_id": idx,
+                "token_name": f"bucket_{idx}",
+                "lower_inclusive": lo,
+                "upper_exclusive": hi,
+            }
             for idx, (lo, hi) in enumerate(
                 zip(_DENSITY_CANDIDATE_BUCKETS[0], _DENSITY_CANDIDATE_BUCKETS[0][1:])
             )
@@ -600,6 +621,7 @@ def _road_proposal_section(
     locked_buckets = [
         {
             "token_id": idx,
+            "token_name": f"bucket_{idx}",
             "lower_inclusive": lo,
             "upper_exclusive": (hi if hi is not None else None),
         }
