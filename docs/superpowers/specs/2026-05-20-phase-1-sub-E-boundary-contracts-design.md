@@ -392,7 +392,8 @@ naturally produces externals on the boundary cells without special-casing.
 ### 8.1 `configs/macro_plan/v1/boundary_vocab.yaml` (NEW)
 
 Sub-E's vocab is a new sibling artifact under `configs/macro_plan/v1/`. **The
-locked `macro_plan_vocab.yaml` (sub-D) is not modified.** Draft shape:
+locked `macro_plan_vocab.yaml` (sub-D) is not modified.** Draft shape (`sha256`
+placeholder lands at write time; vocab content below is locked):
 
 ```yaml
 boundary_vocab_schema_version: "1.0"
@@ -492,7 +493,8 @@ run on Leonardo. See §14.
 
 ### 9.4 Provenance
 
-Per-tile `provenance.yaml` shape:
+Per-tile `provenance.yaml` shape (concrete values below are illustrative;
+shas and timestamps land at write time):
 
 ```yaml
 provenance_schema_version: "1.0"
@@ -526,7 +528,9 @@ outputs:
 
 ### 9.5 Region manifest
 
-Per-region `manifest.yaml` shape:
+Per-region `manifest.yaml` shape (concrete values below are illustrative
+except for `tile_count`, which is the actual Singapore count sub-E inherits
+from sub-D's locked extraction; shas and timestamps land at write time):
 
 ```yaml
 manifest_schema_version: "1.0"
@@ -556,7 +560,7 @@ initial_extraction:
   commit_sha: "<40-char sha>"
   started_utc: "2026-05-21T12:00:00Z"
   completed_utc: "2026-05-21T12:05:00Z"
-  tile_count: 187
+  tile_count: 494
 
 tiles:
   - tile_i: 12
