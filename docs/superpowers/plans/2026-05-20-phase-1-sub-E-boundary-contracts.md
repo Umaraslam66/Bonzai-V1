@@ -3627,6 +3627,15 @@ git commit -m "feat(eval): add perplexity gap shell with sign test"
 
 **Halt-on-validator-fail discipline is the load-bearing test posture here.** If the empirical gate fails on real data, do NOT weaken the thresholds. Stop and escalate per memory `feedback_test_weakening_to_pass`.
 
+**Lever-3 launch-time note.** The empirical-gate test (`test_layer3_empirical_gate_real_distribution`) is only meaningful under non-collapse runs. If the day-9 lever-3 trigger fires (per Task 10 + spec §12), the operator runs the slow suite with that one test excluded:
+
+```bash
+uv run pytest -m slow tests/data/sub_e/test_singapore_integration.py \
+  --deselect tests/data/sub_e/test_singapore_integration.py::test_layer3_empirical_gate_real_distribution
+```
+
+A separate lever-3 regression test (`test_layer3_lever_3_collapse_real_data`, below) verifies the pipeline produces valid sub-E output under lever-3 on real Singapore data.
+
 - [ ] **Step 1: Write the integration test module**
 
 ```python
@@ -3833,6 +3842,75 @@ def test_layer3_empirical_gate_real_distribution(sub_e_run_layer3: Path) -> None
             }
         )
     )
+
+
+def test_layer3_lever_3_collapse_real_data(tmp_path_factory) -> None:
+    """Lever-3 regression guard on real Singapore data.
+
+    Runs the pipeline under `lever_3_collapse=True` over the Layer-3 9-tile
+    subset. Asserts:
+
+    - Pipeline writes `_SUCCESS` (validators pass under lever-3).
+    - All `boundary_class_enum` values on-disk are null.
+    - Cross-tile validator passes.
+
+    Verifies that the day-9 lever-3 trigger path is mechanically pullable
+    against real data, not just synthetic fixtures.
+    """
+    if not (CACHED_SUB_D / "_SUCCESS").exists():
+        pytest.skip("sub-D cached Singapore output absent")
+
+    out_root = tmp_path_factory.mktemp("sub_e_layer3_lever_3")
+    filtered_sub_d = tmp_path_factory.mktemp("sub_d_filtered_lever_3") / "singapore"
+    filtered_sub_c = tmp_path_factory.mktemp("sub_c_filtered_lever_3") / "singapore"
+    filtered_sub_d.mkdir(parents=True)
+    filtered_sub_c.mkdir(parents=True)
+
+    subset = _layer3_subset_tiles()
+
+    sub_d_manifest = yaml.safe_load((CACHED_SUB_D / "manifest.yaml").read_text())
+    sub_c_manifest = yaml.safe_load((CACHED_SUB_C / "manifest.yaml").read_text())
+    sub_d_manifest["tiles"] = [
+        t for t in sub_d_manifest["tiles"] if (t["tile_i"], t["tile_j"]) in subset
+    ]
+    sub_d_manifest["initial_extraction"]["tile_count"] = len(sub_d_manifest["tiles"])
+    sub_c_manifest["tiles"] = [
+        t for t in sub_c_manifest["tiles"] if (t["tile_i"], t["tile_j"]) in subset
+    ]
+    (filtered_sub_d / "manifest.yaml").write_text(yaml.safe_dump(sub_d_manifest))
+    (filtered_sub_c / "manifest.yaml").write_text(yaml.safe_dump(sub_c_manifest))
+    (filtered_sub_d / "_SUCCESS").touch()
+    (filtered_sub_c / "_SUCCESS").touch()
+    for ti, tj in subset:
+        tile_name = f"tile=EPSG3414_i{ti}_j{tj}"
+        (filtered_sub_d / tile_name).symlink_to(
+            CACHED_SUB_D / tile_name, target_is_directory=True
+        )
+        (filtered_sub_c / tile_name).symlink_to(
+            CACHED_SUB_C / tile_name, target_is_directory=True
+        )
+
+    derive_region(
+        PipelineConfig(
+            release="2026-04-15.0",
+            region="singapore",
+            sub_c_region_dir=filtered_sub_c,
+            sub_d_region_dir=filtered_sub_d,
+            output_region_dir=out_root,
+            commit_sha="0" * 40,
+            lever_3_collapse=True,
+        )
+    )
+
+    assert (out_root / "_SUCCESS").exists()
+    validate_extraction_cross_tile(out_root)
+
+    for tile_dir in out_root.glob("tile=EPSG3414_*"):
+        tbl = pq.ParquetFile(tile_dir / "boundary_contract.parquet").read()
+        values = tbl.column("boundary_class_enum").to_pylist()
+        assert all(v is None for v in values), (
+            f"lever-3 mode must produce uniform null in {tile_dir.name}"
+        )
 ```
 
 - [ ] **Step 2: Run the slow Layer-3 suite**
