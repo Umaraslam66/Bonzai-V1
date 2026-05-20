@@ -3898,14 +3898,21 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 3: Smoke-run the scripts on Task 10's synthetic fixture**
+- [ ] **Step 3: Smoke — `--help` on both scripts**
+
+Task 11's scope is "CLI works as an entry point." That means: clean
+imports (iCloud `sys.path` inject reaches the editable install), clean
+argparse construction, expected argument list. Real fixture/data
+invocation belongs to Task 14 — duplicating it here would give a
+false signal (synthetic data doesn't surface real-data shape issues
+Task 14 is designed to catch).
 
 ```bash
 uv run python scripts/derive_boundary_contracts.py --help
 uv run python scripts/validate_boundary_contracts.py --help
 ```
 
-Expected: argparse usage output, no import errors.
+Expected: argparse usage block listing all args; no import errors; exit code 0.
 
 - [ ] **Step 4: Commit**
 
