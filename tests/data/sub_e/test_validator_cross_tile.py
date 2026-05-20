@@ -132,25 +132,33 @@ def _build_synthetic_region(
 
         if corrupt_first_axis_1:
             # Semantic selection: rotation's axis=1 externals have
-            # lower_cell_i ∈ {0, 7} by construction (west/east sides).
-            # Setting lower_cell_i=4 produces a tuple genuinely outside
-            # rotation's external set → set-mismatch branch fires by
-            # construction. Positional selection (corrupt_idx=N) was
-            # fragile against sort-order changes — a prior version with
-            # corrupt_idx=0 hit the axis=0 first tuple (0,0,0), whose
-            # mutation (4,0,0) was already in rotation, triggering
-            # duplicate-tuple instead of set-mismatch.
+            # lower_cell_j ∈ {-1, 7} by construction (north/south sides per
+            # sub-D's off-grid convention; lattice.py:130-149). Setting
+            # lower_cell_j=4 produces a tuple (li, 4, 1) that is genuinely
+            # outside rotation's external set (4 is interior, not ±1/7) →
+            # set-mismatch branch fires by construction. Tuple uniqueness
+            # is preserved because no other row has lower_cell_j=4 with
+            # axis=1 — those would be internal edges, not external.
+            #
+            # Trap history: an earlier version mutated lower_cell_i=4 (the
+            # original convention had axis=1 externals at lower_cell_i ∈
+            # {0, 7}). After the Task 14 rotation fix landed sub-D's
+            # actual convention (axis=1 → north/south faces, lower_cell_j
+            # ∈ {-1, 7}), the lower_cell_i=4 mutation produced a tuple
+            # already in rotation's set → duplicate-tuple branch fired
+            # instead of set-mismatch. This corruption now targets the
+            # field that's actually constrained for axis=1 externals.
             target_idx = next((i for i, r in enumerate(ext_rows) if r.axis == 1), None)
             assert target_idx is not None, (
                 "rotation must produce at least one axis=1 external "
-                "(west/east boundary); selection logic broken"
+                "(north/south boundary); selection logic broken"
             )
             target = ext_rows[target_idx]
             assert target.axis == 1, (
                 f"selection tripwire: target.axis={target.axis}, expected 1 "
                 f"— selection logic broken, would re-introduce duplicate-tuple trap"
             )
-            ext_rows[target_idx] = _dc_replace(target, lower_cell_i=4)
+            ext_rows[target_idx] = _dc_replace(target, lower_cell_j=4)
 
         if duplicate_idx is not None:
             # Copy row[duplicate_idx]'s (lower_cell_i, lower_cell_j, axis)

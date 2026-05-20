@@ -569,22 +569,42 @@ def cell_to_edge_ids(cell_i: int, cell_j: int) -> CellEdgeIds:
             f"cell ({cell_i}, {cell_j}) outside [0, {GRID_SIZE})^2"
         )
 
+    # North face: j-neighbor → axis=1 (y). Off-grid lower_j = -1 when external.
+    # Per sub-D lattice.py:11-14 convention: axis=1 (y) edge sits between
+    # (lower_i, lower_j) and (lower_i, lower_j + 1).
     north_kind = EdgeKind.EXTERNAL if cell_j == 0 else EdgeKind.INTERNAL
-    north_lower_j = cell_j if cell_j == 0 else cell_j - 1
-    north = (cell_i, north_lower_j, AXIS_X, north_kind)
+    north_lower_j = -1 if cell_j == 0 else cell_j - 1
+    north = (cell_i, north_lower_j, AXIS_Y, north_kind)
 
+    # South face: j-neighbor → axis=1. cell_j IS the lower index in the pair.
     south_kind = EdgeKind.EXTERNAL if cell_j == GRID_SIZE - 1 else EdgeKind.INTERNAL
-    south = (cell_i, cell_j, AXIS_X, south_kind)
+    south = (cell_i, cell_j, AXIS_Y, south_kind)
 
+    # West face: i-neighbor → axis=0 (x). Off-grid lower_i = -1 when external.
+    # Per sub-D lattice.py:11-14: axis=0 (x) edge sits between
+    # (lower_i, lower_j) and (lower_i + 1, lower_j).
     west_kind = EdgeKind.EXTERNAL if cell_i == 0 else EdgeKind.INTERNAL
-    west_lower_i = cell_i if cell_i == 0 else cell_i - 1
-    west = (west_lower_i, cell_j, AXIS_Y, west_kind)
+    west_lower_i = -1 if cell_i == 0 else cell_i - 1
+    west = (west_lower_i, cell_j, AXIS_X, west_kind)
 
+    # East face: i-neighbor → axis=0. cell_i IS the lower index in the pair.
     east_kind = EdgeKind.EXTERNAL if cell_i == GRID_SIZE - 1 else EdgeKind.INTERNAL
-    east = (cell_i, cell_j, AXIS_Y, east_kind)
+    east = (cell_i, cell_j, AXIS_X, east_kind)
 
     return CellEdgeIds(north=north, south=south, west=west, east=east)
 ```
+
+**Axis convention (load-bearing, post-Task-14 fix):** This function originally
+shipped with swapped axes (north/south as AXIS_X, west/east as AXIS_Y) and
+in-grid pinning for external faces (lower_i=0 for west, lower_i=7 for east).
+Task 14's real-data integration test surfaced the mismatch with sub-D's
+documented convention (lattice.py:11-14): axis=0 = i-neighbor face = west/east;
+axis=1 = j-neighbor face = north/south; external addressing uses off-grid
+neighbour (-1, 7). Every synthetic sub-E fixture through Tasks 6–13
+consulted this function for expected values, so the bug was internally
+consistent and 18+ verify-before-asserting catches missed it. See memory
+``feedback_external_source_of_truth_gate.md`` for the sixth-gate
+discipline added in response.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -592,7 +612,10 @@ def cell_to_edge_ids(cell_i: int, cell_j: int) -> CellEdgeIds:
 uv run pytest tests/data/sub_e/test_rotation.py -v
 ```
 
-Expected: 6 passed (including the aggregated lattice count check).
+Expected: 8 passed (5 corner/edge/interior tests, aggregated lattice count,
+plus two cross-reference gate tests that hand-enumerate sub-D's external
+and internal sets and assert rotation produces the same — required per
+the sixth-gate discipline).
 
 - [ ] **Step 5: Run full fast suite**
 
