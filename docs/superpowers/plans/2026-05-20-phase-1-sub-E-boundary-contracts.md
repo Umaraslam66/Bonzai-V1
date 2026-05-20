@@ -745,12 +745,15 @@ _HIERARCHY: Final[tuple[BoundaryClass, ...]] = (
 )
 
 _VOCAB_PATH: Final[Path] = (
-    Path(__file__).resolve().parents[3]
+    Path(__file__).resolve().parents[4]
     / "configs"
     / "macro_plan"
     / "v1"
     / "boundary_vocab.yaml"
 )
+# parents[4] climbs src/cfm/data/sub_e/derivation.py → repo root:
+#   [0]=sub_e/  [1]=data/  [2]=cfm/  [3]=src/  [4]=<repo root>.
+# Tests under tests/data/sub_e/*.py use parents[3] (one level shallower).
 
 
 @lru_cache(maxsize=1)
@@ -2849,13 +2852,15 @@ def derive_region(cfg: PipelineConfig) -> None:
     sub_d_manifest_sha = _file_sha256(cfg.sub_d_region_dir / "manifest.yaml")
     sub_c_manifest_sha = _file_sha256(cfg.sub_c_region_dir / "manifest.yaml")
     boundary_vocab_path = (
-        Path(__file__).resolve().parents[3]
+        Path(__file__).resolve().parents[4]
         / "configs"
         / "macro_plan"
         / "v1"
         / "boundary_vocab.yaml"
     )
     boundary_vocab_sha = _file_sha256(boundary_vocab_path)
+    # parents[4] climbs src/cfm/data/sub_e/pipeline.py → repo root, matching
+    # derivation.py's _VOCAB_PATH convention. Same depth, same index.
 
     started_utc = _utc_now()
     tile_records: list[SubEManifestTile] = []
