@@ -1187,7 +1187,34 @@ def test_write_rejects_wrong_row_count(tmp_path: Path) -> None:
         write_boundary_contract(out_path, _make_full_lattice_rows()[:100])
 
 
+def test_write_sorts_unordered_input(tmp_path: Path) -> None:
+    """Canonical sort key is enforced at write-time, not assumed from input
+    order. Pin: the writer's own sort is load-bearing for byte-determinism
+    across upstream code paths that might emit rows in any order.
+    """
+    import random
+
+    rows = _make_full_lattice_rows()
+    rng = random.Random(0xBEEF)
+    shuffled = rows.copy()
+    rng.shuffle(shuffled)
+    assert shuffled != rows, "test setup: shuffled order must differ from canonical"
+
+    out_path = tmp_path / "boundary_contract.parquet"
+    write_boundary_contract(out_path, shuffled)
+    tbl = pq.ParquetFile(out_path).read()
+    slot_kinds = tbl.column("slot_kind").to_pylist()
+    slot_indices = tbl.column("slot_index").to_pylist()
+    pairs = list(zip(slot_kinds, slot_indices))
+    assert pairs == sorted(pairs), "writer must sort by (slot_kind, slot_index)"
+
+
 def test_write_is_byte_deterministic_on_rerun(tmp_path: Path) -> None:
+    """Same-process determinism: two writes of identical inputs produce
+    byte-identical parquet files. Catches schema/sort/dict-ordering drift
+    earliest — without waiting for Task 7's validator or Task 14's
+    integration test.
+    """
     import hashlib
 
     rows = _make_full_lattice_rows()
@@ -1198,6 +1225,28 @@ def test_write_is_byte_deterministic_on_rerun(tmp_path: Path) -> None:
     h_a = hashlib.sha256(a.read_bytes()).hexdigest()
     h_b = hashlib.sha256(b.read_bytes()).hexdigest()
     assert h_a == h_b, "same-process determinism required"
+
+
+def test_write_is_byte_deterministic_under_input_shuffling(tmp_path: Path) -> None:
+    """Byte-determinism survives input-order perturbation. Two writes of the
+    SAME logical row set but in different input orders must produce the
+    same bytes — because the writer's canonical sort dominates input order.
+    """
+    import hashlib
+    import random
+
+    rows = _make_full_lattice_rows()
+    rng = random.Random(0xC0FFEE)
+    perm = rows.copy()
+    rng.shuffle(perm)
+
+    a = tmp_path / "a.parquet"
+    b = tmp_path / "b.parquet"
+    write_boundary_contract(a, rows)
+    write_boundary_contract(b, perm)
+    h_a = hashlib.sha256(a.read_bytes()).hexdigest()
+    h_b = hashlib.sha256(b.read_bytes()).hexdigest()
+    assert h_a == h_b, "writer's canonical sort must dominate input order"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1215,9 +1264,11 @@ Expected: ModuleNotFoundError on `cfm.data.sub_e.writer`.
 """Boundary-contract parquet writer.
 
 Emits exactly 144 rows per tile: 112 internal_edge + 32 external_edge, sorted
-by (slot_kind, slot_index). Schema matches sub-D macro_core.parquet
-conventions; sub-D's neutral parquet write helper is reused for deterministic
-bytes.
+by (slot_kind, slot_index). Schema is pinned via ``pa.schema(...)`` so
+PyArrow type inference cannot drift (mirrors sub-D's _MACRO_CORE_SCHEMA
+pattern at ``src/cfm/data/sub_d/io.py:41``). The neutral
+``cfm.data.io.write_parquet`` helper is reused for byte-deterministic
+serialisation.
 """
 
 from __future__ import annotations
@@ -1229,7 +1280,7 @@ from typing import Final
 
 import pyarrow as pa
 
-from cfm.data.io import write_parquet_deterministic  # sub-D Task 1 helper
+from cfm.data.io import write_parquet
 
 
 class SlotKind(IntEnum):
@@ -1240,6 +1291,24 @@ class SlotKind(IntEnum):
 EXPECTED_INTERNAL_ROWS: Final[int] = 112
 EXPECTED_EXTERNAL_ROWS: Final[int] = 32
 EXPECTED_TOTAL_ROWS: Final[int] = EXPECTED_INTERNAL_ROWS + EXPECTED_EXTERNAL_ROWS
+
+
+# Pinned schema: explicit pa.schema with nullable flags. `boundary_class_enum`
+# is the only nullable column (null = "BOUNDARY_NOT_APPLICABLE" / non-active
+# rows); every other column is non-null. Pinning prevents PyArrow type
+# inference from drifting between writes and keeps byte-determinism robust to
+# input-shape variation.
+_BOUNDARY_CONTRACT_SCHEMA: Final[pa.Schema] = pa.schema(
+    [
+        pa.field("slot_kind", pa.int8(), nullable=False),
+        pa.field("slot_index", pa.int16(), nullable=False),
+        pa.field("lower_cell_i", pa.int8(), nullable=False),
+        pa.field("lower_cell_j", pa.int8(), nullable=False),
+        pa.field("axis", pa.int8(), nullable=False),
+        pa.field("scope_marker", pa.int8(), nullable=False),
+        pa.field("boundary_class_enum", pa.int16(), nullable=True),
+    ]
+)
 
 
 @dataclass(frozen=True)
@@ -1260,7 +1329,9 @@ def write_boundary_contract(
     """Write rows to `out_path` as a canonically sorted parquet file.
 
     Raises ValueError if the row count is not 144 or the split is not
-    112 internal + 32 external.
+    112 internal + 32 external. The writer's own sort by
+    ``(slot_kind, slot_index)`` is load-bearing — it must not assume the
+    input list is already sorted (see ``test_write_sorts_unordered_input``).
     """
     if len(rows) != EXPECTED_TOTAL_ROWS:
         raise ValueError(
@@ -1276,30 +1347,17 @@ def write_boundary_contract(
 
     sorted_rows = sorted(rows, key=lambda r: (int(r.slot_kind), r.slot_index))
 
-    table = pa.table(
-        {
-            "slot_kind": pa.array(
-                [int(r.slot_kind) for r in sorted_rows], type=pa.int8()
-            ),
-            "slot_index": pa.array(
-                [r.slot_index for r in sorted_rows], type=pa.int16()
-            ),
-            "lower_cell_i": pa.array(
-                [r.lower_cell_i for r in sorted_rows], type=pa.int8()
-            ),
-            "lower_cell_j": pa.array(
-                [r.lower_cell_j for r in sorted_rows], type=pa.int8()
-            ),
-            "axis": pa.array([r.axis for r in sorted_rows], type=pa.int8()),
-            "scope_marker": pa.array(
-                [r.scope_marker for r in sorted_rows], type=pa.int8()
-            ),
-            "boundary_class_enum": pa.array(
-                [r.boundary_class_enum for r in sorted_rows], type=pa.int16()
-            ),
-        }
-    )
-    write_parquet_deterministic(table, out_path)
+    columns = {
+        "slot_kind": [int(r.slot_kind) for r in sorted_rows],
+        "slot_index": [r.slot_index for r in sorted_rows],
+        "lower_cell_i": [r.lower_cell_i for r in sorted_rows],
+        "lower_cell_j": [r.lower_cell_j for r in sorted_rows],
+        "axis": [r.axis for r in sorted_rows],
+        "scope_marker": [r.scope_marker for r in sorted_rows],
+        "boundary_class_enum": [r.boundary_class_enum for r in sorted_rows],
+    }
+    table = pa.Table.from_pydict(columns, schema=_BOUNDARY_CONTRACT_SCHEMA)
+    write_parquet(table, out_path)
     return out_path
 ```
 
@@ -1309,7 +1367,7 @@ def write_boundary_contract(
 uv run pytest tests/data/sub_e/test_writer.py -v
 ```
 
-Expected: 5 passed.
+Expected: 7 passed.
 
 - [ ] **Step 5: Run full fast suite**
 
