@@ -3414,7 +3414,6 @@ from cfm.data.sub_e.provenance import (
     provenance_to_dict,
     write_provenance,
 )
-from cfm.data.sub_e.rotation import cell_to_edge_ids
 from cfm.data.sub_e.validator_cross_tile import validate_extraction_cross_tile
 from cfm.data.sub_e.validator_inline import validate_boundary_contract
 from cfm.data.sub_e.versions import (
@@ -3452,14 +3451,25 @@ def _utc_now() -> str:
 
 def _validate_or_raise(
     parquet_path: Path,
-    derivation_version: str,
+    expected_derivation_version: str,
+    provenance_derivation_version: str,
     lever_3_collapse: bool,
 ) -> None:
-    """Indirect call so tests can monkey-patch to simulate failure."""
+    """Indirect call so tests can monkey-patch to simulate failure.
+
+    Both ``expected_derivation_version`` (orchestrator's BOUNDARY_DERIVATION_VERSION
+    constant) and ``provenance_derivation_version`` (read back from the
+    just-written provenance.yaml on disk) are required by the inline
+    validator post Task-7-defect-2. Passing the same constant for both
+    would make inline invariant #8 vacuous; the orchestrator's caller
+    threads the disk-read value to give the invariant real signal —
+    catches divergence between SubEProvenance serialization and the
+    in-memory constant if it ever drifts.
+    """
     validate_boundary_contract(
         parquet_path,
-        expected_derivation_version=derivation_version,
-        provenance_derivation_version=derivation_version,
+        expected_derivation_version=expected_derivation_version,
+        provenance_derivation_version=provenance_derivation_version,
         lever_3_collapse=lever_3_collapse,
     )
 
@@ -3518,14 +3528,18 @@ def derive_region(cfg: PipelineConfig) -> None:
         parquet_path = write_boundary_contract(
             out_tile_dir / "boundary_contract.parquet", rows
         )
-
-        # Halt-on-validator-fail: inline validator runs before provenance is
-        # written so a failure cannot leave a stale provenance behind.
-        _validate_or_raise(
-            parquet_path, BOUNDARY_DERIVATION_VERSION, cfg.lever_3_collapse
-        )
-
         parquet_sha = _file_sha256(parquet_path)
+
+        # Provenance is the canonical record-as-written; the inline validator
+        # reads it back from disk to give invariant #8 real signal. Earlier
+        # draft validated BEFORE writing provenance and passed the same
+        # constant for both kwargs, making #8 vacuous (constant-vs-itself).
+        # Spec §9.4: provenance is canonical record of what was produced.
+        # Halt-on-validator-fail discipline: if the validator raises, the
+        # parquet + provenance exist on disk but no _SUCCESS marker is
+        # written for the region — standard "incomplete" semantics
+        # (spec §11.8 sub-C precedent). Next run sees no _SUCCESS and
+        # re-derives cleanly.
         provenance = SubEProvenance(
             tile_i=tile_i,
             tile_j=tile_j,
@@ -3557,6 +3571,19 @@ def derive_region(cfg: PipelineConfig) -> None:
             boundary_contract_parquet_sha256=parquet_sha,
         )
         prov_path = write_provenance(out_tile_dir / "provenance.yaml", provenance)
+
+        # Read provenance back from DISK (not from the dataclass) so the
+        # validator's invariant #8 catches divergence between the in-memory
+        # constant and what serialization actually wrote. Reading the
+        # dataclass instead would re-introduce the vacuous-comparison trap.
+        prov_dict = yaml.safe_load(prov_path.read_text())
+        _validate_or_raise(
+            parquet_path,
+            expected_derivation_version=BOUNDARY_DERIVATION_VERSION,
+            provenance_derivation_version=prov_dict["versions"]["boundary_derivation_version"],
+            lever_3_collapse=cfg.lever_3_collapse,
+        )
+
         # Chain anchor uses provenance_sha256() — strips extracted_utc and
         # *_sha256 per SUB_E_EXCLUDED_FROM_SHA so the chain survives live-clock
         # reruns. Raw _file_sha256(prov_path) here would bake extracted_utc
@@ -3604,15 +3631,21 @@ def derive_region(cfg: PipelineConfig) -> None:
             tiles=tile_records,
         ),
     )
+    # Halt-on-validator-fail discipline (sub-D precedent at
+    # src/cfm/data/sub_d/pipeline.py:254-255; spec §11.8 sub-C precedent):
+    # cross-tile validator runs BEFORE _SUCCESS is written. If validation
+    # raises, the touch never runs and consumers see no green-light marker
+    # — disk state is consistent with "this run did not succeed."
+    #
+    # Earlier draft did write→try-except→unlink. That pattern (a) created a
+    # brief window where _SUCCESS existed before validation completed (false
+    # green for any polling observer), and (b) handled failure via recovery
+    # rather than by-construction non-occurrence — if unlink itself fails
+    # (race, permission, signal), disk state is permanently inconsistent.
+    # Validate-then-touch has no race window and no failure mode in the
+    # failure handler.
+    validate_extraction_cross_tile(cfg.output_region_dir)
     (cfg.output_region_dir / "_SUCCESS").touch()
-
-    # Cross-tile validator runs LAST. Failure here removes the _SUCCESS marker
-    # to maintain the halt-on-validator-fail invariant.
-    try:
-        validate_extraction_cross_tile(cfg.output_region_dir)
-    except Exception:
-        (cfg.output_region_dir / "_SUCCESS").unlink(missing_ok=True)
-        raise
 
 
 def _derive_tile_rows(
