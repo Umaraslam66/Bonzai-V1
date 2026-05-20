@@ -2594,7 +2594,7 @@ def validate_extraction_cross_tile(region_dir: Path) -> None:
         slot_indices = tbl.column("slot_index").to_pylist()
         ext_indices = [
             si
-            for sk, si in zip(slot_kinds, slot_indices)
+            for sk, si in zip(slot_kinds, slot_indices, strict=True)
             if sk == int(SlotKind.EXTERNAL_EDGE)
         ]
         if len(ext_indices) != len(set(ext_indices)):
@@ -3414,7 +3414,7 @@ def test_within_bucket_shuffle_only_swaps_within_matching_conditioning() -> None
         strategy=ShuffleStrategy.WITHIN_BUCKET,
         seed=42,
     )
-    for tc, macro in zip(targets, shuffled):
+    for tc, macro in zip(targets, shuffled, strict=True):
         # Find the candidate whose macro matches `macro`. Assert its
         # conditioning matches `tc`.
         match = next(c for c in cands if c[1] is macro)
@@ -3766,7 +3766,7 @@ def compute_perplexity_gap(
         )
         token_counts.append(len(c.micro_tokens))
 
-    gaps = [s - m for s, m in zip(shuffled_nlls, matched_nlls)]
+    gaps = [s - m for s, m in zip(shuffled_nlls, matched_nlls, strict=True)]
     n = len(gaps)
     n_positive = sum(1 for g in gaps if g > 0)
     mean_gap = sum(gaps) / n
@@ -3978,7 +3978,7 @@ def test_layer3_external_edge_single_cell_membership(sub_e_run_layer3: Path) -> 
         tbl = pq.ParquetFile(tile_dir / "boundary_contract.parquet").read()
         slot_kinds = tbl.column("slot_kind").to_pylist()
         slot_indices = tbl.column("slot_index").to_pylist()
-        ext = [si for sk, si in zip(slot_kinds, slot_indices) if sk == 2]
+        ext = [si for sk, si in zip(slot_kinds, slot_indices, strict=True) if sk == 2]
         assert len(ext) == 32, f"expected 32 external rows in {tile_dir.name}, got {len(ext)}"
         assert len(set(ext)) == 32, f"duplicate external slot_index in {tile_dir.name}"
 
@@ -3994,7 +3994,7 @@ def test_layer3_empirical_gate_real_distribution(sub_e_run_layer3: Path) -> None
         tbl = pq.ParquetFile(tile_dir / "boundary_contract.parquet").read()
         scope_markers = tbl.column("scope_marker").to_pylist()
         boundary_classes = tbl.column("boundary_class_enum").to_pylist()
-        for scope, cls in zip(scope_markers, boundary_classes):
+        for scope, cls in zip(scope_markers, boundary_classes, strict=True):
             if scope == 0 and cls is not None:  # active rows only
                 counter[cls] += 1
 
@@ -4060,7 +4060,7 @@ def test_layer3_writer_round_trips_major_and_minor(sub_e_run_layer3: Path) -> No
         tbl = pq.ParquetFile(tile_dir / "boundary_contract.parquet").read()
         scope_markers = tbl.column("scope_marker").to_pylist()
         boundary_classes = tbl.column("boundary_class_enum").to_pylist()
-        for scope, cls in zip(scope_markers, boundary_classes):
+        for scope, cls in zip(scope_markers, boundary_classes, strict=True):
             if scope == 0 and cls is not None:
                 counter[cls] += 1
 
