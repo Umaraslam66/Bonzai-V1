@@ -2439,12 +2439,27 @@ def _build_synthetic_region(
     boundary_vocab_version: str = "1.0",
     boundary_derivation_version: str = "1.0",
     sub_e_schema_version: str = "1.0",
+    corrupt_external_at_tile_k: int | None = None,
 ) -> Path:
     """Create a minimal sub-E region directory with N consistent tiles.
 
-    The implementation should consult the writers from Tasks 6 and 8 to
-    produce real bytes; here we use them to compose a working fixture.
+    The external boundary rows are constructed via ``cell_to_edge_ids``
+    so the synthetic data matches what the real per-cell→per-edge path
+    produces (spec §10.2 #5). Index-based external rows would
+    synthetic-pass the rotation-aware validator while failing on real
+    Singapore data — caught by the implementer pre-Task-9-dispatch.
+
+    If ``corrupt_external_at_tile_k`` is set, that tile's external row
+    at index 0 has its ``lower_cell_i`` swapped to ``4`` (an interior
+    cell — guaranteed not in rotation's external set). The corruption
+    preserves both 144-row count and slot_index uniqueness — only the
+    rotation-equality check catches it. Used by the
+    test_invariant_5_external_rotation_mismatch controlled-violation
+    test; the test would PASS against an OLD uniqueness-only validator,
+    so it specifically exercises the strengthening.
     """
+    from dataclasses import replace as _dc_replace
+
     from cfm.data.sub_e.derivation import BoundaryClass
     from cfm.data.sub_e.manifest import (
         SubEManifest,
@@ -2463,6 +2478,7 @@ def _build_synthetic_region(
         provenance_to_dict,
         write_provenance,
     )
+    from cfm.data.sub_e.rotation import GRID_SIZE, EdgeKind, cell_to_edge_ids
     from cfm.data.sub_e.writer import (
         BoundaryContractRow,
         SlotKind,
@@ -2472,7 +2488,59 @@ def _build_synthetic_region(
     region = tmp_path / "sub_e_singapore"
     region.mkdir()
 
-    def _rows() -> list[BoundaryContractRow]:
+    def _external_rows_via_rotation(
+        *, corrupt_idx: int | None = None
+    ) -> list[BoundaryContractRow]:
+        """Enumerate the 8×8 grid through rotation, collect the unique
+        external (lower_cell_i, lower_cell_j, axis) tuples, sort them
+        canonically, and emit one parquet row per tuple. Should produce
+        exactly 32 rows (24 edge cells × 1 external + 4 corners × 2).
+        """
+        seen: set[tuple[int, int, int]] = set()
+        tuples: list[tuple[int, int, int]] = []
+        for ci in range(GRID_SIZE):
+            for cj in range(GRID_SIZE):
+                cell_edges = cell_to_edge_ids(ci, cj)
+                for edge in (
+                    cell_edges.north,
+                    cell_edges.south,
+                    cell_edges.west,
+                    cell_edges.east,
+                ):
+                    li, lj, axis, kind = edge
+                    if kind is EdgeKind.EXTERNAL:
+                        key = (li, lj, axis)
+                        if key not in seen:
+                            seen.add(key)
+                            tuples.append(key)
+        tuples.sort()
+        assert len(tuples) == 32, (
+            f"rotation should produce exactly 32 unique external edges, "
+            f"got {len(tuples)}"
+        )
+        ext_rows = [
+            BoundaryContractRow(
+                slot_kind=SlotKind.EXTERNAL_EDGE,
+                slot_index=idx,
+                lower_cell_i=li,
+                lower_cell_j=lj,
+                axis=axis,
+                scope_marker=3,
+                boundary_class_enum=None,
+            )
+            for idx, (li, lj, axis) in enumerate(tuples)
+        ]
+        if corrupt_idx is not None:
+            # Swap lower_cell_i to 4 (interior cell — guaranteed
+            # outside rotation's external set). Preserves slot_index
+            # uniqueness so the OLD weak invariant-5 would pass; only
+            # the NEW rotation-equality check fires.
+            ext_rows[corrupt_idx] = _dc_replace(
+                ext_rows[corrupt_idx], lower_cell_i=4
+            )
+        return ext_rows
+
+    def _rows(corrupt_idx: int | None = None) -> list[BoundaryContractRow]:
         rows: list[BoundaryContractRow] = []
         for idx in range(112):
             rows.append(
@@ -2486,18 +2554,7 @@ def _build_synthetic_region(
                     boundary_class_enum=int(BoundaryClass.NONE),
                 )
             )
-        for idx in range(32):
-            rows.append(
-                BoundaryContractRow(
-                    slot_kind=SlotKind.EXTERNAL_EDGE,
-                    slot_index=idx,
-                    lower_cell_i=idx % 8,
-                    lower_cell_j=idx // 8 % 8,
-                    axis=idx % 2,
-                    scope_marker=3,
-                    boundary_class_enum=None,
-                )
-            )
+        rows.extend(_external_rows_via_rotation(corrupt_idx=corrupt_idx))
         return rows
 
     tile_records: list[SubEManifestTile] = []
@@ -2505,7 +2562,8 @@ def _build_synthetic_region(
         tile_dir = region / f"tile=EPSG3414_i{k}_j0"
         tile_dir.mkdir()
         contract = write_boundary_contract(
-            tile_dir / "boundary_contract.parquet", _rows()
+            tile_dir / "boundary_contract.parquet",
+            _rows(corrupt_idx=0 if k == corrupt_external_at_tile_k else None),
         )
         contract_sha = hashlib.sha256(contract.read_bytes()).hexdigest()
         prov_path = tile_dir / "provenance.yaml"
@@ -2626,30 +2684,60 @@ def test_invariant_4_input_digest_drift_across_tiles(tmp_path: Path) -> None:
         validate_extraction_cross_tile(region)
 
 
-def test_invariant_5_external_slot_uniqueness(tmp_path: Path) -> None:
-    """External edges must appear in exactly one cell's per-cell view.
+def test_invariant_5_duplicate_external_tuple(tmp_path: Path) -> None:
+    """Two parquet rows share the same (lower_cell_i, lower_cell_j, axis).
 
-    The structural test reads the parquet and asserts that no `slot_index` in
-    the external_edge subset is duplicated across the per-tile rows.
+    Exercises the duplicate-tuple branch of the strengthened invariant
+    #5 (spec §10.2 #5). Under the OLD weak validator (slot_index
+    uniqueness only) this corruption would pass since slot_indices stay
+    distinct; only the rotation-aware validator catches it.
     """
     region = _build_synthetic_region(tmp_path)
-    # Corrupt one tile's parquet to duplicate an external slot_index.
     import pyarrow as pa
     import pyarrow.parquet as pq
 
     parquet = region / "tile=EPSG3414_i0_j0" / "boundary_contract.parquet"
     tbl = pq.ParquetFile(parquet).read()
     cols = {n: tbl.column(n).to_pylist() for n in tbl.column_names}
-    # Find first external row and clone its slot_index into the next row.
+    # Find first two external rows; copy row i's tuple onto row i+1.
+    # slot_index stays distinct → OLD validator passes;
+    # tuple count != set size → NEW validator catches it.
     for i, sk in enumerate(cols["slot_kind"]):
-        if sk == 2:  # external
-            cols["slot_index"][i + 1] = cols["slot_index"][i]
+        if sk == 2 and cols["slot_kind"][i + 1] == 2:
+            cols["lower_cell_i"][i + 1] = cols["lower_cell_i"][i]
+            cols["lower_cell_j"][i + 1] = cols["lower_cell_j"][i]
+            cols["axis"][i + 1] = cols["axis"][i]
             break
     bad = pa.table(
         {n: pa.array(v, type=tbl.schema.field(n).type) for n, v in cols.items()}
     )
     pq.write_table(bad, parquet)
-    with pytest.raises(CrossTileValidationError, match="external"):
+    with pytest.raises(CrossTileValidationError, match="duplicate external"):
+        validate_extraction_cross_tile(region)
+
+
+def test_invariant_5_external_set_mismatch_against_rotation(tmp_path: Path) -> None:
+    """One external row's tuple is corrupted to a non-boundary cell.
+
+    This is the load-bearing controlled-violation test for the
+    rotation-aware strengthening (spec §10.2 #5). The corruption:
+
+    - Preserves 144-row count (writer-level invariants pass).
+    - Preserves slot_index uniqueness (OLD weak validator passes).
+    - Preserves tuple uniqueness within the parquet (duplicate-tuple
+      branch does not fire).
+    - Shifts the parquet's external-tuple SET away from the rotation's
+      set (interior cell 4 appears where a boundary cell should be).
+
+    Only the rotation-equality check at the end of invariant #5 fires.
+    This test specifically exercises the strengthening, not the
+    uniqueness checks — verifies the strengthening landed for the right
+    reason.
+    """
+    region = _build_synthetic_region(tmp_path, corrupt_external_at_tile_k=0)
+    with pytest.raises(
+        CrossTileValidationError, match="external slot_index set mismatch"
+    ):
         validate_extraction_cross_tile(region)
 ```
 
@@ -2665,7 +2753,21 @@ Expected: ModuleNotFoundError.
 
 ```python
 # src/cfm/data/sub_e/validator_cross_tile.py
-"""Sub-E per-region cross-tile validator (5 invariants per spec §10.2)."""
+"""Sub-E per-region cross-tile validator (5 invariants per spec §10.2).
+
+Invariants 1 and 2 (version consistency) route through ``compare_version``
+per sub-D's mandate at ``src/cfm/data/sub_d/versions.py:6-7`` — bare ``!=``
+would silently allow cross-namespace string equality and lose sub-D
+known_issue #8's lesson. ``_check_version`` wraps the call so the
+sub-E-specific error message format is preserved across the existing
+test regex pattern.
+
+Invariant #5 (external-edge consistency) is rotation-aware per spec §10.2 #5:
+enumerates the 8×8 grid via ``cell_to_edge_ids`` from Task 3, collects the
+external ``(lower_cell_i, lower_cell_j, axis)`` set, and asserts it equals
+the parquet's external-tuple set. Catches rotation/parquet skew that the
+old uniqueness-only check would silently allow.
+"""
 
 from __future__ import annotations
 
@@ -2675,7 +2777,15 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import yaml
 
+from cfm.data.sub_d.errors import VersionMismatchError
+from cfm.data.sub_d.versions import VersionNamespace, VersionRef, compare_version
 from cfm.data.sub_e.provenance import provenance_sha256
+from cfm.data.sub_e.rotation import GRID_SIZE, EdgeKind, cell_to_edge_ids
+from cfm.data.sub_e.versions import (
+    BOUNDARY_DERIVATION_NAMESPACE,
+    BOUNDARY_VOCAB_NAMESPACE,
+    SUB_E_SCHEMA_NAMESPACE,
+)
 from cfm.data.sub_e.writer import SlotKind
 
 
@@ -2691,6 +2801,70 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _check_version(
+    namespace: VersionNamespace,
+    field_name: str,
+    expected: str,
+    actual: str,
+    tile_coords: tuple[int, int],
+) -> None:
+    """Wrap ``compare_version`` for cross-tile version invariants.
+
+    ``compare_version`` is the single sanctioned equality path per sub-D's
+    versions.py docstring; bare ``!=`` would silently allow cross-namespace
+    string equality (sub-D known_issue #8). The wrapper catches
+    ``VersionMismatchError`` and re-raises as ``CrossTileValidationError``
+    with the sub-E-specific message so the existing test regex (e.g.
+    ``match="sub_e_schema_version"``) still matches.
+
+    Pattern mirrors sub-D ``validator.py:85-97``.
+    """
+    try:
+        compare_version(
+            namespace,
+            VersionRef(namespace, expected),
+            VersionRef(namespace, actual),
+        )
+    except VersionMismatchError as exc:
+        raise CrossTileValidationError(
+            f"{field_name} mismatch at tile {tile_coords}: "
+            f"manifest={expected}, provenance={actual}"
+        ) from exc
+
+
+def _rotation_external_tuples() -> set[tuple[int, int, int]]:
+    """Enumerate every external edge in the 8×8 grid via the rotation.
+
+    Returns the set of ``(lower_cell_i, lower_cell_j, axis)`` identities
+    for external edges. Each tuple should appear in exactly one cell's
+    per-cell view by construction (spec §6.2 "vacuous-invariant"); the
+    caller asserts that and uses the set as the canonical truth against
+    the parquet's external-row set.
+    """
+    seen_count: dict[tuple[int, int, int], int] = {}
+    for ci in range(GRID_SIZE):
+        for cj in range(GRID_SIZE):
+            cell_edges = cell_to_edge_ids(ci, cj)
+            for edge in (
+                cell_edges.north,
+                cell_edges.south,
+                cell_edges.west,
+                cell_edges.east,
+            ):
+                li, lj, axis, kind = edge
+                if kind is EdgeKind.EXTERNAL:
+                    key = (li, lj, axis)
+                    seen_count[key] = seen_count.get(key, 0) + 1
+    # Each external must be owned by exactly one cell (spec §6.2).
+    for key, count in seen_count.items():
+        if count != 1:
+            raise CrossTileValidationError(
+                f"rotation external edge {key} appears in {count} cells' "
+                f"per-cell views (expected 1) — rotation function bug"
+            )
+    return set(seen_count.keys())
+
+
 def validate_extraction_cross_tile(region_dir: Path) -> None:
     manifest_path = region_dir / "manifest.yaml"
     manifest = _load_yaml(manifest_path)
@@ -2702,32 +2876,42 @@ def validate_extraction_cross_tile(region_dir: Path) -> None:
     # Gather per-tile provenance + parquet pairs.
     first_input_digests: dict[str, str] | None = None
 
+    # Rotation's external set is invariant across tiles (same 8×8 grid);
+    # compute once before the per-tile loop.
+    rotation_external = _rotation_external_tuples()
+
     for tile in manifest["tiles"]:
         tile_dir = region_dir / f"tile=EPSG3414_i{tile['tile_i']}_j{tile['tile_j']}"
         prov_path = tile_dir / "provenance.yaml"
         parquet_path = tile_dir / "boundary_contract.parquet"
+        tile_coords = (tile["tile_i"], tile["tile_j"])
 
         prov = _load_yaml(prov_path)
 
-        # Invariant 1: schema version consistency.
-        if prov["versions"]["sub_e_schema_version"] != expected_sub_e_schema:
-            raise CrossTileValidationError(
-                f"sub_e_schema_version mismatch at tile ({tile['tile_i']}, "
-                f"{tile['tile_j']}): manifest={expected_sub_e_schema}, "
-                f"provenance={prov['versions']['sub_e_schema_version']}"
-            )
+        # Invariant 1: schema version consistency (DATA_SHAPE namespace).
+        _check_version(
+            SUB_E_SCHEMA_NAMESPACE,
+            "sub_e_schema_version",
+            expected_sub_e_schema,
+            prov["versions"]["sub_e_schema_version"],
+            tile_coords,
+        )
 
         # Invariant 2: vocab + derivation version consistency.
-        if prov["versions"]["boundary_vocab_version"] != expected_vocab:
-            raise CrossTileValidationError(
-                f"boundary_vocab_version mismatch at tile "
-                f"({tile['tile_i']}, {tile['tile_j']})"
-            )
-        if prov["versions"]["boundary_derivation_version"] != expected_derivation:
-            raise CrossTileValidationError(
-                f"boundary_derivation_version mismatch at tile "
-                f"({tile['tile_i']}, {tile['tile_j']})"
-            )
+        _check_version(
+            BOUNDARY_VOCAB_NAMESPACE,
+            "boundary_vocab_version",
+            expected_vocab,
+            prov["versions"]["boundary_vocab_version"],
+            tile_coords,
+        )
+        _check_version(
+            BOUNDARY_DERIVATION_NAMESPACE,
+            "boundary_derivation_version",
+            expected_derivation,
+            prov["versions"]["boundary_derivation_version"],
+            tile_coords,
+        )
 
         # Invariant 3: digest chain.
         # The manifest→provenance anchor uses provenance_sha256() — the
@@ -2775,19 +2959,42 @@ def validate_extraction_cross_tile(region_dir: Path) -> None:
                         f"{tile['tile_j']}): {k} differs from first tile"
                     )
 
-        # Invariant 5: external slot uniqueness within tile.
+        # Invariant 5: external-edge single-cell membership (spec §10.2 #5).
+        # Each external (lower_cell_i, lower_cell_j, axis) identity must
+        # appear in exactly one cell's per-cell view per the rotation
+        # function (spec §6.2 vacuous-invariant lifted to a real-data
+        # regression check). The parquet's external-tuple set must equal
+        # the rotation's. Plus: row count must equal set size (no
+        # duplicate external rows).
         tbl = pq.ParquetFile(parquet_path).read()
         slot_kinds = tbl.column("slot_kind").to_pylist()
-        slot_indices = tbl.column("slot_index").to_pylist()
-        ext_indices = [
-            si
-            for sk, si in zip(slot_kinds, slot_indices, strict=True)
+        lower_is = tbl.column("lower_cell_i").to_pylist()
+        lower_js = tbl.column("lower_cell_j").to_pylist()
+        axes = tbl.column("axis").to_pylist()
+
+        parquet_external_tuples = [
+            (li, lj, ax)
+            for sk, li, lj, ax in zip(
+                slot_kinds, lower_is, lower_js, axes, strict=True
+            )
             if sk == int(SlotKind.EXTERNAL_EDGE)
         ]
-        if len(ext_indices) != len(set(ext_indices)):
+        parquet_external_set = set(parquet_external_tuples)
+
+        if len(parquet_external_tuples) != len(parquet_external_set):
             raise CrossTileValidationError(
-                f"external slot_index duplicated at tile ({tile['tile_i']}, "
-                f"{tile['tile_j']})"
+                f"duplicate external (lower_cell_i, lower_cell_j, axis) "
+                f"at tile {tile_coords}: "
+                f"{len(parquet_external_tuples)} rows, "
+                f"{len(parquet_external_set)} unique tuples"
+            )
+
+        if parquet_external_set != rotation_external:
+            only_parquet = sorted(parquet_external_set - rotation_external)
+            only_rotation = sorted(rotation_external - parquet_external_set)
+            raise CrossTileValidationError(
+                f"external slot_index set mismatch at tile {tile_coords}: "
+                f"only-in-parquet={only_parquet}, only-in-rotation={only_rotation}"
             )
 ```
 
@@ -2797,7 +3004,7 @@ def validate_extraction_cross_tile(region_dir: Path) -> None:
 uv run pytest tests/data/sub_e/test_validator_cross_tile.py -v
 ```
 
-Expected: 6 passed (5 invariants + the valid happy path).
+Expected: 7 passed total — happy path (1) + invariants 1/2/3/4 (4) + invariant #5 split into two controlled violations (2: `test_invariant_5_duplicate_external_tuple` exercises the tuple-uniqueness branch; `test_invariant_5_external_set_mismatch_against_rotation` exercises the rotation-equality branch — the load-bearing one for the strengthening).
 
 - [ ] **Step 5: Run full fast suite**
 
