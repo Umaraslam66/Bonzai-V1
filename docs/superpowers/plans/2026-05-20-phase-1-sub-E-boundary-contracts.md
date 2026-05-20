@@ -1886,20 +1886,24 @@ from pathlib import Path
 
 import yaml
 
+from dataclasses import replace
+
 from cfm.data.sub_e.provenance import (
     SubEProvenance,
     SubEInputDigests,
     SubEVersions,
+    provenance_sha256,
+    provenance_to_dict,
     write_provenance,
 )
 
 
-def _make_provenance() -> SubEProvenance:
+def _make_provenance(*, extracted_utc: str = "2026-05-21T12:00:00Z") -> SubEProvenance:
     return SubEProvenance(
         tile_i=12,
         tile_j=17,
         extraction_commit_sha="a" * 40,
-        extracted_utc="2026-05-21T12:00:00Z",
+        extracted_utc=extracted_utc,
         rerun_count=0,
         rerun_reason="initial",
         inputs=SubEInputDigests(
@@ -1943,6 +1947,49 @@ def test_provenance_is_byte_deterministic_on_rerun(tmp_path: Path) -> None:
     assert hashlib.sha256(a.read_bytes()).hexdigest() == hashlib.sha256(
         b.read_bytes()
     ).hexdigest()
+
+
+def test_provenance_sha256_excludes_extracted_utc(tmp_path: Path) -> None:
+    """Spec §9.2: extraction.extracted_utc is stripped before self-sha.
+
+    Two provenance instances differing ONLY in extracted_utc must produce
+    the same provenance_sha256, otherwise the digest chain breaks on every
+    rerun under live clocks.
+    """
+    a = _make_provenance(extracted_utc="2026-05-21T12:00:00Z")
+    b = _make_provenance(extracted_utc="2026-12-01T09:30:42Z")
+    assert provenance_sha256(provenance_to_dict(a)) == provenance_sha256(
+        provenance_to_dict(b)
+    )
+
+
+def test_provenance_sha256_excludes_nested_sha_fields(tmp_path: Path) -> None:
+    """Spec §9.2: final-segment *_sha256 fields are stripped before self-sha.
+
+    Two provenance instances differing ONLY in a *_sha256 field (e.g. a
+    different boundary_contract_parquet_sha256) must produce the same
+    provenance_sha256.
+    """
+    a = _make_provenance()
+    b = replace(a, boundary_contract_parquet_sha256="9" * 64)
+    assert provenance_sha256(provenance_to_dict(a)) == provenance_sha256(
+        provenance_to_dict(b)
+    )
+
+
+def test_provenance_sha256_sensitive_to_semantic_changes(tmp_path: Path) -> None:
+    """Inversely: non-excluded field changes MUST shift the self-sha.
+
+    Guards against the table being too aggressive (over-stripping). A
+    change in versions.boundary_vocab_version must produce a different
+    sha.
+    """
+    a = _make_provenance()
+    a_versions = replace(a.versions, boundary_vocab_version="2.0")
+    b = replace(a, versions=a_versions)
+    assert provenance_sha256(provenance_to_dict(a)) != provenance_sha256(
+        provenance_to_dict(b)
+    )
 ```
 
 ```python
@@ -1953,6 +2000,8 @@ from pathlib import Path
 
 import yaml
 
+from dataclasses import replace
+
 from cfm.data.sub_e.manifest import (
     SubEManifest,
     SubEManifestInputs,
@@ -1960,11 +2009,18 @@ from cfm.data.sub_e.manifest import (
     SubEManifestConfig,
     SubEManifestExtraction,
     SubEManifestTile,
+    manifest_sha256,
+    manifest_to_dict,
     write_manifest,
 )
 
 
-def _make_manifest(tile_count: int = 3) -> SubEManifest:
+def _make_manifest(
+    tile_count: int = 3,
+    *,
+    started_utc: str = "2026-05-21T12:00:00Z",
+    completed_utc: str = "2026-05-21T12:05:00Z",
+) -> SubEManifest:
     tiles = [
         SubEManifestTile(tile_i=i, tile_j=0, provenance_sha256="z" * 64)
         for i in range(tile_count)
@@ -1994,8 +2050,8 @@ def _make_manifest(tile_count: int = 3) -> SubEManifest:
         ),
         initial_extraction=SubEManifestExtraction(
             commit_sha="a" * 40,
-            started_utc="2026-05-21T12:00:00Z",
-            completed_utc="2026-05-21T12:05:00Z",
+            started_utc=started_utc,
+            completed_utc=completed_utc,
             tile_count=tile_count,
         ),
         tiles=tiles,
@@ -2036,6 +2092,34 @@ def test_manifest_is_byte_deterministic_on_rerun(tmp_path: Path) -> None:
     assert hashlib.sha256(a.read_bytes()).hexdigest() == hashlib.sha256(
         b.read_bytes()
     ).hexdigest()
+
+
+def test_manifest_sha256_excludes_started_and_completed_utc() -> None:
+    """Spec §9.2: initial_extraction.started_utc and completed_utc are
+    stripped before manifest_sha256. Two manifests differing ONLY in
+    those timestamps must produce the same sha — otherwise cross-env
+    determinism checks (spec §14) become noise.
+    """
+    a = _make_manifest()
+    b = _make_manifest(
+        started_utc="2026-12-01T09:30:42Z", completed_utc="2026-12-01T09:35:01Z"
+    )
+    assert manifest_sha256(manifest_to_dict(a)) == manifest_sha256(manifest_to_dict(b))
+
+
+def test_manifest_sha256_excludes_nested_sha_fields() -> None:
+    """Spec §9.2: final-segment *_sha256 fields are stripped before manifest_sha256."""
+    a = _make_manifest()
+    a_inputs = replace(a.inputs, sub_c_manifest_sha256="9" * 64)
+    b = replace(a, inputs=a_inputs)
+    assert manifest_sha256(manifest_to_dict(a)) == manifest_sha256(manifest_to_dict(b))
+
+
+def test_manifest_sha256_sensitive_to_semantic_changes() -> None:
+    """Inverse guard: non-excluded field changes MUST shift the sha."""
+    a = _make_manifest()
+    b = replace(a, region="zurich")
+    assert manifest_sha256(manifest_to_dict(a)) != manifest_sha256(manifest_to_dict(b))
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -2050,14 +2134,50 @@ Expected: ModuleNotFoundError on `cfm.data.sub_e.provenance` and `cfm.data.sub_e
 
 ```python
 # src/cfm/data/sub_e/provenance.py
-"""Per-tile provenance writer."""
+"""Per-tile provenance writer.
+
+Mirrors sub-D's pattern at ``src/cfm/data/sub_d/provenance.py``: the
+on-disk YAML carries timestamps (extracted_utc) and verbatim sha256
+values, but the self-integrity sha used in the digest chain strips both
+classes of fields via ``SUB_E_EXCLUDED_FROM_SHA`` so reruns under live
+clocks produce the same chain value. The neutral
+``cfm.data.determinism.compute_sha256_excluding`` helper does the
+strip-canonicalize-hash pipeline.
+
+Spec §9.2 mandate.
+"""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from cfm.data.io import write_yaml_canonical  # sub-D Task 1 helper
+from cfm.data.determinism import (
+    compute_sha256_excluding as _compute_sha256_excluding,
+)
+from cfm.data.io import canonicalize_yaml
+
+
+#: Sub-E's exclusion table for self-integrity hashing. Per spec §9.2 the
+#: inherited ``cfm.data.determinism`` grammar applies:
+#:
+#: - Entries under ``"*"`` apply to all file_keys; an entry starting with
+#:   ``*`` is a final-segment suffix match.
+#: - Entries under a specific file_key are exact dotted-path matches.
+#:
+#: Mirrors ``SUB_D_EXCLUDED_FROM_SHA`` at ``src/cfm/data/sub_d/provenance.py``.
+#: ``manifest.yaml`` entries are present for spec-§9.2 completeness; the
+#: helper ``manifest_sha256`` (in ``manifest.py``) reads from the same table.
+SUB_E_EXCLUDED_FROM_SHA: dict[str, list[str]] = {
+    "*": ["*_sha256"],
+    "provenance.yaml": [
+        "extraction.extracted_utc",
+    ],
+    "manifest.yaml": [
+        "initial_extraction.started_utc",
+        "initial_extraction.completed_utc",
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -2093,8 +2213,14 @@ class SubEProvenance:
     provenance_schema_version: str = "1.0"
 
 
-def write_provenance(path: Path, prov: SubEProvenance) -> Path:
-    doc = {
+def provenance_to_dict(prov: SubEProvenance) -> dict:
+    """Serialise SubEProvenance to its on-disk YAML dict shape.
+
+    Exposed publicly so callers (Task 10 orchestrator, Task 9 tests) can
+    compute ``provenance_sha256(dict)`` against the same dict that
+    ``write_provenance`` serialises, without re-loading the file.
+    """
+    return {
         "provenance_schema_version": prov.provenance_schema_version,
         "tile_i": prov.tile_i,
         "tile_j": prov.tile_j,
@@ -2110,22 +2236,48 @@ def write_provenance(path: Path, prov: SubEProvenance) -> Path:
             "boundary_contract_parquet_sha256": prov.boundary_contract_parquet_sha256,
         },
     }
-    write_yaml_canonical(doc, path)
+
+
+def write_provenance(path: Path, prov: SubEProvenance) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(canonicalize_yaml(provenance_to_dict(prov)), encoding="utf-8")
     return path
+
+
+def provenance_sha256(data: dict) -> str:
+    """Compute the self-integrity sha for a provenance.yaml dict.
+
+    Strips ``extraction.extracted_utc`` and final-segment ``*_sha256``
+    fields per ``SUB_E_EXCLUDED_FROM_SHA``, canonicalises the remainder
+    to YAML, and hashes the bytes. This is the value the region manifest
+    records in ``tiles[*].provenance_sha256``.
+    """
+    return _compute_sha256_excluding(data, "provenance.yaml", SUB_E_EXCLUDED_FROM_SHA)
 ```
 
 - [ ] **Step 4: Implement manifest**
 
 ```python
 # src/cfm/data/sub_e/manifest.py
-"""Per-region manifest writer."""
+"""Per-region manifest writer.
+
+Tiles sorted by ``(tile_i, tile_j)`` at write-time (not assumed from input).
+Self-integrity sha (``manifest_sha256``) available for cross-environment
+determinism checks; uses ``SUB_E_EXCLUDED_FROM_SHA`` from provenance.py
+to strip ``initial_extraction.started_utc/completed_utc`` and final-segment
+``*_sha256`` before hashing (spec §9.2 mandate).
+"""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from cfm.data.io import write_yaml_canonical
+from cfm.data.determinism import (
+    compute_sha256_excluding as _compute_sha256_excluding,
+)
+from cfm.data.io import canonicalize_yaml
+from cfm.data.sub_e.provenance import SUB_E_EXCLUDED_FROM_SHA
 
 
 @dataclass(frozen=True)
@@ -2180,9 +2332,15 @@ class SubEManifest:
     tiles: list[SubEManifestTile] = field(default_factory=list)
 
 
-def write_manifest(path: Path, manifest: SubEManifest) -> Path:
+def manifest_to_dict(manifest: SubEManifest) -> dict:
+    """Serialise SubEManifest to its on-disk YAML dict shape.
+
+    Enforces canonical tile sort by ``(tile_i, tile_j)`` at write-time —
+    does not trust input ordering. Same discipline as Task 6's per-edge
+    canonical sort key.
+    """
     sorted_tiles = sorted(manifest.tiles, key=lambda t: (t.tile_i, t.tile_j))
-    doc = {
+    return {
         "manifest_schema_version": manifest.manifest_schema_version,
         "sub_e_schema_version": manifest.sub_e_schema_version,
         "release": manifest.release,
@@ -2206,8 +2364,24 @@ def write_manifest(path: Path, manifest: SubEManifest) -> Path:
             for t in sorted_tiles
         ],
     }
-    write_yaml_canonical(doc, path)
+
+
+def write_manifest(path: Path, manifest: SubEManifest) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(canonicalize_yaml(manifest_to_dict(manifest)), encoding="utf-8")
     return path
+
+
+def manifest_sha256(data: dict) -> str:
+    """Compute the self-integrity sha for a manifest.yaml dict.
+
+    Strips ``initial_extraction.started_utc/completed_utc`` and
+    final-segment ``*_sha256`` per ``SUB_E_EXCLUDED_FROM_SHA``,
+    canonicalises the remainder, hashes the bytes. Spec §9.2 mandate.
+    Not in Phase-1's digest chain — exposed so cross-environment
+    determinism checks (spec §14) can compare manifests timestamp-free.
+    """
+    return _compute_sha256_excluding(data, "manifest.yaml", SUB_E_EXCLUDED_FROM_SHA)
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -2216,7 +2390,7 @@ def write_manifest(path: Path, manifest: SubEManifest) -> Path:
 uv run pytest tests/data/sub_e/test_provenance.py tests/data/sub_e/test_manifest.py -v
 ```
 
-Expected: 5 passed (3 manifest + 2 provenance, or whatever the exact split lands at).
+Expected: 12 passed total — 5 provenance (2 original + 3 sha-exclusion: extracted_utc, *_sha256, semantic-sensitivity inverse) + 7 manifest (4 original + 3 sha-exclusion: started/completed_utc, *_sha256, semantic-sensitivity inverse).
 
 - [ ] **Step 6: Run full fast suite**
 
@@ -2285,6 +2459,8 @@ def _build_synthetic_region(
         SubEInputDigests,
         SubEProvenance,
         SubEVersions,
+        provenance_sha256,
+        provenance_to_dict,
         write_provenance,
     )
     from cfm.data.sub_e.writer import (
@@ -2333,34 +2509,36 @@ def _build_synthetic_region(
         )
         contract_sha = hashlib.sha256(contract.read_bytes()).hexdigest()
         prov_path = tile_dir / "provenance.yaml"
-        write_provenance(
-            prov_path,
-            SubEProvenance(
-                tile_i=k,
-                tile_j=0,
-                extraction_commit_sha="a" * 40,
-                extracted_utc="2026-05-21T12:00:00Z",
-                rerun_count=0,
-                rerun_reason="initial",
-                inputs=SubEInputDigests(
-                    release="2026-04-15.0",
-                    sub_c_manifest_sha256="b" * 64,
-                    sub_c_features_parquet_sha256="c" * 64,
-                    sub_c_crossings_parquet_sha256="d" * 64,
-                    sub_d_manifest_sha256="e" * 64,
-                    sub_d_macro_core_parquet_sha256="f" * 64,
-                    boundary_vocab_sha256="0" * 64,
-                    derivation_config_sha256="1" * 64,
-                ),
-                versions=SubEVersions(
-                    sub_e_schema_version=sub_e_schema_version,
-                    boundary_vocab_version=boundary_vocab_version,
-                    boundary_derivation_version=boundary_derivation_version,
-                ),
-                boundary_contract_parquet_sha256=contract_sha,
+        prov_obj = SubEProvenance(
+            tile_i=k,
+            tile_j=0,
+            extraction_commit_sha="a" * 40,
+            extracted_utc="2026-05-21T12:00:00Z",
+            rerun_count=0,
+            rerun_reason="initial",
+            inputs=SubEInputDigests(
+                release="2026-04-15.0",
+                sub_c_manifest_sha256="b" * 64,
+                sub_c_features_parquet_sha256="c" * 64,
+                sub_c_crossings_parquet_sha256="d" * 64,
+                sub_d_manifest_sha256="e" * 64,
+                sub_d_macro_core_parquet_sha256="f" * 64,
+                boundary_vocab_sha256="0" * 64,
+                derivation_config_sha256="1" * 64,
             ),
+            versions=SubEVersions(
+                sub_e_schema_version=sub_e_schema_version,
+                boundary_vocab_version=boundary_vocab_version,
+                boundary_derivation_version=boundary_derivation_version,
+            ),
+            boundary_contract_parquet_sha256=contract_sha,
         )
-        prov_sha = hashlib.sha256(prov_path.read_bytes()).hexdigest()
+        write_provenance(prov_path, prov_obj)
+        # Self-integrity sha: strip extracted_utc + *_sha256 per
+        # SUB_E_EXCLUDED_FROM_SHA so the digest chain survives live-clock
+        # reruns. NOT hashlib.sha256(prov_path.read_bytes()) — that would
+        # bake extracted_utc into the chain and break determinism (spec §9.2).
+        prov_sha = provenance_sha256(provenance_to_dict(prov_obj))
         tile_records.append(
             SubEManifestTile(tile_i=k, tile_j=0, provenance_sha256=prov_sha)
         )
@@ -2497,6 +2675,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import yaml
 
+from cfm.data.sub_e.provenance import provenance_sha256
 from cfm.data.sub_e.writer import SlotKind
 
 
@@ -2551,13 +2730,21 @@ def validate_extraction_cross_tile(region_dir: Path) -> None:
             )
 
         # Invariant 3: digest chain.
+        # The manifest→provenance anchor uses provenance_sha256() — the
+        # exclusion-aware self-sha (strips extracted_utc + *_sha256 per
+        # SUB_E_EXCLUDED_FROM_SHA, spec §9.2). Raw file-bytes hash would
+        # bake extracted_utc into the chain and break determinism on every
+        # rerun under live clocks (Task 8 plan-fixup landed this discipline).
         expected_prov_sha = tile["provenance_sha256"]
-        actual_prov_sha = _file_sha256(prov_path)
+        actual_prov_sha = provenance_sha256(prov)
         if expected_prov_sha != actual_prov_sha:
             raise CrossTileValidationError(
                 f"digest chain broken at tile ({tile['tile_i']}, {tile['tile_j']}): "
                 f"manifest→provenance sha mismatch"
             )
+        # The provenance→parquet anchor is a raw file-bytes hash: parquet
+        # is byte-deterministic by construction (no timestamps, fixed
+        # pyarrow schema/sort), so no exclusion needed.
         expected_parquet_sha = prov["outputs"]["boundary_contract_parquet_sha256"]
         actual_parquet_sha = _file_sha256(parquet_path)
         if expected_parquet_sha != actual_parquet_sha:
@@ -2946,6 +3133,8 @@ from cfm.data.sub_e.provenance import (
     SubEInputDigests,
     SubEProvenance,
     SubEVersions,
+    provenance_sha256,
+    provenance_to_dict,
     write_provenance,
 )
 from cfm.data.sub_e.rotation import cell_to_edge_ids
@@ -3091,11 +3280,15 @@ def derive_region(cfg: PipelineConfig) -> None:
             boundary_contract_parquet_sha256=parquet_sha,
         )
         prov_path = write_provenance(out_tile_dir / "provenance.yaml", provenance)
+        # Chain anchor uses provenance_sha256() — strips extracted_utc and
+        # *_sha256 per SUB_E_EXCLUDED_FROM_SHA so the chain survives live-clock
+        # reruns. Raw _file_sha256(prov_path) here would bake extracted_utc
+        # into the chain and break determinism on every rerun (spec §9.2).
         tile_records.append(
             SubEManifestTile(
                 tile_i=tile_i,
                 tile_j=tile_j,
-                provenance_sha256=_file_sha256(prov_path),
+                provenance_sha256=provenance_sha256(provenance_to_dict(provenance)),
             )
         )
 
