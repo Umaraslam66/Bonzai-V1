@@ -2440,6 +2440,7 @@ def _build_synthetic_region(
     boundary_derivation_version: str = "1.0",
     sub_e_schema_version: str = "1.0",
     corrupt_external_at_tile_k: int | None = None,
+    duplicate_external_at_tile_k: int | None = None,
 ) -> Path:
     """Create a minimal sub-E region directory with N consistent tiles.
 
@@ -2449,14 +2450,25 @@ def _build_synthetic_region(
     synthetic-pass the rotation-aware validator while failing on real
     Singapore data — caught by the implementer pre-Task-9-dispatch.
 
-    If ``corrupt_external_at_tile_k`` is set, that tile's external row
-    at index 0 has its ``lower_cell_i`` swapped to ``4`` (an interior
-    cell — guaranteed not in rotation's external set). The corruption
-    preserves both 144-row count and slot_index uniqueness — only the
-    rotation-equality check catches it. Used by the
-    test_invariant_5_external_rotation_mismatch controlled-violation
-    test; the test would PASS against an OLD uniqueness-only validator,
-    so it specifically exercises the strengthening.
+    Two controlled-violation modes for invariant #5 are exposed at
+    fixture-build time (so the digest chain remains internally consistent
+    with the bad state — corruption introduced after-the-fact via parquet
+    mutation would fail invariant #3 first):
+
+    - ``corrupt_external_at_tile_k``: that tile's first axis=1 external
+      row has its ``lower_cell_i`` mutated to ``4``. Selection is
+      *semantic* (find first axis=1 row), not positional — robust against
+      future sort-order changes. Axis=1 externals have
+      ``lower_cell_i ∈ {0, 7}`` by construction, so the mutated tuple
+      ``(4, lj, 1)`` is guaranteed outside rotation's external set.
+      Tuple uniqueness is preserved (no other row has the mutated tuple),
+      so the duplicate-tuple branch does NOT fire — only the
+      rotation-equality (set-mismatch) branch fires.
+    - ``duplicate_external_at_tile_k``: that tile's external row at
+      index 1 has its ``(lower_cell_i, lower_cell_j, axis)`` triple
+      replaced by row 0's triple. Slot_index stays distinct so the
+      OLD weak validator (slot_index uniqueness) would pass; the
+      duplicate-tuple branch of the strengthened invariant #5 fires.
     """
     from dataclasses import replace as _dc_replace
 
@@ -2489,12 +2501,20 @@ def _build_synthetic_region(
     region.mkdir()
 
     def _external_rows_via_rotation(
-        *, corrupt_idx: int | None = None
+        *,
+        corrupt_first_axis_1: bool = False,
+        duplicate_idx: int | None = None,
     ) -> list[BoundaryContractRow]:
         """Enumerate the 8×8 grid through rotation, collect the unique
         external (lower_cell_i, lower_cell_j, axis) tuples, sort them
         canonically, and emit one parquet row per tuple. Should produce
         exactly 32 rows (24 edge cells × 1 external + 4 corners × 2).
+
+        Selection of the corruption target is *semantic* (find first
+        axis=1 row), not positional (corrupt_idx=N). Robust against
+        future sort-order changes. The tripwire assert on ``target.axis``
+        catches any selection-logic regression that would silently
+        re-introduce the duplicate-tuple trap.
         """
         seen: set[tuple[int, int, int]] = set()
         tuples: list[tuple[int, int, int]] = []
@@ -2530,17 +2550,53 @@ def _build_synthetic_region(
             )
             for idx, (li, lj, axis) in enumerate(tuples)
         ]
-        if corrupt_idx is not None:
-            # Swap lower_cell_i to 4 (interior cell — guaranteed
-            # outside rotation's external set). Preserves slot_index
-            # uniqueness so the OLD weak invariant-5 would pass; only
-            # the NEW rotation-equality check fires.
-            ext_rows[corrupt_idx] = _dc_replace(
-                ext_rows[corrupt_idx], lower_cell_i=4
+
+        if corrupt_first_axis_1:
+            # Semantic selection: rotation's axis=1 externals have
+            # lower_cell_i ∈ {0, 7} by construction (west/east sides).
+            # Setting lower_cell_i=4 produces a tuple genuinely outside
+            # rotation's external set → set-mismatch branch fires by
+            # construction. Positional selection (corrupt_idx=N) was
+            # fragile against sort-order changes — a prior version with
+            # corrupt_idx=0 hit the axis=0 first tuple (0,0,0), whose
+            # mutation (4,0,0) was already in rotation, triggering
+            # duplicate-tuple instead of set-mismatch.
+            target_idx = next(
+                (i for i, r in enumerate(ext_rows) if r.axis == 1), None
             )
+            assert target_idx is not None, (
+                "rotation must produce at least one axis=1 external "
+                "(west/east boundary); selection logic broken"
+            )
+            target = ext_rows[target_idx]
+            assert target.axis == 1, (
+                f"selection tripwire: target.axis={target.axis}, expected 1 "
+                f"— selection logic broken, would re-introduce duplicate-tuple trap"
+            )
+            ext_rows[target_idx] = _dc_replace(target, lower_cell_i=4)
+
+        if duplicate_idx is not None:
+            # Copy row[duplicate_idx]'s (lower_cell_i, lower_cell_j, axis)
+            # triple onto row[duplicate_idx + 1]. slot_index stays
+            # distinct → OLD weak validator (slot_index uniqueness)
+            # passes; tuple count != set size → strengthened invariant
+            # #5's duplicate-tuple branch fires.
+            src = ext_rows[duplicate_idx]
+            dst = ext_rows[duplicate_idx + 1]
+            ext_rows[duplicate_idx + 1] = _dc_replace(
+                dst,
+                lower_cell_i=src.lower_cell_i,
+                lower_cell_j=src.lower_cell_j,
+                axis=src.axis,
+            )
+
         return ext_rows
 
-    def _rows(corrupt_idx: int | None = None) -> list[BoundaryContractRow]:
+    def _rows(
+        *,
+        corrupt_first_axis_1: bool = False,
+        duplicate_idx: int | None = None,
+    ) -> list[BoundaryContractRow]:
         rows: list[BoundaryContractRow] = []
         for idx in range(112):
             rows.append(
@@ -2554,7 +2610,12 @@ def _build_synthetic_region(
                     boundary_class_enum=int(BoundaryClass.NONE),
                 )
             )
-        rows.extend(_external_rows_via_rotation(corrupt_idx=corrupt_idx))
+        rows.extend(
+            _external_rows_via_rotation(
+                corrupt_first_axis_1=corrupt_first_axis_1,
+                duplicate_idx=duplicate_idx,
+            )
+        )
         return rows
 
     tile_records: list[SubEManifestTile] = []
@@ -2563,7 +2624,10 @@ def _build_synthetic_region(
         tile_dir.mkdir()
         contract = write_boundary_contract(
             tile_dir / "boundary_contract.parquet",
-            _rows(corrupt_idx=0 if k == corrupt_external_at_tile_k else None),
+            _rows(
+                corrupt_first_axis_1=(k == corrupt_external_at_tile_k),
+                duplicate_idx=(0 if k == duplicate_external_at_tile_k else None),
+            ),
         )
         contract_sha = hashlib.sha256(contract.read_bytes()).hexdigest()
         prov_path = tile_dir / "provenance.yaml"
@@ -2643,20 +2707,31 @@ def test_valid_region_passes_all_cross_tile_invariants(tmp_path: Path) -> None:
 
 
 def test_invariant_1_schema_version_consistency(tmp_path: Path) -> None:
+    """Corrupt one tile's provenance to use a different sub_e_schema_version.
+
+    Operates at the YAML-dict layer (load → mutate → dump) rather than
+    byte-layer text-replace. canonicalize_yaml emits single-quoted
+    strings; double-quote text-replace would be a silent no-op against
+    yaml.safe_dump's default quoting (defect found pre-Task-9-dispatch).
+    Round-trip via yaml.safe_dump is robust against yaml lib version
+    drift and quote-style shifts.
+    """
     region = _build_synthetic_region(tmp_path)
-    # Corrupt one tile's provenance to use a different sub_e_schema_version.
     prov_path = region / "tile=EPSG3414_i0_j0" / "provenance.yaml"
-    text = prov_path.read_text()
-    prov_path.write_text(text.replace('sub_e_schema_version: "1.0"', 'sub_e_schema_version: "2.0"'))
+    data = yaml.safe_load(prov_path.read_text())
+    data["versions"]["sub_e_schema_version"] = "2.0"
+    prov_path.write_text(yaml.safe_dump(data))
     with pytest.raises(CrossTileValidationError, match="sub_e_schema_version"):
         validate_extraction_cross_tile(region)
 
 
 def test_invariant_2_vocab_and_derivation_consistency(tmp_path: Path) -> None:
+    """Same yaml round-trip pattern as invariant #1 for the same reason."""
     region = _build_synthetic_region(tmp_path)
     prov_path = region / "tile=EPSG3414_i0_j0" / "provenance.yaml"
-    text = prov_path.read_text()
-    prov_path.write_text(text.replace('boundary_vocab_version: "1.0"', 'boundary_vocab_version: "2.0"'))
+    data = yaml.safe_load(prov_path.read_text())
+    data["versions"]["boundary_vocab_version"] = "2.0"
+    prov_path.write_text(yaml.safe_dump(data))
     with pytest.raises(CrossTileValidationError, match="boundary_vocab_version"):
         validate_extraction_cross_tile(region)
 
@@ -2687,37 +2762,25 @@ def test_invariant_4_input_digest_drift_across_tiles(tmp_path: Path) -> None:
 def test_invariant_5_duplicate_external_tuple(tmp_path: Path) -> None:
     """Two parquet rows share the same (lower_cell_i, lower_cell_j, axis).
 
-    Exercises the duplicate-tuple branch of the strengthened invariant
-    #5 (spec §10.2 #5). Under the OLD weak validator (slot_index
-    uniqueness only) this corruption would pass since slot_indices stay
-    distinct; only the rotation-aware validator catches it.
-    """
-    region = _build_synthetic_region(tmp_path)
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+    The duplicate is injected at fixture-build time via
+    ``duplicate_external_at_tile_k=0`` so the digest chain remains
+    internally consistent with the bad parquet (invariant #3 does not
+    fire). Slot_index uniqueness is preserved — the OLD weak validator
+    (slot_index uniqueness only) would PASS this corruption. Only the
+    strengthened invariant #5's duplicate-tuple branch catches it.
 
-    parquet = region / "tile=EPSG3414_i0_j0" / "boundary_contract.parquet"
-    tbl = pq.ParquetFile(parquet).read()
-    cols = {n: tbl.column(n).to_pylist() for n in tbl.column_names}
-    # Find first two external rows; copy row i's tuple onto row i+1.
-    # slot_index stays distinct → OLD validator passes;
-    # tuple count != set size → NEW validator catches it.
-    for i, sk in enumerate(cols["slot_kind"]):
-        if sk == 2 and cols["slot_kind"][i + 1] == 2:
-            cols["lower_cell_i"][i + 1] = cols["lower_cell_i"][i]
-            cols["lower_cell_j"][i + 1] = cols["lower_cell_j"][i]
-            cols["axis"][i + 1] = cols["axis"][i]
-            break
-    bad = pa.table(
-        {n: pa.array(v, type=tbl.schema.field(n).type) for n, v in cols.items()}
-    )
-    pq.write_table(bad, parquet)
+    Earlier draft mutated parquet bytes after region build, but that
+    broke invariant #3 (digest chain) which fires before invariant #5
+    in the per-tile loop. The fixture-build-time injection keeps the
+    chain valid so invariant #5 actually gets exercised.
+    """
+    region = _build_synthetic_region(tmp_path, duplicate_external_at_tile_k=0)
     with pytest.raises(CrossTileValidationError, match="duplicate external"):
         validate_extraction_cross_tile(region)
 
 
 def test_invariant_5_external_set_mismatch_against_rotation(tmp_path: Path) -> None:
-    """One external row's tuple is corrupted to a non-boundary cell.
+    """The first axis=1 external row has its lower_cell_i mutated to 4.
 
     This is the load-bearing controlled-violation test for the
     rotation-aware strengthening (spec §10.2 #5). The corruption:
@@ -2725,14 +2788,21 @@ def test_invariant_5_external_set_mismatch_against_rotation(tmp_path: Path) -> N
     - Preserves 144-row count (writer-level invariants pass).
     - Preserves slot_index uniqueness (OLD weak validator passes).
     - Preserves tuple uniqueness within the parquet (duplicate-tuple
-      branch does not fire).
+      branch does NOT fire — by construction: axis=1 mutations to
+      lower_cell_i=4 produce tuples like (4, lj, 1) that do not match
+      any other parquet row's tuple).
     - Shifts the parquet's external-tuple SET away from the rotation's
-      set (interior cell 4 appears where a boundary cell should be).
+      set: rotation's axis=1 externals have lower_cell_i ∈ {0, 7} by
+      construction, so (4, lj, 1) is genuinely outside rotation's set.
 
     Only the rotation-equality check at the end of invariant #5 fires.
-    This test specifically exercises the strengthening, not the
-    uniqueness checks — verifies the strengthening landed for the right
-    reason.
+    Selection is semantic (find first axis=1 row), not positional —
+    robust against future sort-order changes in the rotation function.
+    Earlier draft used corrupt_idx=0 which silently hit the axis=0
+    tuple (0,0,0); mutation to (4,0,0) was already in rotation's set,
+    triggering duplicate-tuple instead of set-mismatch and defeating
+    the load-bearing meta-check that this test specifically exercises
+    the strengthening, not legacy uniqueness behavior.
     """
     region = _build_synthetic_region(tmp_path, corrupt_external_at_tile_k=0)
     with pytest.raises(
