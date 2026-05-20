@@ -1384,15 +1384,17 @@ git commit -m "feat(sub_e): add boundary contract parquet writer"
 
 ---
 
-## Task 7: Inline validator (8 invariants)
+## Task 7: Inline validator (8 invariants + 1 carry-forward)
 
 **Files:**
 - Create: `src/cfm/data/sub_e/validator_inline.py`
 - Test: `tests/data/sub_e/test_validator_inline.py`
 
-**Context:** Spec §10.1. Eight invariants over a single `boundary_contract.parquet`. Each invariant has a controlled-violation fixture in the test suite. **All fixtures synthesised in-process via `BoundaryContractRow` + the Task 6 writer; this task does not read `data/processed/sub_c/` or `data/processed/sub_d/`.**
+**Context:** Spec §10.1. Eight invariants over a single `boundary_contract.parquet` (spec catalog), plus one sub-E-local invariant #9 (Task-6 carry-forward) that asserts the sub-E writer's `SlotKind` enum integer values match `cfm.data.sub_d.enums.SlotKind` byte-for-byte. Each invariant has a controlled-violation fixture or positive regression guard in the test suite. **All fixtures synthesised in-process via `BoundaryContractRow` + the Task 6 writer; this task does not read `data/processed/sub_c/` or `data/processed/sub_d/`.**
 
-Under lever-3 collapse (spec §12), invariants #3 and #4 are replaced by a single uniform-null check (every row's `boundary_class_enum` is null). The validator accepts a `lever_3_collapse: bool` kwarg to switch modes; Task 10's pipeline forwards `cfg.lever_3_collapse`.
+Under lever-3 collapse (spec §12), invariants #3 and #4 are replaced by a single uniform-null check (every row's `boundary_class_enum` is null). Invariant #9 (Task-6 carry-forward) is **mode-independent** — it applies under both modes since cross-enum wire compatibility is a structural property unrelated to derivation. The validator accepts a `lever_3_collapse: bool` kwarg to switch modes; Task 10's pipeline forwards `cfg.lever_3_collapse`.
+
+**Task-6 carry-forward rationale (in-code comment must reference this).** Sub-D's `SlotKind` (`src/cfm/data/sub_d/enums.py:25-26`) and sub-E writer's `SlotKind` (`src/cfm/data/sub_e/writer.py:23`) are two separate `IntEnum` classes that happen to share wire values `INTERNAL_EDGE=1` and `EXTERNAL_EDGE=2`. If either side adds a member or reorders values without coordinating, the cross-table foreign-key path corrupts silently. Invariant #9 catches that drift at validation time.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1581,6 +1583,45 @@ def test_lever_3_collapse_rejects_any_non_null(tmp_path: Path) -> None:
             expected_derivation_version=BOUNDARY_DERIVATION_VERSION,
             lever_3_collapse=True,
         )
+
+
+def test_invariant_9_slotkind_cross_enum_byte_equivalence() -> None:
+    """Invariant #9 (Task-6 carry-forward): sub-E writer's SlotKind enum
+    integer values must match sub-D's SlotKind byte-for-byte at INTERNAL_EDGE
+    and EXTERNAL_EDGE. Two separate IntEnum classes maintain wire
+    compatibility manually; this test is the regression guard against
+    silent drift if either side gains a member or reorders values.
+    """
+    from cfm.data.sub_d.enums import SlotKind as SubDSlotKind
+
+    assert int(SlotKind.INTERNAL_EDGE) == int(SubDSlotKind.INTERNAL_EDGE) == 1
+    assert int(SlotKind.EXTERNAL_EDGE) == int(SubDSlotKind.EXTERNAL_EDGE) == 2
+
+
+def test_invariant_9_drift_simulation_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Invariant #9 fires at validator runtime when wire values diverge.
+
+    Simulates drift by monkey-patching sub-D's `SlotKind` to a divergent
+    IntEnum. The validator must raise InlineValidationError; the validator's
+    lazy import of `cfm.data.sub_d.enums.SlotKind` is what makes this test
+    able to observe the drift.
+    """
+    from enum import IntEnum
+
+    from cfm.data.sub_d import enums as sub_d_enums
+
+    class _DriftedSlotKind(IntEnum):
+        INTERNAL_EDGE = 99  # divergent from sub-E writer's INTERNAL_EDGE=1
+        EXTERNAL_EDGE = 2
+
+    monkeypatch.setattr(sub_d_enums, "SlotKind", _DriftedSlotKind)
+    p = _write(tmp_path, _valid_rows())
+    with pytest.raises(InlineValidationError, match="SlotKind"):
+        validate_boundary_contract(
+            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
+        )
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1595,7 +1636,13 @@ Expected: ModuleNotFoundError.
 
 ```python
 # src/cfm/data/sub_e/validator_inline.py
-"""Sub-E per-tile inline validator (8 invariants per spec §10.1)."""
+"""Sub-E per-tile inline validator.
+
+Implements the 8 invariants from spec §10.1 plus 1 sub-E-local invariant #9
+(Task-6 carry-forward) asserting cross-enum byte-equivalence between sub-E
+writer's SlotKind and sub-D's SlotKind. Invariant #9 is mode-independent
+(applies under both default and lever_3_collapse modes).
+"""
 
 from __future__ import annotations
 
@@ -1629,6 +1676,33 @@ class InlineValidationError(ValueError):
     """Raised when a sub-E boundary_contract.parquet fails any inline invariant."""
 
 
+def _assert_slotkind_byte_equivalence_with_sub_d() -> None:
+    """Invariant #9 (Task-6 carry-forward, sub-E-local — not in original 8).
+
+    Sub-D's `SlotKind` (`src/cfm/data/sub_d/enums.py`) and sub-E writer's
+    `SlotKind` (`src/cfm/data/sub_e/writer.py`) are two separate IntEnum
+    classes that share wire values `INTERNAL_EDGE=1` and `EXTERNAL_EDGE=2`.
+    If either side gains a member or reorders values without coordinating,
+    the cross-table foreign-key path corrupts silently. This guard catches
+    drift at validation time. The import is intentionally lazy so test
+    monkey-patches against `cfm.data.sub_d.enums.SlotKind` are observable.
+    """
+    from cfm.data.sub_d.enums import SlotKind as SubDSlotKind
+
+    if int(SlotKind.INTERNAL_EDGE) != int(SubDSlotKind.INTERNAL_EDGE):
+        raise InlineValidationError(
+            "sub-E and sub-D SlotKind.INTERNAL_EDGE wire values diverged "
+            f"(sub-E={int(SlotKind.INTERNAL_EDGE)}, "
+            f"sub-D={int(SubDSlotKind.INTERNAL_EDGE)}); invariant #9 violated"
+        )
+    if int(SlotKind.EXTERNAL_EDGE) != int(SubDSlotKind.EXTERNAL_EDGE):
+        raise InlineValidationError(
+            "sub-E and sub-D SlotKind.EXTERNAL_EDGE wire values diverged "
+            f"(sub-E={int(SlotKind.EXTERNAL_EDGE)}, "
+            f"sub-D={int(SubDSlotKind.EXTERNAL_EDGE)}); invariant #9 violated"
+        )
+
+
 def validate_boundary_contract(
     path: Path,
     *,
@@ -1645,8 +1719,13 @@ def validate_boundary_contract(
 
     Under `lever_3_collapse=True`, invariants #3 (non-null iff active) and
     #4 (active class membership) are replaced by a single uniform-null check
-    (every row's boundary_class_enum is null). Other invariants still apply.
+    (every row's boundary_class_enum is null). Other invariants still apply,
+    including #9 (cross-enum byte-equivalence — mode-independent).
     """
+    # Invariant 9 (Task-6 carry-forward): structural enum drift is the
+    # earliest possible failure mode; check before any file-level invariant.
+    _assert_slotkind_byte_equivalence_with_sub_d()
+
     tbl = pq.ParquetFile(path).read()
     slot_kinds = tbl.column("slot_kind").to_pylist()
     slot_indices = tbl.column("slot_index").to_pylist()
@@ -1748,7 +1827,11 @@ def validate_boundary_contract(
 uv run pytest tests/data/sub_e/test_validator_inline.py -v
 ```
 
-Expected: 9 passed (one per invariant + the valid-case happy path).
+Expected: 13 passed. Test set covers:
+- Happy path (1): `test_valid_lattice_passes_all_invariants`
+- Spec §10.1 invariants (8): `test_invariant_1_total_row_count`, `test_invariant_2_sort_key`, `test_invariant_3_class_non_null_iff_scope_active`, `test_invariant_4_active_class_membership`, `test_invariant_5_scope_marker_membership`, `test_invariant_6_slot_index_range`, `test_invariant_7_axis_membership`, `test_invariant_8_derivation_version_match`
+- Lever-3 mode (2): `test_lever_3_collapse_passes_with_uniform_null`, `test_lever_3_collapse_rejects_any_non_null`
+- Invariant #9 carry-forward (2): `test_invariant_9_slotkind_cross_enum_byte_equivalence` (positive regression guard), `test_invariant_9_drift_simulation_raises` (monkey-patched divergence triggers InlineValidationError)
 
 - [ ] **Step 5: Run full fast suite**
 
@@ -3720,11 +3803,14 @@ git commit -m "feat(eval): add perplexity gap shell with sign test"
 
 **Halt-on-validator-fail discipline is the load-bearing test posture here.** If the empirical gate fails on real data, do NOT weaken the thresholds. Stop and escalate per memory `feedback_test_weakening_to_pass`.
 
-**Lever-3 launch-time note.** The empirical-gate test (`test_layer3_empirical_gate_real_distribution`) is only meaningful under non-collapse runs. If the day-9 lever-3 trigger fires (per Task 10 + spec §12), the operator runs the slow suite with that one test excluded:
+**Writer-regression guard (Task-6 carry-forward).** The empirical-gate `max_frac` check only catches "a writer that always emits NONE" indirectly — via the 90% concentration threshold — which routes the failure into the §5 reopen pathway (a derivation-grouping decision), not the writer-bug pathway. Add an explicit `test_layer3_writer_round_trips_major_and_minor` that asserts both `MAJOR_ROAD` and `MINOR_ROAD` appear at least once in the Layer-3 active-row distribution. This separates a writer regression (no class diversity → halt and diagnose writer) from a derivation-grouping concern (one class > 90% → §5 reopen). Both tests live in the same module; the round-trip test runs unconditionally under the empirical-gate fixture.
+
+**Lever-3 launch-time note.** Two tests are only meaningful under non-collapse runs: `test_layer3_empirical_gate_real_distribution` (empirical gate against active-class distribution) and `test_layer3_writer_round_trips_major_and_minor` (writer-regression guard requiring non-null active classes). If the day-9 lever-3 trigger fires (per Task 10 + spec §12), the operator runs the slow suite with both tests excluded:
 
 ```bash
 uv run pytest -m slow tests/data/sub_e/test_singapore_integration.py \
-  --deselect tests/data/sub_e/test_singapore_integration.py::test_layer3_empirical_gate_real_distribution
+  --deselect tests/data/sub_e/test_singapore_integration.py::test_layer3_empirical_gate_real_distribution \
+  --deselect tests/data/sub_e/test_singapore_integration.py::test_layer3_writer_round_trips_major_and_minor
 ```
 
 A separate lever-3 regression test (`test_layer3_lever_3_collapse_real_data`, below) verifies the pipeline produces valid sub-E output under lever-3 on real Singapore data.
@@ -3934,6 +4020,42 @@ def test_layer3_empirical_gate_real_distribution(sub_e_run_layer3: Path) -> None
                 },
             }
         )
+    )
+
+
+def test_layer3_writer_round_trips_major_and_minor(sub_e_run_layer3: Path) -> None:
+    """Task-6 carry-forward writer-regression guard.
+
+    A writer bug that always emits BoundaryClass.NONE (or coerces all
+    active classes to a single value) would manifest in the empirical-gate
+    test as a max-class-fraction violation, which routes into the §5 reopen
+    pathway (a derivation-grouping concern). That's the wrong escalation
+    path: the failure is structural (writer corruption), not semantic
+    (derivation decision).
+
+    This test asserts both BoundaryClass.MAJOR_ROAD and BoundaryClass.MINOR_ROAD
+    appear at least once in the Layer-3 active-row distribution. If this
+    fails, halt and diagnose the writer, not the class-grouping map.
+    """
+    counter: Counter[int] = Counter()
+    for tile_dir in sub_e_run_layer3.glob("tile=EPSG3414_*"):
+        tbl = pq.ParquetFile(tile_dir / "boundary_contract.parquet").read()
+        scope_markers = tbl.column("scope_marker").to_pylist()
+        boundary_classes = tbl.column("boundary_class_enum").to_pylist()
+        for scope, cls in zip(scope_markers, boundary_classes):
+            if scope == 0 and cls is not None:
+                counter[cls] += 1
+
+    assert counter[int(BoundaryClass.MAJOR_ROAD)] > 0, (
+        "Layer-3 distribution has zero MAJOR_ROAD active edges — likely "
+        "writer regression (a derivation-grouping decision would still emit "
+        "at least one MAJOR_ROAD on Singapore's 9-tile Layer-3 subset). "
+        "Halt and diagnose the writer, NOT the class-grouping map."
+    )
+    assert counter[int(BoundaryClass.MINOR_ROAD)] > 0, (
+        "Layer-3 distribution has zero MINOR_ROAD active edges — likely "
+        "writer regression. Halt and diagnose the writer, NOT the "
+        "class-grouping map."
     )
 
 

@@ -381,6 +381,8 @@ boundary_class_enum      int16?   # nullable; non-null iff scope_marker == 0 (ac
 
 Canonical sort key: `(slot_kind, slot_index)`.
 
+`slot_kind` wire values **must** match `cfm.data.sub_d.enums.SlotKind` byte-for-byte at `INTERNAL_EDGE=1` and `EXTERNAL_EDGE=2`. Sub-E's writer holds a local `SlotKind` IntEnum scoped to the writer module; the cross-enum byte-equivalence is enforced by inline validator invariant §10.1 #9 (Task-6 carry-forward) to catch silent drift if either side gains a member or has values reordered.
+
 Row count invariants:
 
 - Exactly 144 rows per tile.
@@ -603,6 +605,7 @@ sub-E-local entries below. No new validator infrastructure.
 | 6 | `slot_index` range: internal ∈ [0, 112); external ∈ [0, 32) |
 | 7 | `axis ∈ {0, 1}` per `cfm.data.sub_c.enums.AXIS` |
 | 8 | Provenance `boundary_derivation_version` matches manifest |
+| 9 | **(Task-6 carry-forward, sub-E-local — not in original 8.)** Sub-E writer's `SlotKind` enum integer values match `cfm.data.sub_d.enums.SlotKind` byte-for-byte at `INTERNAL_EDGE=1` and `EXTERNAL_EDGE=2`. Two separate `IntEnum` classes maintain wire compatibility manually; this invariant catches silent drift if either side gains a member or reorders values. |
 
 ### 10.2 Cross-tile (per-region)
 
@@ -787,8 +790,9 @@ Layer 1 / 2 / 3 tests have a parameterised lever-3-collapse variant:
 - **Layer 2:** invariants #3 (non-null iff active) and #4 (active class
   membership in `{NONE, MAJOR_ROAD, MINOR_ROAD}`) are replaced by a single
   uniform-null check (every row's `boundary_class_enum` is `null`); other
-  invariants still apply. The inline validator takes a `lever_3_collapse:
-  bool` kwarg to switch between modes.
+  invariants still apply, including #9 (sub-E ↔ sub-D `SlotKind` byte-equivalence —
+  this carry-forward is mode-independent). The inline validator takes a
+  `lever_3_collapse: bool` kwarg to switch between modes.
 - **Layer 3:** test 1 (empirical gate) skipped as vacuous; tests 2, 3, 4 still
   apply.
 
