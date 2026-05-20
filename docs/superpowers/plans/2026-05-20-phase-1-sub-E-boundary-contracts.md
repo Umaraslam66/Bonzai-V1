@@ -273,6 +273,16 @@ git commit -m "data(sub_e): lock boundary vocab v1"
 - Create: `src/cfm/data/sub_e/versions.py`
 - Test: `tests/data/sub_e/test_versions.py`
 
+**Sub-D helper integration.** Sub-D's `compare_version` lives at `cfm.data.sub_d.versions::compare_version` with signature `(namespace: VersionNamespace, expected: VersionRef, actual: VersionRef) -> None`. Sub-D's `VersionNamespace` enum has five conceptual values: `ARTIFACT_FORMAT`, `DATA_SHAPE`, `VOCAB`, `DERIVATION`, `VALIDATOR`. Sub-D's `VersionRef` is a frozen dataclass `(namespace, value)`. Cross-namespace rejection works because each `VersionRef` carries its own namespace; the helper raises `VersionNamespaceError` if any argument's namespace doesn't match the comparison namespace, and `VersionMismatchError` if values diverge.
+
+**Sub-E reuses sub-D's helper and enum unchanged.** Sub-E's three version axes map to sub-D's existing namespace concepts:
+
+- `sub_e_schema_version` → `VersionNamespace.DATA_SHAPE` (on-disk parquet schema + YAML structure)
+- `boundary_vocab_version` → `VersionNamespace.VOCAB`
+- `boundary_derivation_version` → `VersionNamespace.DERIVATION`
+
+Sub-E does NOT define a new `VersionNamespace` enum. Sub-D's enum is conceptual (vocab as a category, not "sub-D's vocab specifically"); each sub-project's `VersionRef` carries its own opaque value. The known_issue #8 lesson (separate ARTIFACT_FORMAT from DATA_SHAPE) is honored by treating sub-E's schema axis as DATA_SHAPE (parquet column layout), not ARTIFACT_FORMAT (YAML format version).
+
 - [ ] **Step 1: Write the failing test**
 
 ```python
@@ -281,12 +291,15 @@ from __future__ import annotations
 
 import pytest
 
-from cfm.data.determinism import compare_version  # sub-D Task 1 helper
+from cfm.data.sub_d.errors import VersionNamespaceError
+from cfm.data.sub_d.versions import VersionNamespace, VersionRef, compare_version
 from cfm.data.sub_e.versions import (
+    BOUNDARY_DERIVATION_NAMESPACE,
     BOUNDARY_DERIVATION_VERSION,
+    BOUNDARY_VOCAB_NAMESPACE,
     BOUNDARY_VOCAB_VERSION,
+    SUB_E_SCHEMA_NAMESPACE,
     SUB_E_SCHEMA_VERSION,
-    VersionNamespace,
 )
 
 
@@ -296,28 +309,30 @@ def test_initial_version_values() -> None:
     assert BOUNDARY_DERIVATION_VERSION == "1.0"
 
 
-def test_namespace_enum_values() -> None:
-    # Sub-E namespaces are extensions of sub-D's namespace enum, not aliases.
-    assert VersionNamespace.SUB_E_SCHEMA.value == "sub_e_schema"
-    assert VersionNamespace.BOUNDARY_VOCAB.value == "boundary_vocab"
-    assert VersionNamespace.BOUNDARY_DERIVATION.value == "boundary_derivation"
+def test_version_namespaces_use_subd_concept_enum() -> None:
+    """Sub-E's three axes map to sub-D's DATA_SHAPE / VOCAB / DERIVATION."""
+    assert SUB_E_SCHEMA_NAMESPACE is VersionNamespace.DATA_SHAPE
+    assert BOUNDARY_VOCAB_NAMESPACE is VersionNamespace.VOCAB
+    assert BOUNDARY_DERIVATION_NAMESPACE is VersionNamespace.DERIVATION
 
 
-def test_compare_version_within_namespace_passes() -> None:
-    assert compare_version(
-        VersionNamespace.SUB_E_SCHEMA.value, "1.0", "1.0"
-    ) is True
+def test_compare_version_within_vocab_namespace_passes() -> None:
+    """compare_version with matched-namespace refs and equal values must not raise."""
+    expected = VersionRef(
+        namespace=BOUNDARY_VOCAB_NAMESPACE, value=BOUNDARY_VOCAB_VERSION
+    )
+    actual = VersionRef(
+        namespace=BOUNDARY_VOCAB_NAMESPACE, value=BOUNDARY_VOCAB_VERSION
+    )
+    compare_version(BOUNDARY_VOCAB_NAMESPACE, expected, actual)  # no raise
 
 
 def test_compare_version_cross_namespace_rejects() -> None:
-    # Calling with mismatched namespace strings must raise.
-    with pytest.raises(ValueError, match="namespace"):
-        compare_version(
-            VersionNamespace.SUB_E_SCHEMA.value,
-            "1.0",
-            "1.0",
-            other_namespace=VersionNamespace.BOUNDARY_VOCAB.value,
-        )
+    """Mixing sub-E's vocab namespace with sub-E's derivation namespace must raise."""
+    expected = VersionRef(namespace=BOUNDARY_VOCAB_NAMESPACE, value="1.0")
+    actual = VersionRef(namespace=BOUNDARY_DERIVATION_NAMESPACE, value="1.0")
+    with pytest.raises(VersionNamespaceError, match="namespace"):
+        compare_version(BOUNDARY_VOCAB_NAMESPACE, expected, actual)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -339,32 +354,47 @@ from __future__ import annotations
 
 ```python
 # src/cfm/data/sub_e/versions.py
+"""Sub-E version constants.
+
+Sub-E has three version axes: schema (data-shape), vocab, and derivation.
+Each maps to a sub-D `VersionNamespace` concept (DATA_SHAPE, VOCAB,
+DERIVATION). Sub-D's `compare_version(namespace, expected, actual)` is the
+canonical namespace-aware equality path; sub-E does not introduce a new
+helper.
+
+Version constants are plain strings for ergonomic YAML serialization;
+namespace constants pair each version with its sub-D namespace.
+"""
+
 from __future__ import annotations
 
-from enum import Enum
 from typing import Final
 
-
-class VersionNamespace(str, Enum):
-    """Namespace tags for sub-E version axes.
-
-    Pass `.value` to `cfm.data.determinism.compare_version`. Cross-namespace
-    comparisons must raise rather than silently succeeding.
-    """
-
-    SUB_E_SCHEMA = "sub_e_schema"
-    BOUNDARY_VOCAB = "boundary_vocab"
-    BOUNDARY_DERIVATION = "boundary_derivation"
+from cfm.data.sub_d.versions import VersionNamespace
 
 
+# Schema version: governs on-disk parquet schema + YAML structure.
 SUB_E_SCHEMA_VERSION: Final[str] = "1.0"
+SUB_E_SCHEMA_NAMESPACE: Final[VersionNamespace] = VersionNamespace.DATA_SHAPE
+
+# Vocab version: governs boundary_vocab.yaml token domain.
 BOUNDARY_VOCAB_VERSION: Final[str] = "1.0"
+BOUNDARY_VOCAB_NAMESPACE: Final[VersionNamespace] = VersionNamespace.VOCAB
+
+# Derivation version: governs class-grouping + multi-crossing tie-break.
 BOUNDARY_DERIVATION_VERSION: Final[str] = "1.0"
+BOUNDARY_DERIVATION_NAMESPACE: Final[VersionNamespace] = VersionNamespace.DERIVATION
 ```
 
-- [ ] **Step 4: Confirm cross-namespace rejection mechanic exists in `compare_version`**
+- [ ] **Step 4: Confirm sub-D's `compare_version` is importable from `cfm.data.sub_d.versions`**
 
-Read `src/cfm/data/determinism.py::compare_version` and verify it supports the `other_namespace` kwarg signature exercised by the test. If sub-D's helper does not yet support cross-namespace rejection via `other_namespace`, this is a sub-D defect (`known_issue #8` lesson); halt and escalate. Do NOT modify the helper without reviewer approval.
+Quick sanity-check (does not modify any file):
+
+```bash
+uv run python -c "from cfm.data.sub_d.versions import compare_version, VersionNamespace, VersionRef; print('OK')"
+```
+
+Expected: `OK`. If this fails, that is a sub-D defect surfacing; HALT and escalate. Do NOT modify sub-D.
 
 - [ ] **Step 5: Run test to verify it passes**
 
