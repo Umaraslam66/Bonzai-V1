@@ -1396,6 +1396,10 @@ Under lever-3 collapse (spec §12), invariants #3 and #4 are replaced by a singl
 
 **Task-6 carry-forward rationale (in-code comment must reference this).** Sub-D's `SlotKind` (`src/cfm/data/sub_d/enums.py:25-26`) and sub-E writer's `SlotKind` (`src/cfm/data/sub_e/writer.py:23`) are two separate `IntEnum` classes that happen to share wire values `INTERNAL_EDGE=1` and `EXTERNAL_EDGE=2`. If either side adds a member or reorders values without coordinating, the cross-table foreign-key path corrupts silently. Invariant #9 catches that drift at validation time.
 
+**Invariant #8 I/O responsibility (decided in plan-fixup; do not relitigate).** The boundary_contract.parquet on disk has no `boundary_derivation_version` column or file-level metadata. Sub-E's three-axis versioning lives in the sibling `provenance.yaml` (written in Task 8). The inline validator does **not** read provenance.yaml — that I/O lives in **Task 10's pipeline orchestrator**. Task 7's validator signature requires the caller to supply both `expected_derivation_version` (what the pipeline expects) and `provenance_derivation_version` (what was actually recorded). Both kwargs are non-optional. Invariant #8 then becomes a pure string comparison inside the validator. This keeps the invariant in the inline validator per spec §10.1 categorization while pushing the file I/O to the orchestrator layer.
+
+**Loop ordering discipline (decided in plan-fixup).** The per-row invariant loop runs in **membership-before-semantic** order: structural enum/range membership (#5 scope_marker, #6 slot_index, #7 axis) checked **before** semantic relationships (#3 non-null-iff, #4 active class). Reason: semantic invariants assume per-row values are already in valid ranges; without that prior check, an out-of-range membership value can short-circuit a downstream semantic test in a confusing way (e.g. `scope_marker=9, cls=non-null` would fire #3 before #5, masking the real defect). The discipline yields more useful error messages on real-data violations too.
+
 - [ ] **Step 1: Write the failing test**
 
 ```python
@@ -1457,11 +1461,30 @@ def _write(tmp_path: Path, rows: list[BoundaryContractRow]) -> Path:
     return p
 
 
+def _validate(
+    p: Path,
+    *,
+    expected: str = BOUNDARY_DERIVATION_VERSION,
+    provenance: str = BOUNDARY_DERIVATION_VERSION,
+    lever_3_collapse: bool = False,
+) -> None:
+    """Test helper: passes both required version kwargs to the validator.
+
+    Defaults to the locked v1.0 for both, so tests that don't exercise
+    invariant #8 stay terse. Tests that exercise #8 pass mismatched values
+    explicitly.
+    """
+    validate_boundary_contract(
+        p,
+        expected_derivation_version=expected,
+        provenance_derivation_version=provenance,
+        lever_3_collapse=lever_3_collapse,
+    )
+
+
 def test_valid_lattice_passes_all_invariants(tmp_path: Path) -> None:
     p = _write(tmp_path, _valid_rows())
-    validate_boundary_contract(
-        p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-    )  # should not raise
+    _validate(p)  # should not raise
 
 
 def test_invariant_3_class_non_null_iff_scope_active(tmp_path: Path) -> None:
@@ -1470,9 +1493,7 @@ def test_invariant_3_class_non_null_iff_scope_active(tmp_path: Path) -> None:
     rows[112] = replace(rows[112], boundary_class_enum=int(BoundaryClass.MAJOR_ROAD))
     p = _write(tmp_path, rows)
     with pytest.raises(InlineValidationError, match="non-null iff scope_marker == 0"):
-        validate_boundary_contract(
-            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-        )
+        _validate(p)
 
 
 def test_invariant_4_active_class_membership(tmp_path: Path) -> None:
@@ -1484,19 +1505,19 @@ def test_invariant_4_active_class_membership(tmp_path: Path) -> None:
     )
     p = _write(tmp_path, rows)
     with pytest.raises(InlineValidationError, match="active class membership"):
-        validate_boundary_contract(
-            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-        )
+        _validate(p)
 
 
 def test_invariant_5_scope_marker_membership(tmp_path: Path) -> None:
     rows = _valid_rows()
-    rows[0] = replace(rows[0], scope_marker=9)  # out of {0, 1, 2, 3}
+    # Mutate scope_marker=9 AND null the boundary_class_enum so invariants
+    # #3/#4 are not in violation on this row — but invariant #5 (membership)
+    # fires regardless because it's structurally prior under the
+    # membership-before-semantic loop order.
+    rows[0] = replace(rows[0], scope_marker=9, boundary_class_enum=None)
     p = _write(tmp_path, rows)
     with pytest.raises(InlineValidationError, match="scope_marker membership"):
-        validate_boundary_contract(
-            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-        )
+        _validate(p)
 
 
 def test_invariant_6_slot_index_range(tmp_path: Path) -> None:
@@ -1504,9 +1525,7 @@ def test_invariant_6_slot_index_range(tmp_path: Path) -> None:
     rows[0] = replace(rows[0], slot_index=999)
     p = _write(tmp_path, rows)
     with pytest.raises(InlineValidationError, match="slot_index range"):
-        validate_boundary_contract(
-            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-        )
+        _validate(p)
 
 
 def test_invariant_7_axis_membership(tmp_path: Path) -> None:
@@ -1514,15 +1533,15 @@ def test_invariant_7_axis_membership(tmp_path: Path) -> None:
     rows[0] = replace(rows[0], axis=2)  # AXIS = {0, 1}
     p = _write(tmp_path, rows)
     with pytest.raises(InlineValidationError, match="axis membership"):
-        validate_boundary_contract(
-            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-        )
+        _validate(p)
 
 
 def test_invariant_8_derivation_version_match(tmp_path: Path) -> None:
+    """Provenance mismatch with expected raises. Both kwargs are required
+    on the validator; the test passes an explicit mismatch."""
     p = _write(tmp_path, _valid_rows())
     with pytest.raises(InlineValidationError, match="boundary_derivation_version"):
-        validate_boundary_contract(p, expected_derivation_version="9.9")
+        _validate(p, expected="9.9", provenance=BOUNDARY_DERIVATION_VERSION)
 
 
 # Invariants #1 (row count) and #2 (sort key) are enforced by the writer
@@ -1540,9 +1559,7 @@ def test_invariant_1_total_row_count(tmp_path: Path) -> None:
     bad = tbl.slice(0, 100)
     pq.write_table(bad, p)
     with pytest.raises(InlineValidationError, match="144"):
-        validate_boundary_contract(
-            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-        )
+        _validate(p)
 
 
 def test_invariant_2_sort_key(tmp_path: Path) -> None:
@@ -1554,9 +1571,7 @@ def test_invariant_2_sort_key(tmp_path: Path) -> None:
     bad = tbl.slice(0, tbl.num_rows).take(list(range(tbl.num_rows - 1, -1, -1)))
     pq.write_table(bad, p)
     with pytest.raises(InlineValidationError, match="sort key"):
-        validate_boundary_contract(
-            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-        )
+        _validate(p)
 
 
 def test_lever_3_collapse_passes_with_uniform_null(tmp_path: Path) -> None:
@@ -1564,11 +1579,7 @@ def test_lever_3_collapse_passes_with_uniform_null(tmp_path: Path) -> None:
     rows = _valid_rows()
     rows = [replace(r, boundary_class_enum=None) for r in rows]
     p = _write(tmp_path, rows)
-    validate_boundary_contract(
-        p,
-        expected_derivation_version=BOUNDARY_DERIVATION_VERSION,
-        lever_3_collapse=True,
-    )  # should not raise
+    _validate(p, lever_3_collapse=True)  # should not raise
 
 
 def test_lever_3_collapse_rejects_any_non_null(tmp_path: Path) -> None:
@@ -1578,11 +1589,7 @@ def test_lever_3_collapse_rejects_any_non_null(tmp_path: Path) -> None:
     rows[0] = replace(rows[0], boundary_class_enum=int(BoundaryClass.NONE))
     p = _write(tmp_path, rows)
     with pytest.raises(InlineValidationError, match="lever-3"):
-        validate_boundary_contract(
-            p,
-            expected_derivation_version=BOUNDARY_DERIVATION_VERSION,
-            lever_3_collapse=True,
-        )
+        _validate(p, lever_3_collapse=True)
 
 
 def test_invariant_9_slotkind_cross_enum_byte_equivalence() -> None:
@@ -1619,9 +1626,7 @@ def test_invariant_9_drift_simulation_raises(
     monkeypatch.setattr(sub_d_enums, "SlotKind", _DriftedSlotKind)
     p = _write(tmp_path, _valid_rows())
     with pytest.raises(InlineValidationError, match="SlotKind"):
-        validate_boundary_contract(
-            p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
-        )
+        _validate(p)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1707,20 +1712,32 @@ def validate_boundary_contract(
     path: Path,
     *,
     expected_derivation_version: str,
-    provenance_derivation_version: str | None = None,
+    provenance_derivation_version: str,
     lever_3_collapse: bool = False,
 ) -> None:
     """Validate one boundary_contract.parquet. Raises InlineValidationError.
 
-    If `provenance_derivation_version` is None, invariant #8 (provenance
-    version match) is checked against `expected_derivation_version` only;
-    the pipeline orchestrator (Task 10) passes the value loaded from the
-    sibling provenance.yaml.
+    Both `expected_derivation_version` (what the pipeline expects to see for
+    this run) and `provenance_derivation_version` (what was actually recorded
+    in the sibling provenance.yaml) are **required**. There is no on-disk
+    source for the actual value inside the parquet itself — Task 10's
+    pipeline orchestrator owns the responsibility of loading the actual
+    value from the sibling `provenance.yaml` and passing it here. This
+    keeps invariant #8 inline (per spec §10.1 categorisation) while pushing
+    the I/O responsibility to the caller.
 
     Under `lever_3_collapse=True`, invariants #3 (non-null iff active) and
     #4 (active class membership) are replaced by a single uniform-null check
     (every row's boundary_class_enum is null). Other invariants still apply,
     including #9 (cross-enum byte-equivalence — mode-independent).
+
+    Loop order: invariant #9 first (structural enum drift), then file-level
+    invariants #1 + #2 (count + sort), then per-row invariants in
+    **membership-before-semantic** order — #5/#6/#7 (structural enum/range
+    membership) before #3/#4 (semantic non-null relationship + active class
+    membership). Membership invariants are structurally prior; semantic
+    relationships rely on values being in-range first. Catching #5/#6/#7
+    early also yields more useful error messages on real-data violations.
     """
     # Invariant 9 (Task-6 carry-forward): structural enum drift is the
     # earliest possible failure mode; check before any file-level invariant.
@@ -1756,7 +1773,9 @@ def validate_boundary_contract(
             "rows not sorted by canonical sort key (slot_kind, slot_index)"
         )
 
-    # Invariants 3 & 4 — lever-3 collapses these into a single uniform-null check.
+    # Lever-3 mode collapses invariants #3 + #4 into a single uniform-null
+    # check across all rows. Run this before the per-row membership/semantic
+    # loop so a mode violation surfaces as a clear "lever-3" message.
     if lever_3_collapse:
         for i, cls in enumerate(boundary_classes):
             if cls is not None:
@@ -1765,29 +1784,13 @@ def validate_boundary_contract(
                     f"in every row (got {cls})"
                 )
 
-    # Invariants 3, 4, 5, 6, 7.
+    # Per-row invariants in membership-before-semantic order: structural
+    # validity (#5, #6, #7) before semantic relationships (#3, #4).
+    # Membership invariants are independent of derivation; semantic
+    # invariants assume the per-row values are already in valid ranges.
     for i, (sk, si, scope, cls, axis) in enumerate(
         zip(slot_kinds, slot_indices, scope_markers, boundary_classes, axes)
     ):
-        if not lever_3_collapse:
-            # 3: boundary_class_enum non-null iff scope_marker == 0.
-            is_active = scope == 0
-            if is_active and cls is None:
-                raise InlineValidationError(
-                    f"row {i}: boundary_class_enum non-null iff scope_marker == 0 "
-                    f"(scope=active, class=null)"
-                )
-            if (not is_active) and cls is not None:
-                raise InlineValidationError(
-                    f"row {i}: boundary_class_enum non-null iff scope_marker == 0 "
-                    f"(scope={scope}, class={cls})"
-                )
-            # 4: active class membership (sentinel 0 forbidden on-disk).
-            if is_active and cls not in _ACTIVE_CLASS_IDS:
-                raise InlineValidationError(
-                    f"row {i}: active class membership violated "
-                    f"(class={cls} not in {sorted(_ACTIVE_CLASS_IDS)})"
-                )
         # 5: scope_marker membership.
         if scope not in _SCOPE_MARKER_VALUES:
             raise InlineValidationError(
@@ -1808,16 +1811,31 @@ def validate_boundary_contract(
                 f"row {i}: axis membership violated (axis={axis})"
             )
 
+        if not lever_3_collapse:
+            # 3: boundary_class_enum non-null iff scope_marker == 0.
+            is_active = scope == 0
+            if is_active and cls is None:
+                raise InlineValidationError(
+                    f"row {i}: boundary_class_enum non-null iff scope_marker == 0 "
+                    f"(scope=active, class=null)"
+                )
+            if (not is_active) and cls is not None:
+                raise InlineValidationError(
+                    f"row {i}: boundary_class_enum non-null iff scope_marker == 0 "
+                    f"(scope={scope}, class={cls})"
+                )
+            # 4: active class membership (sentinel 0 forbidden on-disk).
+            if is_active and cls not in _ACTIVE_CLASS_IDS:
+                raise InlineValidationError(
+                    f"row {i}: active class membership violated "
+                    f"(class={cls} not in {sorted(_ACTIVE_CLASS_IDS)})"
+                )
+
     # Invariant 8: provenance derivation version matches expected.
-    actual = (
-        provenance_derivation_version
-        if provenance_derivation_version is not None
-        else expected_derivation_version
-    )
-    if actual != expected_derivation_version:
+    if provenance_derivation_version != expected_derivation_version:
         raise InlineValidationError(
             f"boundary_derivation_version mismatch: expected "
-            f"{expected_derivation_version}, got {actual}"
+            f"{expected_derivation_version}, got {provenance_derivation_version}"
         )
 ```
 
