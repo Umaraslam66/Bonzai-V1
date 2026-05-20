@@ -257,6 +257,20 @@ The default-bucket rule (everything-else → MINOR_ROAD) handles Overture rare
 values conservatively — it demotes uncertain crossings rather than promoting
 them under the hierarchy-wins tie-break (§5.2).
 
+**Matching is strict byte-equality.** No case folding, whitespace stripping,
+or Unicode normalisation is applied to `class_raw` before lookup. Sub-C stores
+raw Overture strings unchanged at `pipeline.py:847`; whitespace or case
+variants (e.g., `" primary "`, `"Primary"`) would indicate upstream data
+corruption, not legitimate values, and fall through to the `MINOR_ROAD`
+default bucket via the standard default-bucket rule. This convention is
+locked under `boundary_derivation_version 1.0`; changing it (e.g., adding
+`.casefold()` or `.strip()`) would require a derivation-version bump because
+the same sub-C input would produce different `boundary_class_enum` outputs.
+Strict matching is the choice that preserves cross-environment determinism
+(§14) — case folding under Python's `str.casefold` is locale-independent but
+some Unicode normalisations are not, and `.strip()` strips Unicode whitespace
+characters whose interpretation has varied across Python releases.
+
 Non-road crossings (water, rail) are ignored in v1. An edge with only water
 or rail crossings becomes `NONE`. This is the §15 #1 deferral source:
 post-reset, NONE will likely split into `NONE_INTERIOR` and

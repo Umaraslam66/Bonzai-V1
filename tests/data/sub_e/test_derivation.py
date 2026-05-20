@@ -66,3 +66,29 @@ def test_boundary_class_enum_values_match_vocab_ids() -> None:
     assert BoundaryClass.NONE.value == 1
     assert BoundaryClass.MAJOR_ROAD.value == 2
     assert BoundaryClass.MINOR_ROAD.value == 3
+
+
+def test_strict_matching_case_variant_falls_to_default_bucket() -> None:
+    """Case variants are not byte-equal to the lowercase Overture values
+    and must fall through to the MINOR_ROAD default bucket. Pins the
+    strict-equality convention locked under boundary_derivation_version 1.0
+    (spec §5.1).
+    """
+    assert derive_boundary_class(class_raws=["Primary"]) is BoundaryClass.MINOR_ROAD
+    assert derive_boundary_class(class_raws=["PRIMARY"]) is BoundaryClass.MINOR_ROAD
+
+
+def test_strict_matching_whitespace_variant_falls_to_default_bucket() -> None:
+    """Leading/trailing/internal whitespace prevents byte-equality lookup
+    and the value falls through to the MINOR_ROAD default bucket. Pins the
+    strict-equality convention locked under boundary_derivation_version 1.0
+    (spec §5.1).
+    """
+    assert derive_boundary_class(class_raws=[" primary"]) is BoundaryClass.MINOR_ROAD
+    assert derive_boundary_class(class_raws=["primary "]) is BoundaryClass.MINOR_ROAD
+    assert derive_boundary_class(class_raws=[" primary "]) is BoundaryClass.MINOR_ROAD
+
+
+def test_strict_matching_empty_string_falls_to_default_bucket() -> None:
+    """Empty string is not in the class_grouping_map and falls to default."""
+    assert derive_boundary_class(class_raws=[""]) is BoundaryClass.MINOR_ROAD

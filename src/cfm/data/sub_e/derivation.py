@@ -56,6 +56,15 @@ def derive_boundary_class(
 ) -> BoundaryClass:
     """Derive the BoundaryClass for one active internal edge.
 
+    Matching against the class_grouping_map is **strict byte-equality**: no
+    case folding, no whitespace stripping, no Unicode normalization. Sub-C
+    stores raw Overture transportation.class strings unchanged
+    (`pipeline.py:847`); case or whitespace variants (e.g., ``"Primary"``,
+    ``" primary "``) are not legitimate Overture values and fall through to
+    the MINOR_ROAD default bucket. This convention is locked under
+    boundary_derivation_version 1.0 — changing it requires a version bump
+    (see spec §5.1).
+
     Args:
         class_raws: list of raw Overture transportation.class strings for
             every road crossing on this edge. May be empty. Null/unknown
