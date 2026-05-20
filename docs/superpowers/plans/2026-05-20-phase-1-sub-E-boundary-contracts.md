@@ -3246,6 +3246,46 @@ def _build_synthetic_sub_d_and_sub_c(tmp_path: Path) -> Path:
     sub_d_tile_records: list[dict] = []
     sub_c_tile_records: list[dict] = []
 
+    # Enumerate the 8x8 grid via cell_to_edge_ids and collect unique internal
+    # + external (lower_cell_i, lower_cell_j, axis) triples. This mirrors
+    # what real sub-D produces because sub-D's lattice IS rotation's lattice
+    # (spec §4.1: sub-E inherits sub-D's lattice verbatim).
+    #
+    # Earlier draft generated triples via modulo arithmetic (idx % 8 etc.)
+    # which produced (a) duplicate keys within internals (e.g. idx=0 and
+    # idx=64 both yield (0, 0, 0)) and (b) externals outside rotation's
+    # set (axis=1 with lower_cell_i ∈ {1..6} which rotation never emits).
+    # Both defects would have broken Task 10's happy path before any
+    # validator ran. Pattern source: Task 9's _external_rows_via_rotation.
+    from cfm.data.sub_e.rotation import EdgeKind, cell_to_edge_ids
+
+    internal_set: set[tuple[int, int, int]] = set()
+    external_set: set[tuple[int, int, int]] = set()
+    for ci in range(8):
+        for cj in range(8):
+            cell_edges = cell_to_edge_ids(ci, cj)
+            for edge in (
+                cell_edges.north,
+                cell_edges.south,
+                cell_edges.west,
+                cell_edges.east,
+            ):
+                li, lj, axis, kind = edge
+                if kind is EdgeKind.INTERNAL:
+                    internal_set.add((li, lj, axis))
+                else:
+                    external_set.add((li, lj, axis))
+    internal_triples = sorted(internal_set)
+    external_triples = sorted(external_set)
+    assert len(internal_triples) == 112, (
+        f"rotation should produce 112 unique internal triples, "
+        f"got {len(internal_triples)}"
+    )
+    assert len(external_triples) == 32, (
+        f"rotation should produce 32 unique external triples, "
+        f"got {len(external_triples)}"
+    )
+
     for ti, tj in tiles:
         sub_d_tile = sub_d / f"tile=EPSG3414_i{ti}_j{tj}"
         sub_c_tile = sub_c / f"tile=EPSG3414_i{ti}_j{tj}"
@@ -3253,9 +3293,9 @@ def _build_synthetic_sub_d_and_sub_c(tmp_path: Path) -> Path:
         sub_c_tile.mkdir()
 
         # Synthetic sub-D macro_core: 64 cell rows + 112 internal edge rows +
-        # 32 external edge rows; all active for simplicity. Cell rows carry
-        # scope=0; internal-edge rows carry scope=0 (active); external-edge
-        # rows carry scope=3 (external_deferred). Total: 64+112+32 = 208 rows.
+        # 32 external edge rows. Cell rows carry scope=0; internal-edge rows
+        # carry scope=0 (active); external-edge rows carry scope=3
+        # (external_deferred). Total: 64+112+32 = 208 rows.
         slot_kinds, slot_indices = [], []
         cell_is, cell_js = [], []
         lower_is, lower_js, axes, scopes = [], [], [], []
@@ -3272,27 +3312,27 @@ def _build_synthetic_sub_d_and_sub_c(tmp_path: Path) -> Path:
             zoning.append(0)
             density.append(1)
             road.append(None)
-        for idx in range(112):
+        for idx, (li, lj, axis) in enumerate(internal_triples):
             slot_kinds.append(1)  # internal_edge
             slot_indices.append(idx)
             cell_is.append(None)
             cell_js.append(None)
-            lower_is.append(idx % 8)
-            lower_js.append(idx // 8 % 8)
-            axes.append(idx % 2)
-            scopes.append(0)
+            lower_is.append(li)
+            lower_js.append(lj)
+            axes.append(axis)
+            scopes.append(0)  # active
             zoning.append(None)
             density.append(None)
             road.append(0)
-        for idx in range(32):
+        for idx, (li, lj, axis) in enumerate(external_triples):
             slot_kinds.append(2)  # external_edge
             slot_indices.append(idx)
             cell_is.append(None)
             cell_js.append(None)
-            lower_is.append(idx % 8)
-            lower_js.append(idx // 8 % 4)
-            axes.append(idx % 2)
-            scopes.append(3)
+            lower_is.append(li)
+            lower_js.append(lj)
+            axes.append(axis)
+            scopes.append(3)  # external_deferred
             zoning.append(None)
             density.append(None)
             road.append(None)
@@ -3685,9 +3725,13 @@ def _derive_tile_rows(
         slot_kind_int, slot_idx = edge_slot_index[key]
         is_active_internal = scope == 0 and slot_kind_int == 1
         if is_active_internal and not lever_3_collapse:
-            class_raws = [
-                cr for cr in crossings_by_edge.get(key, []) if cr is not None or True
-            ]
+            # Pass all crossings (including None entries) through to
+            # derive_boundary_class. Per spec §5.1 + derivation.py:84-85,
+            # None entries map to the MINOR_ROAD default bucket; filtering
+            # them out would change semantics. Earlier draft had
+            # `if cr is not None or True` which short-circuited to always
+            # True — dead code that obscured intent.
+            class_raws = list(crossings_by_edge.get(key, []))
             bc = int(derive_boundary_class(class_raws))
         else:
             bc = None
