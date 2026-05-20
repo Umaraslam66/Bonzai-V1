@@ -3695,17 +3695,30 @@ def _derive_tile_rows(
     features,
     lever_3_collapse: bool,
 ) -> list[BoundaryContractRow]:
-    """Construct the 144-row per-tile boundary contract from sub-D + sub-C."""
-    # Index sub-D macro_core by (slot_kind, slot_index) and by edge_id where
-    # applicable; index sub-C crossings by edge_id; index features by id.
-    edge_scope: dict[tuple[int, int, int], int] = {}
-    edge_slot_index: dict[tuple[int, int, int], tuple[int, int]] = {}
+    """Construct the 144-row per-tile boundary contract from sub-D + sub-C.
+
+    Edge rows are keyed by ``(slot_kind, lower_cell_i, lower_cell_j, axis)``
+    rather than the 3-tuple ``(li, lj, axis)`` because rotation's per-cell
+    enumeration can produce identical ``(li, lj, axis)`` triples for the
+    internal and external versions of distinct physical edges (e.g. cell
+    (3, 0)'s north and cell (3, 1)'s north both encode as ``(3, 0, 0)``
+    under the ``lower_lj = cj if cj == 0 else cj - 1`` convention in
+    rotation.py:50-52). ``slot_kind`` disambiguates; without it the dict
+    collapses 16 internal-external pairs and the writer rejects the row
+    count (`expected 144, got 128`).
+
+    Sub-C crossings, conversely, are keyed by the 3-tuple — they apply
+    only to active internal edges (external rows are scope=3 and skipped),
+    so there is no slot_kind ambiguity at the crossing-lookup site.
+    """
+    edge_scope: dict[tuple[int, int, int, int], int] = {}
+    edge_slot_index: dict[tuple[int, int, int, int], tuple[int, int]] = {}
     for r in macro_core:
         if r.slot_kind in (1, 2):  # internal or external edge
             assert r.lower_cell_i is not None
             assert r.lower_cell_j is not None
             assert r.axis is not None
-            key = (r.lower_cell_i, r.lower_cell_j, r.axis)
+            key = (r.slot_kind, r.lower_cell_i, r.lower_cell_j, r.axis)
             edge_scope[key] = r.scope
             edge_slot_index[key] = (r.slot_kind, r.slot_index)
 
@@ -3721,8 +3734,8 @@ def _derive_tile_rows(
 
     rows: list[BoundaryContractRow] = []
     for key, scope in edge_scope.items():
-        i, j, axis = key
-        slot_kind_int, slot_idx = edge_slot_index[key]
+        slot_kind_int, i, j, axis = key
+        _, slot_idx = edge_slot_index[key]
         is_active_internal = scope == 0 and slot_kind_int == 1
         if is_active_internal and not lever_3_collapse:
             # Pass all crossings (including None entries) through to
@@ -3731,7 +3744,7 @@ def _derive_tile_rows(
             # them out would change semantics. Earlier draft had
             # `if cr is not None or True` which short-circuited to always
             # True — dead code that obscured intent.
-            class_raws = list(crossings_by_edge.get(key, []))
+            class_raws = list(crossings_by_edge.get((i, j, axis), []))
             bc = int(derive_boundary_class(class_raws))
         else:
             bc = None
