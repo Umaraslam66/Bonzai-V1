@@ -1299,7 +1299,9 @@ git commit -m "feat(sub_e): add boundary contract parquet writer"
 - Create: `src/cfm/data/sub_e/validator_inline.py`
 - Test: `tests/data/sub_e/test_validator_inline.py`
 
-**Context:** Spec §10.1. Eight invariants over a single `boundary_contract.parquet`. Each invariant has a controlled-violation fixture in the test suite.
+**Context:** Spec §10.1. Eight invariants over a single `boundary_contract.parquet`. Each invariant has a controlled-violation fixture in the test suite. **All fixtures synthesised in-process via `BoundaryContractRow` + the Task 6 writer; this task does not read `data/processed/sub_c/` or `data/processed/sub_d/`.**
+
+Under lever-3 collapse (spec §12), invariants #3 and #4 are replaced by a single uniform-null check (every row's `boundary_class_enum` is null). The validator accepts a `lever_3_collapse: bool` kwarg to switch modes; Task 10's pipeline forwards `cfg.lever_3_collapse`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1462,6 +1464,32 @@ def test_invariant_2_sort_key(tmp_path: Path) -> None:
         validate_boundary_contract(
             p, expected_derivation_version=BOUNDARY_DERIVATION_VERSION
         )
+
+
+def test_lever_3_collapse_passes_with_uniform_null(tmp_path: Path) -> None:
+    """Under lever-3, all boundary_class_enum values null even on active rows."""
+    rows = _valid_rows()
+    rows = [replace(r, boundary_class_enum=None) for r in rows]
+    p = _write(tmp_path, rows)
+    validate_boundary_contract(
+        p,
+        expected_derivation_version=BOUNDARY_DERIVATION_VERSION,
+        lever_3_collapse=True,
+    )  # should not raise
+
+
+def test_lever_3_collapse_rejects_any_non_null(tmp_path: Path) -> None:
+    """Under lever-3, even a single non-null boundary_class_enum is a violation."""
+    rows = _valid_rows()
+    rows = [replace(r, boundary_class_enum=None) for r in rows]
+    rows[0] = replace(rows[0], boundary_class_enum=int(BoundaryClass.NONE))
+    p = _write(tmp_path, rows)
+    with pytest.raises(InlineValidationError, match="lever-3"):
+        validate_boundary_contract(
+            p,
+            expected_derivation_version=BOUNDARY_DERIVATION_VERSION,
+            lever_3_collapse=True,
+        )
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1515,6 +1543,7 @@ def validate_boundary_contract(
     *,
     expected_derivation_version: str,
     provenance_derivation_version: str | None = None,
+    lever_3_collapse: bool = False,
 ) -> None:
     """Validate one boundary_contract.parquet. Raises InlineValidationError.
 
@@ -1522,6 +1551,10 @@ def validate_boundary_contract(
     version match) is checked against `expected_derivation_version` only;
     the pipeline orchestrator (Task 10) passes the value loaded from the
     sibling provenance.yaml.
+
+    Under `lever_3_collapse=True`, invariants #3 (non-null iff active) and
+    #4 (active class membership) are replaced by a single uniform-null check
+    (every row's boundary_class_enum is null). Other invariants still apply.
     """
     tbl = pq.ParquetFile(path).read()
     slot_kinds = tbl.column("slot_kind").to_pylist()
@@ -1553,28 +1586,38 @@ def validate_boundary_contract(
             "rows not sorted by canonical sort key (slot_kind, slot_index)"
         )
 
+    # Invariants 3 & 4 — lever-3 collapses these into a single uniform-null check.
+    if lever_3_collapse:
+        for i, cls in enumerate(boundary_classes):
+            if cls is not None:
+                raise InlineValidationError(
+                    f"row {i}: lever-3 mode requires boundary_class_enum is null "
+                    f"in every row (got {cls})"
+                )
+
     # Invariants 3, 4, 5, 6, 7.
     for i, (sk, si, scope, cls, axis) in enumerate(
         zip(slot_kinds, slot_indices, scope_markers, boundary_classes, axes)
     ):
-        # 3: boundary_class_enum non-null iff scope_marker == 0.
-        is_active = scope == 0
-        if is_active and cls is None:
-            raise InlineValidationError(
-                f"row {i}: boundary_class_enum non-null iff scope_marker == 0 "
-                f"(scope=active, class=null)"
-            )
-        if (not is_active) and cls is not None:
-            raise InlineValidationError(
-                f"row {i}: boundary_class_enum non-null iff scope_marker == 0 "
-                f"(scope={scope}, class={cls})"
-            )
-        # 4: active class membership (sentinel 0 forbidden on-disk).
-        if is_active and cls not in _ACTIVE_CLASS_IDS:
-            raise InlineValidationError(
-                f"row {i}: active class membership violated "
-                f"(class={cls} not in {sorted(_ACTIVE_CLASS_IDS)})"
-            )
+        if not lever_3_collapse:
+            # 3: boundary_class_enum non-null iff scope_marker == 0.
+            is_active = scope == 0
+            if is_active and cls is None:
+                raise InlineValidationError(
+                    f"row {i}: boundary_class_enum non-null iff scope_marker == 0 "
+                    f"(scope=active, class=null)"
+                )
+            if (not is_active) and cls is not None:
+                raise InlineValidationError(
+                    f"row {i}: boundary_class_enum non-null iff scope_marker == 0 "
+                    f"(scope={scope}, class={cls})"
+                )
+            # 4: active class membership (sentinel 0 forbidden on-disk).
+            if is_active and cls not in _ACTIVE_CLASS_IDS:
+                raise InlineValidationError(
+                    f"row {i}: active class membership violated "
+                    f"(class={cls} not in {sorted(_ACTIVE_CLASS_IDS)})"
+                )
         # 5: scope_marker membership.
         if scope not in _SCOPE_MARKER_VALUES:
             raise InlineValidationError(
@@ -2004,7 +2047,7 @@ git commit -m "feat(sub_e): add manifest and provenance writers"
 - Create: `src/cfm/data/sub_e/validator_cross_tile.py`
 - Test: `tests/data/sub_e/test_validator_cross_tile.py`
 
-**Context:** Spec §10.2. Five region-level invariants including the digest chain. Each invariant has a controlled-violation fixture.
+**Context:** Spec §10.2. Five region-level invariants including the digest chain. Each invariant has a controlled-violation fixture. **All fixtures synthesised in-process via the Task 6 writer + Task 8 manifest/provenance writers under `tmp_path`; this task does not read `data/processed/sub_c/` or `data/processed/sub_d/`.**
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2749,12 +2792,17 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _validate_or_raise(parquet_path: Path, derivation_version: str) -> None:
+def _validate_or_raise(
+    parquet_path: Path,
+    derivation_version: str,
+    lever_3_collapse: bool,
+) -> None:
     """Indirect call so tests can monkey-patch to simulate failure."""
     validate_boundary_contract(
         parquet_path,
         expected_derivation_version=derivation_version,
         provenance_derivation_version=derivation_version,
+        lever_3_collapse=lever_3_collapse,
     )
 
 
@@ -2813,7 +2861,9 @@ def derive_region(cfg: PipelineConfig) -> None:
 
         # Halt-on-validator-fail: inline validator runs before provenance is
         # written so a failure cannot leave a stale provenance behind.
-        _validate_or_raise(parquet_path, BOUNDARY_DERIVATION_VERSION)
+        _validate_or_raise(
+            parquet_path, BOUNDARY_DERIVATION_VERSION, cfg.lever_3_collapse
+        )
 
         parquet_sha = _file_sha256(parquet_path)
         provenance = SubEProvenance(

@@ -770,8 +770,11 @@ Layer 1 / 2 / 3 tests have a parameterised lever-3-collapse variant:
 
 - **Layer 1:** tests 2 and 3 (class precedence + class-grouping map) skipped
   as vacuous; tests 1, 4, 5, 6, 7 still apply.
-- **Layer 2:** invariant #4 (active class membership in
-  `{NONE, MAJOR_ROAD, MINOR_ROAD}`) becomes vacuous; all others still apply.
+- **Layer 2:** invariants #3 (non-null iff active) and #4 (active class
+  membership in `{NONE, MAJOR_ROAD, MINOR_ROAD}`) are replaced by a single
+  uniform-null check (every row's `boundary_class_enum` is `null`); other
+  invariants still apply. The inline validator takes a `lever_3_collapse:
+  bool` kwarg to switch between modes.
 - **Layer 3:** test 1 (empirical gate) skipped as vacuous; tests 2, 3, 4 still
   apply.
 
