@@ -2390,7 +2390,7 @@ def manifest_sha256(data: dict) -> str:
 uv run pytest tests/data/sub_e/test_provenance.py tests/data/sub_e/test_manifest.py -v
 ```
 
-Expected: 12 passed total — 5 provenance (2 original + 3 sha-exclusion: extracted_utc, *_sha256, semantic-sensitivity inverse) + 7 manifest (4 original + 3 sha-exclusion: started/completed_utc, *_sha256, semantic-sensitivity inverse).
+Expected: 11 passed total — 5 provenance (2 original + 3 sha-exclusion: extracted_utc, *_sha256, semantic-sensitivity inverse) + 6 manifest (3 original — writes_with_all_fields, tiles_sorted, is_byte_deterministic_on_rerun — + 3 sha-exclusion: started/completed_utc, *_sha256, semantic-sensitivity inverse).
 
 - [ ] **Step 6: Run full fast suite**
 
