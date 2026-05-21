@@ -1,0 +1,33 @@
+# configs/macro_plan/v1/boundary_vocab.yaml
+boundary_vocab_schema_version: "1.0"
+boundary_vocab_version: "1.0"
+boundary_derivation_version: "1.0"
+phase: 1
+
+generated_from:
+  overture_release: "2026-04-15.0"
+  regions: ["singapore"]
+
+scope_vocab_inherited_from:
+  artifact: "configs/macro_plan/v1/macro_plan_vocab.yaml"
+  artifact_sha256: "0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd"
+  block: "scope.tokens"
+
+tokens:
+  - {id: 0, name: BOUNDARY_NOT_APPLICABLE}
+  - {id: 1, name: NONE}
+  - {id: 2, name: MAJOR_ROAD}
+  - {id: 3, name: MINOR_ROAD}
+
+append_only_within_phase: true
+
+class_grouping_map:
+  MAJOR_ROAD: ["primary", "trunk", "secondary"]
+  MINOR_ROAD:
+    - "tertiary"
+    - "residential"
+    - "service"
+    - "unclassified"
+    - "footway"
+    - "steps"
+    - "cycleway"
