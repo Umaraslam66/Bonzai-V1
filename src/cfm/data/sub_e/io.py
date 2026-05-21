@@ -25,7 +25,16 @@ class SubCCrossingRow:
 @dataclass(frozen=True)
 class SubCFeatureRow:
     source_feature_id: str
-    feature_class: str
+    # int8 enum per sub-C contract (cfm.data.sub_c.io.py:178 +
+    # sub_c/enums.py:22 FEATURE_CLASS: {0: "road", 1: "building", 2: "poi",
+    # 3: "base"}). Earlier draft typed this as `str` and the pipeline
+    # filtered `feature_class == "road"` which silently never matched real
+    # int8 data — feature filter became a no-op, every active edge with
+    # crossings classified as MINOR_ROAD via default bucket, MAJOR_ROAD
+    # never appeared. Caught by Task 14's writer-regression-guard test.
+    # See memory feedback_external_source_of_truth_gate.md for the
+    # sixth-gate discipline this trap mandated.
+    feature_class: int
     class_raw: str | None
 
 

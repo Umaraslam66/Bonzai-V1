@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from cfm.data.sub_c.enums import FEATURE_CLASS, encode_enum
 from cfm.data.sub_e.derivation import derive_boundary_class
 from cfm.data.sub_e.io import (
     SubCCrossingRow,
@@ -293,8 +294,16 @@ def _derive_tile_rows(
             edge_scope[key] = r.scope
             edge_slot_index[key] = (r.slot_kind, r.slot_index)
 
+    # Filter features down to road geometries. feature_class is int8 per sub-C
+    # contract (FEATURE_CLASS: {0: "road", 1: "building", 2: "poi", 3: "base"}
+    # at sub_c/enums.py:22). Earlier draft compared against the string "road"
+    # which silently never matched and made the filter a no-op — see
+    # SubCFeatureRow docstring at sub_e/io.py for the postmortem. Comparing
+    # symbolically via encode_enum(FEATURE_CLASS, "road") rather than the
+    # magic number 0 ties this site directly to sub-C's enum source.
+    _road_class_code = encode_enum(FEATURE_CLASS, "road")
     features_by_id: dict[str, str | None] = {
-        f.source_feature_id: f.class_raw for f in features if f.feature_class == "road"
+        f.source_feature_id: f.class_raw for f in features if f.feature_class == _road_class_code
     }
     crossings_by_edge: dict[tuple[int, int, int], list[str | None]] = {}
     for c in crossings:

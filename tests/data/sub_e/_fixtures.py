@@ -146,10 +146,17 @@ def _build_synthetic_sub_d_and_sub_c(tmp_path: Path) -> Path:
         )
         pq.write_table(crossings_table, sub_c_tile / "crossings.parquet")
 
+        # feature_class is int8 per sub-C contract (sub_c/io.py:44 +
+        # sub_c/enums.py:22 FEATURE_CLASS: {0: "road", 1: "building", ...}).
+        # Encode "road" via sub-C's encode_enum rather than the magic
+        # number 0 — same discipline as the pipeline's call site.
+        from cfm.data.sub_c.enums import FEATURE_CLASS, encode_enum
+
+        road_code = encode_enum(FEATURE_CLASS, "road")
         features_table = pa.table(
             {
                 "source_feature_id": pa.array(["F-primary"], type=pa.string()),
-                "feature_class": pa.array(["road"], type=pa.string()),
+                "feature_class": pa.array([road_code], type=pa.int8()),
                 "class_raw": pa.array(["primary"], type=pa.string()),
             }
         )

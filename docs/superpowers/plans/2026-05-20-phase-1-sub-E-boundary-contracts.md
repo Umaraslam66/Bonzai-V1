@@ -894,10 +894,15 @@ def _write_synthetic_crossings(path: Path) -> None:
 
 
 def _write_synthetic_features(path: Path) -> None:
+    # feature_class is int8 per sub-C contract; encode "road" via sub-C's
+    # encode_enum rather than the string "road" or magic number 0.
+    from cfm.data.sub_c.enums import FEATURE_CLASS, encode_enum
+
+    road_code = encode_enum(FEATURE_CLASS, "road")
     table = pa.table(
         {
             "source_feature_id": pa.array(["F1", "F2"], type=pa.string()),
-            "feature_class": pa.array(["road", "road"], type=pa.string()),
+            "feature_class": pa.array([road_code, road_code], type=pa.int8()),
             "class_raw": pa.array(["primary", "residential"], type=pa.string()),
         }
     )
@@ -1008,8 +1013,13 @@ class SubCCrossingRow:
 
 @dataclass(frozen=True)
 class SubCFeatureRow:
+    # NOTE (post-Task-14 fix, see feedback_external_source_of_truth_gate.md):
+    # feature_class is int8 per sub-C contract — NOT str. The original plan
+    # typed it as str and the pipeline filtered against "road"; against real
+    # int8 sub-C data this was a silent no-op that made MAJOR_ROAD never
+    # appear in any tile's output. Caught by Task 14 writer-regression-guard.
     source_feature_id: str
-    feature_class: str
+    feature_class: int
     class_raw: str | None
 
 
@@ -3387,10 +3397,13 @@ def _build_synthetic_sub_d_and_sub_c(tmp_path: Path) -> Path:
         )
         pq.write_table(crossings_table, sub_c_tile / "crossings.parquet")
 
+        from cfm.data.sub_c.enums import FEATURE_CLASS, encode_enum
+
+        road_code = encode_enum(FEATURE_CLASS, "road")
         features_table = pa.table(
             {
                 "source_feature_id": pa.array(["F-primary"], type=pa.string()),
-                "feature_class": pa.array(["road"], type=pa.string()),
+                "feature_class": pa.array([road_code], type=pa.int8()),
                 "class_raw": pa.array(["primary"], type=pa.string()),
             }
         )
@@ -3746,7 +3759,7 @@ def _derive_tile_rows(
             edge_slot_index[key] = (r.slot_kind, r.slot_index)
 
     features_by_id: dict[str, str | None] = {
-        f.source_feature_id: f.class_raw for f in features if f.feature_class == "road"
+        f.source_feature_id: f.class_raw for f in features if f.feature_class == encode_enum(FEATURE_CLASS, "road")
     }
     crossings_by_edge: dict[tuple[int, int, int], list[str | None]] = {}
     for c in crossings:
