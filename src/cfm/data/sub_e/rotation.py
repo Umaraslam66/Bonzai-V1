@@ -1,6 +1,6 @@
 """Per-cell to per-edge rotation for sub-E.
 
-For each cell ``(cell_i, cell_j) ∈ [0, 8) × [0, 8)`` the four cell faces
+For each cell ``(cell_i, cell_j) in [0, 8) x [0, 8)`` the four cell faces
 N/E/S/W map to canonical ``edge_id = (lower_cell_i, lower_cell_j, axis)``
 tuples following sub-C's AXIS enum (0=x, 1=y). External slots (at tile
 boundary) are tagged with ``EdgeKind.EXTERNAL``; sub-E writes one row per
@@ -24,7 +24,7 @@ is off-grid (east boundary). Same for ``lower_cell_j`` on the y axis.
 an earlier draft of this function had the axes swapped (north/south using
 AXIS_X=0 instead of AXIS_Y=1, west/east using AXIS_Y=1 instead of AXIS_X=0)
 AND used an in-grid pinning convention (lower_i = 0 for west, lower_i = 7
-for east). Every synthetic sub-E fixture from Tasks 6–13 consulted this
+for east). Every synthetic sub-E fixture from Tasks 6-13 consulted this
 function to build expected values, so the validator and the fixture agreed
 self-consistently and 18+ verify-before-asserting catches missed the
 defect. First contact with real cached sub-D Singapore output (Task 14)

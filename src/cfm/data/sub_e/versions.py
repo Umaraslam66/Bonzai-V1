@@ -16,7 +16,6 @@ from typing import Final
 
 from cfm.data.sub_d.versions import VersionNamespace
 
-
 # Schema version: governs on-disk parquet schema + YAML structure.
 SUB_E_SCHEMA_VERSION: Final[str] = "1.0"
 SUB_E_SCHEMA_NAMESPACE: Final[VersionNamespace] = VersionNamespace.DATA_SHAPE
