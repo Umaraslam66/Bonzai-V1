@@ -1,0 +1,7 @@
+boundary_derivation_version: '1.0'
+boundary_vocab_version: '1.0'
+fractions:
+  MAJOR_ROAD: 0.193582
+  MINOR_ROAD: 0.645963
+  NONE: 0.160455
+total_active_edges: 966
