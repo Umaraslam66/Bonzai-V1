@@ -504,14 +504,22 @@ Default for (c) is (b)'s treatment, NOT (a)'s. Decision lands at Halt 5 per `fee
 
 Four-axis version manifest, bump rules per axis, `compare_version` extension at sub-D, on-disk embedding in `provenance.yaml` + parquet metadata + region manifest's `vocab_sources` block, migration semantics.
 
-### 6.1 Four-axis manifest
+### 6.1 Six-axis manifest
+
+> **Plan-write audit revision (2026-05-23 cascade):** original spec assumed sub-D had 3 namespaces (DATA_SHAPE / VOCAB / DERIVATION) and sub-F would extend to 4 by adding SOURCE. Pre-dispatch audit at plan-write time read `src/cfm/data/sub_d/versions.py` directly and surfaced that sub-D's `VersionNamespace` enum has 5 members (`ARTIFACT_FORMAT, DATA_SHAPE, VOCAB, DERIVATION, VALIDATOR`). Per §9.6.1 cascade (sub-D wins; lock value updates; revision ledger entry mandatory): sub-F adopts all 5 sub-D namespaces + adds SOURCE = **6 axes total**. See §13.1 for ledger entry; §13.3 for plan-write spec-revision context.
 
 | Axis | Constant in `src/cfm/data/sub_f/versions.py` | v1 value | Governs |
 |---|---|---|---|
+| ARTIFACT_FORMAT | `SUB_F_ARTIFACT_FORMAT_VERSION` | `"1.0"` | on-disk format identifier (parquet writer kwargs, list<int16> serialization, GeoJSON canonical formatter options); separate evolution from DATA_SHAPE so format-only changes (e.g., parquet compression algorithm) don't trigger schema bump |
 | DATA_SHAPE | `SUB_F_SCHEMA_VERSION` | `"1.0"` | parquet schema (cell-row layout, column types) + YAML structure (provenance, manifest, vocab files) |
 | VOCAB | `SUB_F_VOCAB_VERSION` | `"1.0"` | union of (BP1 semantic + BP2 encoding-primitive + BP4 `<unknown_*>` family + on-disk sentinels + BP7 boundary-refs) |
 | DERIVATION | `SUB_F_DERIVATION_VERSION` | `"1.0"` | encoder logic — direction count, magnitude quantum, anchor scheme, vertex canonicalization (if BP5-added), round-trip behavior, multi-class collapse rule |
+| VALIDATOR | `SUB_F_VALIDATOR_VERSION` | `"1.0"` | sub-F's inline + cross-tile validator code version; v1 ships single shared constant (option a at Task 6 halt). Split into VALIDATOR_INLINE + VALIDATOR_CROSS_TILE deferred to sub-F-v2 if validators evolve independently |
 | SOURCE | `SUB_F_SOURCE_VERSION` | read at build time from `configs/data/overture_release.yaml` | upstream sub-A pinning (e.g., `"2026-04-15.0"`) |
+
+**ARTIFACT_FORMAT vs DATA_SHAPE distinction.** DATA_SHAPE governs WHAT data is stored (column names, types, semantics). ARTIFACT_FORMAT governs HOW it's encoded on disk (parquet kwargs, byte-order, compression, YAML canonicalization options). Format-only changes (e.g., adding zstd compression to PARQUET_WRITE_KWARGS) bump ARTIFACT_FORMAT without DATA_SHAPE; schema changes (e.g., adding a column) bump DATA_SHAPE without ARTIFACT_FORMAT.
+
+**VALIDATOR scope.** v1 ships single shared constant covering both validators (`validator_inline.py` + `validator_cross_tile.py`). At Task 6 halt, reviewer locks (a) shared or (b) split into VALIDATOR_INLINE + VALIDATOR_CROSS_TILE (7 axes total). Default recommendation: (a) shared — simpler; deferral to sub-F-v2 if empirical evidence shows validators evolve at different rates.
 
 **SOURCE source-of-truth** (BP6 fix 2): read at build time from `configs/data/overture_release.yaml`. Sub-F does NOT duplicate the constant. Single source of truth; sub-A re-pinning cannot silently invalidate sub-F vocab.
 
@@ -523,9 +531,11 @@ Lock: **`"X.Y"` two-component form** (matches sub-D / E precedent at handoff lin
 
 | Axis | Major bump (`X.0 → Y.0`) | Minor bump (`1.0 → 1.1`) |
 |---|---|---|
+| ARTIFACT_FORMAT | parquet kwargs incompatible change (e.g., compression algorithm change); WKB byte-order change; canonical-GeoJSON formatter option change | compression-level tuning (backward-readable); pyarrow-version metadata update |
 | DATA_SHAPE | column rename / remove; column type change | column add (nullable) |
 | VOCAB | slot reorder; slot remove; BP1 granularity-level change (L1↔L2↔L3); `<unknown_*>` family axis change | slot append (per `feedback_append_only_vocab_safety`) |
 | DERIVATION | direction count change; magnitude quantum change; anchor scheme change; vertex canonicalization change | new feature-type support (existing-type tokens unchanged) |
+| VALIDATOR | invariant added or removed; structural check semantics change | refactor without invariant change (e.g., split helper function) |
 | SOURCE | any sub-A re-pinning (Overture extract change) | (no minor; sub-A pinning is opaque to sub-F) |
 
 ### 6.4 `compare_version` extension
@@ -555,9 +565,11 @@ Three branches per `feedback_ambiguous_third_branch_in_verification`: if `releas
 **Per-tile `provenance.yaml`** (per `feedback_provenance_scope_placement` — only tile-specific fields):
 
 ```yaml
+sub_f_artifact_format_version: "1.0"
 sub_f_schema_version: "1.0"
 sub_f_vocab_version: "1.0"
 sub_f_derivation_version: "1.0"
+sub_f_validator_version: "1.0"
 sub_f_source_version: "2026-04-15.0"
 
 extracted_utc: "2026-05-23T14:30:00Z"        # excluded from provenance_sha256 per SUB_F_EXCLUDED_FROM_SHA
@@ -567,9 +579,11 @@ provenance_sha256: "<64-hex>"                 # over all fields except extracted
 **Region manifest** (`<region>/manifest.yaml`) carries the shared `vocab_sources` block per `feedback_provenance_scope_placement` (release-level shared metadata, not per-tile):
 
 ```yaml
+sub_f_artifact_format_version: "1.0"
 sub_f_schema_version: "1.0"
 sub_f_vocab_version: "1.0"
 sub_f_derivation_version: "1.0"
+sub_f_validator_version: "1.0"
 sub_f_source_version: "2026-04-15.0"
 
 vocab_sources:
@@ -602,10 +616,10 @@ Mirrors sub-E §15 #1 pattern:
 
 Four-part check per BP6 §2 decomposition:
 
-1. **Field presence:** all four axes appear in every artifact (parquet metadata + provenance.yaml + region manifest). Plus `vocab_sources` block in region manifest.
+1. **Field presence:** all SIX axes appear in every artifact (parquet metadata + provenance.yaml + region manifest). Plus `vocab_sources` block in region manifest.
 2. **Field correctness:** test imports `SUB_F_*_VERSION` constants directly + asserts they appear verbatim in latest artifact. NO bump-and-revert dance (which would require source mutation in tests).
-3. **Cross-axis coupling sanity:** SOURCE-only bump (sub-A re-pinning, sub-F code unchanged) produces correctly-updated SOURCE while DERIVATION stays at v1.0. DERIVATION-only bump (encoder logic change, sub-A unchanged) produces correctly-updated DERIVATION while SOURCE stays. Both tested.
-4. **Parse correctness:** all four axes parse correctly via the (Task-6-extended) `compare_version` across the SemVer canonical form.
+3. **Cross-axis coupling sanity:** SOURCE-only bump (sub-A re-pinning, sub-F code unchanged) produces correctly-updated SOURCE while DERIVATION stays at v1.0. DERIVATION-only bump (encoder logic change, sub-A unchanged) produces correctly-updated DERIVATION while SOURCE stays. Both tested. Test extends to ARTIFACT_FORMAT and VALIDATOR axes (each independently bumpable).
+4. **Parse correctness:** all SIX axes parse correctly via `compare_version` (sub-D's existing helper, backward-compatible enum extension per Plan Revision 1) across the SemVer canonical form.
 
 ### 6.9 §3 citations
 
@@ -1119,8 +1133,10 @@ Decisions where a later bite-point's lock modified an earlier bite-point's text.
 | BP6 → BP1: snapshot IDs explicitly tracked in provenance | BP6 fix 4 required taginfo + wiki revision IDs as auditable provenance, not just config-level pinning | `vocab_sources` block added to region manifest (NOT per-tile per §6 fix 2 + `feedback_provenance_scope_placement`) | §2.1, §6.6 |
 | BP7 → BP2: round-trip structural check expanded from 3 to 4 cases | BP7 fix 2 recognized boundary-crossing position loss needs its own §2-paired check with larger L_∞ tolerance | BP2 round-trip test now requires ALL of {polygon, polyline, right-angle building, road crossing cell boundary}; tolerance for case 4 locked at Halt 2 | §3.8, §8.1 BP2 row |
 | BP7 → BP3: stage-4 cross-cell overhead formula corrected | BP7 fix 1 lock made inbound `<bref>` prepended (+1) and outbound `<bref>` replaces-tail (net 0); asymmetric | Stage-4 estimate dropped from 1.4 tokens / cell to 0.7 tokens / cell | §7.2 |
+| **Plan-write → BP6:** sub-D has 5 namespaces, not 3; manifest expands 4 → 6 axes | Pre-dispatch audit at plan-write read `src/cfm/data/sub_d/versions.py` directly and surfaced `VersionNamespace` enum has `ARTIFACT_FORMAT, DATA_SHAPE, VOCAB, DERIVATION, VALIDATOR`. Brainstorm Gate 6 cited sub-E handoff lines 57-69 as authority for sub-D's state instead of reading sub-D source. §9.6.1 cascade outcome: sub-F adopts all 5 sub-D namespaces + SOURCE = 6 axes. | §6.1, §6.3, §6.6, §6.8 updated to six-axis. Plan Revisions 1+2 in plan document the audit-time cascade. | §6 entire section + §13.3 |
+| **Plan-write → BP6:** `compare_version` mechanism is enum-add, not kwarg-add | Pre-dispatch audit found sub-D uses `(VersionNamespace, VersionRef, VersionRef)` signature, not kwarg shape. Extension is trivial enum-add (Python enum semantics: adding a member is backward-compatible). §6.4 fallback chain (a/c/b) becomes moot. | §6.4 fallback chain superseded by enum-add mechanism. | §6.4 + plan §6 step 1 |
 
-Five cross-bite-point revisions; all surfaced after the second bite-point's lock revealed first bite-point's blind spot. Topic-by-topic gating discipline (per `feedback_brainstorm_gate_discipline`) is the mechanism that surfaced these — batching would have missed at least three.
+Seven cross-bite-point revisions; five surfaced during brainstorm topic-by-topic gating, two more surfaced at plan-write pre-dispatch audit. The two plan-write revisions are defense-in-depth evidence: brainstorm Gate 6 + plan-write audit = redundant coverage on upstream-contract verification. See §13.5 protocol-bump candidate aggregation.
 
 ### 13.2 Plan-write refinements
 
@@ -1153,6 +1169,7 @@ Revisions made during §1–§12 reviewer iteration. These shaped the spec but d
 - **§10:** Halt 4 Task 3a/3b/3c sequencing note; Halts 5/6 sub-D edit-conflict serialization; halt cost telemetry (§10.5).
 - **§11:** Task 5 split into 5a (verifications, blocks Task 8) + 5b (test suite, parallel to writer); plan-fixup count as protocol-effectiveness metric.
 - **§12:** deferral #11 trigger sharpened; deferrals #7 + #9 moved to §9.6; Sweden + Sri Lanka collapsed into multi-region.
+- **§6 (plan-write revision, 2026-05-23):** four-axis manifest revised to six-axis after pre-dispatch audit at plan-write surfaced sub-D's `VersionNamespace` enum has 5 members (not 3 as inferred from sub-E handoff). §6.1/§6.3/§6.6/§6.8 all updated to six-axis. §6.4 fallback chain superseded by enum-add mechanism (Plan Revisions 1+2 in plan document). Audit-after-fixup discipline (protocol §8) applied — spec updated NOW to prevent spec-vs-plan drift; one extra commit on sub-F branch, atomic and discoverable.
 
 ### 13.4 Durable memory entries generated during sub-F brainstorm
 
@@ -1174,9 +1191,11 @@ Items that suggest the sub-project planning protocol may need v1 → v2 revision
 - **Sub-D / sub-E retrospective SOURCE axis gap** (§12 #7) — if pattern repeats in tokenizer-fix or training-scaffold, evidence that protocol's version-manifest discipline needs a "surface ALL transitive dependencies" principle.
 - **Halt-cost-telemetry pattern** (§10.5) — sub-F is the first sub-project to instrument halt timing. If aggregate data shows clear halt-protocol refinements at sub-F close, protocol bump candidate.
 - **Verify-before-lock as standalone gate** — three sub-F brainstorm fixes (§5.2, §6.4, §9.0) all reduced to "verify-before-lock not after" — pattern suggests this may warrant promotion from a §3 modifier to a standalone seventh gate.
-- **Cross-bite-point revision ledger** (§13.1) — sub-F is the first sub-project to maintain a brainstorm-time revision ledger. If §13.1's five revisions had been silently absorbed (sub-E pattern), specs would be less auditable. Protocol bump candidate: "maintain explicit cross-bite-point revision ledger in spec."
+- **Cross-bite-point revision ledger** (§13.1) — sub-F is the first sub-project to maintain a brainstorm-time revision ledger. If §13.1's seven revisions (five brainstorm-time + two plan-write-time) had been silently absorbed (sub-E pattern), specs would be less auditable. Protocol bump candidate: "maintain explicit cross-bite-point revision ledger in spec, including plan-write-time audit cascades."
+- **Defense-in-depth working as designed** (NEW protocol-bump evidence) — plan-write pre-dispatch audit caught 3 brainstorm Gate 6 misses (`compare_version` mechanism, sub-D namespace count 5 vs assumed 3, sub-C sort key concreteness). The misses were caused by Gate 6 citing **transitive documentation** (sub-E handoff) as authority for sub-D's state instead of reading sub-D source directly. Proposed protocol-v2 sharpening: Gate 6 trigger phrases like "extending X's existing helper" or "inheriting X's convention" require **direct source read of X's defining file**, not citation of a downstream document that references X. Hand-enumeration assertion (e.g., "sub-D's `VersionNamespace` has N members named A, B, C, …") forces the read to be complete, not sampled. Captures defense-in-depth = brainstorm Gate 6 + plan-write audit on upstream-contract verification.
+- **Validator-axis split as sub-F-v2 candidate.** Plan-write surfaced sub-F has two validators (inline + cross-tile) but v1 ships single `SUB_F_VALIDATOR_VERSION`. If empirical evidence at sub-F-close shows validators evolved at different rates (e.g., cross-tile got 3 invariant additions while inline stayed unchanged), v2 candidate is splitting VALIDATOR → VALIDATOR_INLINE + VALIDATOR_CROSS_TILE (7-axis manifest).
 
-Surface at sub-F close in handoff under "Protocol-bump candidates" subsection (parallel to sub-E handoff's pattern of surfacing the sixth-gate derivation).
+Surface at sub-F close in handoff under "Protocol-bump candidates" subsection (parallel to sub-E handoff's pattern of surfacing the sixth-gate derivation). Particular attention to defense-in-depth framing — sub-F is the empirical evidence that Gate 6 alone is insufficient; the brainstorm + plan-write audit pair is the load-bearing combination.
 
 ### 13.6 Cross-references
 
