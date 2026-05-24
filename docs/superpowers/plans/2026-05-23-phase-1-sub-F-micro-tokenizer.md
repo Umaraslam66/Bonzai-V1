@@ -16,7 +16,7 @@
 
 ## Plan revisions from pre-dispatch audit (§9.6.1 cascade outcomes)
 
-Two revisions to the spec applied at plan-write time after audit-verified mismatch between spec assumptions and current sub-D code. Both cascades resolve per §9.6.1 discipline (sub-D wins; lock value updates; §2 paired check re-validates; §13 revision ledger entry mandatory at sub-F-close).
+Five revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch audit. Revisions 4+5 surfaced at prompt-derivation review (third-layer audit) along with five Task 1 code bugs (corrected inline in Task 1 code blocks below). All cascades resolve per §9.6.1 discipline (sub-D wins / canonical source wins; lock value updates; §2 paired check re-validates; §13 revision ledger entries committed at sub-F-close + spec sync at `cd5d332` already applied).
 
 ### Revision 1: `compare_version` mechanism — enum-extension, not kwarg-extension
 
@@ -42,9 +42,33 @@ Two revisions to the spec applied at plan-write time after audit-verified mismat
 
 **Plan applies:** Task 5a verification simplified from open-ended read to confirming sort key still matches at implementation time. Lock value in §5.2 updates to concrete tuple per `feedback_verify_before_lock_not_after`.
 
----
+### Revision 4: Singapore X-threshold scope narrowed to highway + building only
 
-## File structure
+**Original Task 1 plan code** assumed `FEATURE_CLASS_TO_KEY = {0: "highway", 1: "building", 2: "amenity", 3: "natural"}` — direct 1:1 sub-C feature_class to OSM key mapping.
+
+**Audit found** (`src/cfm/data/sub_c/enums.py:23` + `src/cfm/data/sub_c/io.py:186` + `src/cfm/data/sub_c/pipeline.py:678`): sub-C `feature_class=2` (poi) has NULL `class_raw` (POIs use `categories_primary` / `categories_alternate` columns instead); sub-C `feature_class=3` (base) lumps water+landuse+natural with ambiguous parent key. Simple FEATURE_CLASS_TO_KEY mapping is wrong for poi + base.
+
+**Plan applies:** Task 1's `FEATURE_CLASS_TO_KEY` shipped scoped to highway (0) + building (1) only. Singapore X-threshold computation narrowed accordingly. POI + base Singapore-prioritized must-appears deferred to sub-F-v2 per spec §12 entry #11.
+
+### Revision 5: L1 must-appears corrected from 15 keys → 28 keys
+
+**Original Task 1 plan code** shipped `WIKI_L1_MUST_APPEARS` with 15 keys (highway, building, amenity, landuse, natural, water, waterway, leisure, shop, place, boundary, route, public_transport, barrier, man_made). The list was reviewer-supplied at BP1 brainstorm and locked at plan-write without Gate 6 verification against canonical wikitext.
+
+**Audit found** (Map_features wikitext fetched at plan-revision time): `==Primary features==` section enumerates 28 primary feature keys via `{{Map_Features:X}}` transclusions + `{{Building typology}}` template. Missing from original: `aerialway, aeroway, craft, emergency, geological, healthcare, historic, military, office, power, railway, telecom, tourism` (13 keys).
+
+**Plan applies:** Task 1's `WIKI_L1_MUST_APPEARS` shipped with 28-key tuple. L2 enumeration scoped to highway + building only per cascade #4 alignment (Singapore X has signal only for these two keys at v1; other 26 keys' L2 elbows have no reviewable Singapore data at Halt 1, so L2 enumeration for them would be sunk cost). L3 deferred entirely per spec §12 entry #10 (recursive marginal-cost-of-cut: enumerate only where reviewable benefit exists).
+
+**Per-key hand-count assertions** (Safeguard 2) added to `test_vocab.py`: independent hand-counts of section headers in wikitext (28 transclusion lines in `==Primary features==`; highway template L3 row count; building template L3 row count) separately from the pair-set extraction itself. Catches per-section enumeration errors that flat set comparison misses.
+
+### Task 1 plan code bug fixes (5 substantive bugs surfaced at prompt-derivation review)
+
+The original Task 1 code blocks (snapshot_taginfo.py + floor_analysis.py) shipped with five code-level defects independent of the cascade revisions above. All five corrected inline in the Task 1 code blocks below:
+
+- **Bug 1: CSV column semantics conflation.** Original `snapshot_taginfo.py` wrote `fraction_all` for both key rows and value rows but the two have different denominators (key rows: fraction-of-all-OSM via `/keys/all`; value rows: fraction-within-key via `/key/values`). **Fix:** snapshot stores raw counts only; `floor_analysis.py` centralizes fraction derivation with consistent denominator per Bug 2.
+- **Bug 2: Per-element-type normalization missing (BP1 fix 2 violation).** Original used `fraction_all` (fraction-of-all-tags) which is BP1 fix 2 REJECTED option. **Fix:** `floor_analysis.py` derives fractions via dominant-element-type-per-key (highway → way-fraction, amenity → node-fraction); value rows inherit parent key's dominant ET as documented approximation.
+- **Bug 3: `vocab_size_at_F` missing row-type filter.** Original counted both key and value rows together at level 1. **Fix:** level-aware row-type filter (level=1 counts only key rows; level=2 counts only value rows in WIKI_L2_PRIMARY_PAIRS; level=3 counts only value rows in WIKI_L3_ALL_PAIRS).
+- **Bug 4: L1-only curve silently downgrades Halt 1.** Original shipped L1 with `NotImplementedError` for L2/L3. **Fix per cascade #5 resolution:** L1 (full 28) + L2 (highway + building per cascade #4 scope); L3 deferred per §12 entry #10. Halt 1 surfaces partial-by-design curve with explicit scoping rationale.
+- **Bug 5: X-threshold ignores Singapore data.** Original computed `10 × F_global` with no Singapore input — BP1 fix 5 option (c) requires Singapore-frequency. **Fix:** new step added (Step 5) reads sub-C Singapore extracts + computes Singapore-frequency for highway + building tag pairs + derives X-threshold candidates (Singapore-elbow + median-must-appear-frequency). X scope narrowed per cascade #4.
 
 ### Sub-F module layout (`src/cfm/data/sub_f/`)
 
@@ -196,16 +220,29 @@ Read: `https://taginfo.openstreetmap.org/api/4/wiki/data_overview` — confirms 
 
 ### Implementation steps
 
-- [ ] **Step 1: Write snapshot acquisition scripts**
+- [ ] **Step 1: Write snapshot acquisition script (raw counts, no fractions)**
+
+**Bug 1 fix applied:** snapshot stores raw counts only; fraction derivation is centralized in `floor_analysis.py` per Bug 2 (consistent denominator across both key and value rows).
 
 Create `scripts/sub_f/snapshot_taginfo.py`:
 
 ```python
-"""Snapshot taginfo global key+value frequency for sub-F BP1 floor.
+"""Snapshot taginfo global key+value raw counts for sub-F BP1 floor.
 
-Downloads the full taginfo key+value enumeration into a single CSV pinned
-under configs/sub_f/taginfo/<release>.csv. Re-runnable but cheap idempotent;
-re-download only if the target file does not exist.
+Per Bug 1 fix: snapshot writes raw counts only (count_all, count_ways,
+count_nodes, count_relations). Fraction derivation happens in
+floor_analysis.py with consistent denominator (BP1 fix 2:
+fraction-of-feature-bearing-elements within element type).
+
+Schema:
+  key,value,count_all,count_ways,count_nodes,count_relations,row_type,parent_key
+
+  - row_type = "key": from /api/4/keys/all; value="" parent_key=""
+  - row_type = "value": from /api/4/key/values for each parent key;
+    count_ways/nodes/relations = 0 (taginfo /key/values doesn't return
+    per-element-type breakdown for values — value rows inherit parent
+    key's dominant ET distribution as documented approximation in
+    floor_analysis.py).
 """
 
 from __future__ import annotations
@@ -235,7 +272,7 @@ def _fetch_json(url: str) -> Any:
 
 
 def snapshot(out_csv: Path, top_n_keys: int = 200) -> None:
-    """Snapshot taginfo into out_csv. Header: key,value,count_all,count_ways,count_nodes,count_relations,fraction_all,fraction_ways,fraction_nodes,fraction_relations."""
+    """Snapshot taginfo raw counts into out_csv. Re-runnable but idempotent."""
     if out_csv.exists():
         print(f"[snapshot_taginfo] {out_csv} exists; skipping (delete to re-snapshot)")
         return
@@ -249,29 +286,29 @@ def snapshot(out_csv: Path, top_n_keys: int = 200) -> None:
         writer.writerow(
             [
                 "key", "value", "count_all", "count_ways", "count_nodes",
-                "count_relations", "fraction_all", "fraction_ways",
-                "fraction_nodes", "fraction_relations",
+                "count_relations", "row_type", "parent_key",
             ]
         )
         for key_row in keys_sorted:
             key = key_row["key"]
-            # L1 row: key with no value (aggregate)
+            # Key row: raw counts per ET from /keys/all
             writer.writerow(
                 [
                     key, "", key_row["count_all"], key_row["count_ways"],
                     key_row["count_nodes"], key_row["count_relations"],
-                    key_row["fraction_all"], key_row["fraction_ways"],
-                    key_row["fraction_nodes"], key_row["fraction_relations"],
+                    "key", "",
                 ]
             )
-            # L2/L3 rows: per-value enumeration
+            # Value rows: only count_all from /key/values; per-ET breakdown not
+            # provided by this endpoint. Value rows inherit parent key's
+            # dominant ET in floor_analysis.py (documented approximation).
             try:
                 values_resp = _fetch_json(TAGINFO_VALUES_URL.format(key=key))
                 for v in values_resp["data"]:
                     writer.writerow(
                         [
                             key, v["value"], v["count"], 0, 0, 0,
-                            v["fraction"], 0.0, 0.0, 0.0,
+                            "value", key,
                         ]
                     )
             except Exception as exc:  # noqa: BLE001 — best-effort per key
@@ -375,46 +412,117 @@ uv run python scripts/sub_f/snapshot_wiki.py --release 2026-04-15.0
 
 Expected: `configs/sub_f/taginfo/2026-04-15.0.csv` and three files under `configs/sub_f/wiki_map_features/` exist. Verify with `ls -la configs/sub_f/`.
 
-- [ ] **Step 4: Write floor analysis script with paired structural check**
+- [ ] **Step 4: Write floor analysis script with all 5 bug fixes applied**
+
+**Bug 2 fix:** centralized fraction derivation with per-element-type normalization (parent key's dominant ET as denominator).
+**Bug 3 fix:** level-aware row-type filter in `vocab_size_at_F`.
+**Bug 4 fix per cascade #5:** L1 (full 28 keys) + L2 (highway + building only) curve; L3 deferred per spec §12 #10.
+**Cascade #5:** L1 must-appears = 28 keys hand-enumerated from `configs/sub_f/wiki_map_features/2026-04-15.0.wikitext` `==Primary features==` section transclusions.
+**Cascade #4:** L2 + Singapore X scope = highway + building only. Other 26 keys deferred per spec §12 #11.
 
 Create `scripts/sub_f/floor_analysis.py`:
 
 ```python
 """Compute BP1 vocab floor marginal-cost curve + Gate 6 structural check.
 
-Outputs configs/sub_f/vocab_floor_analysis.yaml at Halt 1. Reviewer reviews
-proposed elbow + exception list + X-threshold candidate; lock happens after
-approval per spec §10.3 halt protocol.
+Outputs configs/sub_f/vocab_floor_analysis.yaml at Halt 1.
 
-Per spec §2.1:
-- Empirical floor F from global taginfo (fraction-of-feature-bearing-elements
-  per element type).
-- Structural check: hand-enumerated OSM wiki Map_features top-level keys MUST
-  appear above F as first-class slots.
-- L1 / L2 / L3 granularity surface with (F_min, vocab_size, must-appears_admitted).
+Per spec §2.1 + plan cascade #4 + #5 resolutions:
+- L1: full 28 keys from wiki Map_features ==Primary features== section.
+- L2: highway + building only (Singapore-X-applicable per cascade #4).
+- L3: deferred entirely per spec §12 #10 (recursive marginal-cost-of-cut).
+- Singapore X-threshold: highway + building only per cascade #4.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import re
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Final
 
+import pyarrow.parquet as pq
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Hand-enumerated from OSM wiki Map_features (lock at Halt 1; reviewer-approved).
-# Source: configs/sub_f/wiki_map_features/<release>.wikitext §"Primary features".
-# Updated only via wiki snapshot revision bump + reviewer approval.
+# ---------------------------------------------------------------------------
+# WIKI ENUMERATIONS — hand-enumerated from configs/sub_f/wiki_map_features/
+# 2026-04-15.0.wikitext (Gate 6 canonical source, NOT reviewer-supplied or
+# memory-inferred per cascade #5 lesson + spec §13.5 protocol-v2 candidate iii).
+# Per-key hand-counts asserted independently in tests/data/sub_f/test_vocab.py
+# per Safeguard 2 (catches per-section enumeration errors flat set comparison
+# misses).
+# ---------------------------------------------------------------------------
+
+# L1: full 28 primary feature keys from Map_features ==Primary features==
+# transclusion list. Each `{{Map_Features:X}}` or `{{Building typology}}` line
+# in that section contributes one key.
 WIKI_L1_MUST_APPEARS: Final[tuple[str, ...]] = (
-    "highway", "building", "amenity", "landuse", "natural", "water",
-    "waterway", "leisure", "shop", "place", "boundary", "route",
-    "public_transport", "barrier", "man_made",
+    "aerialway", "aeroway", "amenity", "barrier", "boundary", "building",
+    "craft", "emergency", "geological", "healthcare", "highway", "historic",
+    "landuse", "leisure", "man_made", "military", "natural", "office",
+    "place", "power", "public_transport", "railway", "route", "shop",
+    "telecom", "tourism", "water", "waterway",
 )
+
+# L2: highway + building only per cascade #4 (Singapore X scope).
+# Other 26 keys' L2 deferred per spec §12 #11.
+#
+# WIKI_L2_HIGHWAY: hand-enumerated from Template:Map_Features:highway value
+# table — the "way-class" subset (Roads + Link roads + Special road types +
+# Paths). Excludes "Other highway features" (stops, signals, milestones,
+# infrastructure) which are point-features not way-classifications.
+WIKI_L2_HIGHWAY: Final[tuple[str, ...]] = (
+    # Roads (7 main road network tags per template's road_network annotation)
+    "motorway", "trunk", "primary", "secondary", "tertiary",
+    "unclassified", "residential",
+    # Link roads
+    "motorway_link", "trunk_link", "primary_link",
+    "secondary_link", "tertiary_link",
+    # Special road types
+    "living_street", "service", "pedestrian", "busway",
+    # Paths
+    "footway", "cycleway", "bridleway", "path", "steps", "track",
+    # Lifecycle placeholder
+    "road",
+)
+
+# WIKI_L2_BUILDING: hand-enumerated from Template:Building_typology value
+# table + "yes" catch-all (OSM convention for unspecified buildings,
+# extremely common but not in the typology template).
+WIKI_L2_BUILDING: Final[tuple[str, ...]] = (
+    "yes",  # catch-all (added manually per OSM convention, not in template)
+    # Typology values from Building_typology template
+    "annexe", "apartments", "barn", "barracks", "bungalow", "cabin",
+    "commercial", "detached", "dormitory", "entrance", "farm",
+    "farm_auxiliary", "gatehouse", "ger", "hangar", "hotel", "house",
+    "houseboat", "library", "office", "public", "residential",
+    "semidetached_house", "service", "shed", "static_caravan",
+    "stilt_house", "supermarket", "terrace", "train_station", "tree_house",
+    "trullo",
+)
+
+WIKI_L2_PRIMARY_PAIRS: Final[frozenset[tuple[str, str]]] = frozenset(
+    {("highway", v) for v in WIKI_L2_HIGHWAY}
+    | {("building", v) for v in WIKI_L2_BUILDING}
+)
+
+# L3: deferred entirely per spec §12 #10. Placeholder for future expansion.
+WIKI_L3_ALL_PAIRS: Final[frozenset[tuple[str, str]]] = frozenset()
+
+# ---------------------------------------------------------------------------
+# SUB-C FEATURE_CLASS MAPPING — scoped to highway + building per cascade #4
+# (sub-C feature_class=2 poi has NULL class_raw; feature_class=3 base lumps
+# water+landuse+natural with ambiguous parent key). Per spec §12 #11.
+# ---------------------------------------------------------------------------
+FEATURE_CLASS_TO_KEY: Final[dict[int, str]] = {
+    0: "highway",   # road class — exact 1:1 (sub-C extracts only highway)
+    1: "building",  # exact 1:1
+    # 2 (poi) + 3 (base) deferred per cascade #4.
+}
 
 
 def load_taginfo(csv_path: Path) -> list[dict]:
@@ -422,69 +530,253 @@ def load_taginfo(csv_path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def f_min_for_level(rows: list[dict], must_appears: set[str], level: int) -> float:
-    """Return F_min: smallest F such that all must-appears are admitted at level."""
-    # L1: aggregate by key; L2: (key, primary value) pairs; L3: all pairs.
+def dominant_element_type(key_row: dict) -> str:
+    """Return 'ways' / 'nodes' / 'relations' for key's dominant element type."""
+    counts = {
+        "ways": int(key_row["count_ways"]),
+        "nodes": int(key_row["count_nodes"]),
+        "relations": int(key_row["count_relations"]),
+    }
+    return max(counts, key=lambda k: counts[k])
+
+
+def et_totals_from_taginfo(rows: list[dict]) -> dict[str, int]:
+    """Approximate global ET totals as sum of key-row counts per ET.
+
+    Documented approximation: sums over the top-N keys snapshotted; not the
+    true global element population (which would require taginfo /site/info).
+    Sufficient for fraction-comparison purposes at Halt 1.
+    """
+    totals = Counter()
+    for r in rows:
+        if r["row_type"] == "key":
+            totals["ways"] += int(r["count_ways"])
+            totals["nodes"] += int(r["count_nodes"])
+            totals["relations"] += int(r["count_relations"])
+    return dict(totals)
+
+
+def fraction_within_et(
+    row: dict, et_totals: dict[str, int], key_rows_by_name: dict[str, dict]
+) -> float:
+    """Fraction-of-feature-bearing-elements within row's dominant ET (BP1 fix 2)."""
+    if row["row_type"] == "key":
+        et = dominant_element_type(row)
+        denom = et_totals.get(et, 0)
+        numerator = int(row[f"count_{et}"])
+    else:  # value row: inherit parent key's dominant ET (documented approximation)
+        parent = key_rows_by_name.get(row["parent_key"])
+        if not parent:
+            return 0.0
+        et = dominant_element_type(parent)
+        denom = et_totals.get(et, 0)
+        numerator = int(row["count_all"])  # parent ET distribution assumed for value
+    return numerator / denom if denom else 0.0
+
+
+def f_min_for_level(
+    rows: list[dict],
+    level: int,
+    et_totals: dict[str, int],
+    key_rows_by_name: dict[str, dict],
+) -> float:
+    """Smallest F such that all must-appears at level are admitted."""
     if level == 1:
-        # Find the must-appears row (value == "") and take min fraction_all.
         candidates = [
-            float(r["fraction_all"])
+            fraction_within_et(r, et_totals, key_rows_by_name)
             for r in rows
-            if r["key"] in must_appears and r["value"] == ""
+            if r["row_type"] == "key" and r["key"] in WIKI_L1_MUST_APPEARS
         ]
-        return min(candidates) if candidates else 0.0
-    # L2/L3 extension at Halt 1 review per L2/L3 enumeration outcome.
-    raise NotImplementedError(
-        f"Level {level} enumeration computed at floor_analysis.py extension "
-        f"step; Halt 1 surfaces only L1 row by default with L2/L3 as scoped extension."
+    elif level == 2:
+        candidates = [
+            fraction_within_et(r, et_totals, key_rows_by_name)
+            for r in rows
+            if r["row_type"] == "value"
+            and (r["parent_key"], r["value"]) in WIKI_L2_PRIMARY_PAIRS
+        ]
+    elif level == 3:
+        if not WIKI_L3_ALL_PAIRS:
+            return float("nan")  # L3 deferred per spec §12 #10
+        candidates = [
+            fraction_within_et(r, et_totals, key_rows_by_name)
+            for r in rows
+            if r["row_type"] == "value"
+            and (r["parent_key"], r["value"]) in WIKI_L3_ALL_PAIRS
+        ]
+    else:
+        raise ValueError(f"unknown level {level}")
+    return min(candidates) if candidates else 0.0
+
+
+def vocab_size_at_F(
+    rows: list[dict],
+    F: float,
+    level: int,
+    et_totals: dict[str, int],
+    key_rows_by_name: dict[str, dict],
+) -> int:
+    """Count slots at granularity level passing F (Bug 3 fix: level-aware row-type filter)."""
+    if level == 1:
+        return sum(
+            1 for r in rows
+            if r["row_type"] == "key"
+            and fraction_within_et(r, et_totals, key_rows_by_name) >= F
+        )
+    if level == 2:
+        return sum(
+            1 for r in rows
+            if r["row_type"] == "value"
+            and (r["parent_key"], r["value"]) in WIKI_L2_PRIMARY_PAIRS
+            and fraction_within_et(r, et_totals, key_rows_by_name) >= F
+        )
+    if level == 3:
+        if not WIKI_L3_ALL_PAIRS:
+            return 0  # L3 deferred
+        return sum(
+            1 for r in rows
+            if r["row_type"] == "value"
+            and (r["parent_key"], r["value"]) in WIKI_L3_ALL_PAIRS
+            and fraction_within_et(r, et_totals, key_rows_by_name) >= F
+        )
+    raise ValueError(f"unknown level {level}")
+
+
+# ---------------------------------------------------------------------------
+# SINGAPORE X-THRESHOLD computation (Bug 5 fix per cascade #4 scope).
+# ---------------------------------------------------------------------------
+
+
+def compute_singapore_frequencies(
+    sub_c_region: Path,
+) -> dict[tuple[str, str], int]:
+    """Count (inferred_key, class_raw) tag pairs on cached Singapore sub-C extracts.
+
+    Scoped to FEATURE_CLASS_TO_KEY = {0: highway, 1: building} per cascade #4.
+    POI (2) + base (3) Singapore mapping deferred per spec §12 #11.
+    """
+    counts: Counter[tuple[str, str]] = Counter()
+    for path in sorted(sub_c_region.glob("tile=*/features.parquet")):
+        table = pq.ParquetFile(path).read()
+        for r in table.to_pylist():
+            key = FEATURE_CLASS_TO_KEY.get(r["feature_class"])
+            value = r.get("class_raw")
+            if key and value:  # NULL class_raw skipped (POI rows have NULL)
+                counts[(key, value)] += 1
+    return dict(counts)
+
+
+def derive_x_threshold(
+    sg_freqs: dict[tuple[str, str], int],
+    wiki_must_appears: frozenset[tuple[str, str]],
+) -> dict:
+    """Compute X threshold candidates from Singapore distribution.
+
+    Candidate A: Singapore's own elbow F-equivalent (min Singapore-fraction
+                 of wiki must-appears actually present on Singapore).
+    Candidate B: median Singapore frequency across present must-appears.
+    """
+    total_sg = sum(sg_freqs.values())
+    if not total_sg:
+        return {"error": "no Singapore data — sub-C cache missing or empty"}
+
+    must_appear_fractions = sorted(
+        (sg_freqs.get(p, 0) / total_sg for p in wiki_must_appears),
+        reverse=True,
     )
+    present_fractions = [f for f in must_appear_fractions if f > 0]
+    return {
+        "candidate_a_singapore_elbow": float(min(present_fractions)) if present_fractions else 0.0,
+        "candidate_b_median_must_appear_freq": (
+            float(present_fractions[len(present_fractions) // 2])
+            if present_fractions else 0.0
+        ),
+        "n_must_appears_present_in_singapore": len(present_fractions),
+        "n_must_appears_total": len(wiki_must_appears),
+        "scope_note": "highway + building only per cascade #4; POI + base deferred per spec §12 #11.",
+    }
 
 
-def vocab_size_at_F(rows: list[dict], F: float) -> int:
-    """Count slots that pass F (fraction_all >= F)."""
-    return sum(1 for r in rows if float(r["fraction_all"]) >= F)
+# ---------------------------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------------------------
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--release", default="2026-04-15.0")
+    parser.add_argument(
+        "--sub-c-region-dir", type=Path,
+        default=Path("data/processed/sub_c/2026-04-15.0/singapore"),
+    )
     args = parser.parse_args()
 
     taginfo_csv = ROOT / "configs" / "sub_f" / "taginfo" / f"{args.release}.csv"
     rows = load_taginfo(taginfo_csv)
+    et_totals = et_totals_from_taginfo(rows)
+    key_rows_by_name = {r["key"]: r for r in rows if r["row_type"] == "key"}
 
-    # L1 only at first surface; L2/L3 extension implemented after Halt 1 if reviewer
-    # endorses curve approach (saves implementation cost if reviewer redirects).
-    f_l1 = f_min_for_level(rows, set(WIKI_L1_MUST_APPEARS), level=1)
-    vocab_l1 = vocab_size_at_F(rows, f_l1)
+    # L1 + L2 curve (L3 deferred per spec §12 #10).
+    f_l1 = f_min_for_level(rows, level=1, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
+    vocab_l1 = vocab_size_at_F(rows, f_l1, level=1, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
+    f_l2 = f_min_for_level(rows, level=2, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
+    vocab_l2 = vocab_size_at_F(rows, f_l2, level=2, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
+
+    # Singapore X-threshold per BP1 fix C (Bug 5 fix per cascade #4 scope).
+    sg_freqs = compute_singapore_frequencies(args.sub_c_region_dir)
+    x_threshold = derive_x_threshold(sg_freqs, WIKI_L2_PRIMARY_PAIRS)
 
     output = {
         "release": args.release,
-        "f_denominator": "fraction_all from taginfo",
+        "f_denominator": (
+            "fraction-of-feature-bearing-elements within dominant ET per key "
+            "(BP1 fix 2; value rows inherit parent's dominant ET as documented "
+            "approximation)"
+        ),
         "wiki_l1_must_appears": list(WIKI_L1_MUST_APPEARS),
+        "wiki_l2_primary_pairs_count": len(WIKI_L2_PRIMARY_PAIRS),
+        "wiki_l2_highway_count": len(WIKI_L2_HIGHWAY),
+        "wiki_l2_building_count": len(WIKI_L2_BUILDING),
+        "wiki_l3_status": "deferred per spec §12 #10",
         "curve": [
             {
                 "level": 1,
-                "level_description": "top-level keys",
+                "level_description": "top-level keys (28 must-appears)",
                 "f_min": float(f_l1),
                 "vocab_size": int(vocab_l1),
                 "must_appears_count": len(WIKI_L1_MUST_APPEARS),
                 "must_appears_admitted": len(WIKI_L1_MUST_APPEARS),
-            }
-            # L2, L3 rows added after Halt 1 endorses approach.
+            },
+            {
+                "level": 2,
+                "level_description": "(key, primary-value) pairs — highway + building per cascade #4",
+                "f_min": float(f_l2),
+                "vocab_size": int(vocab_l2),
+                "must_appears_count": len(WIKI_L2_PRIMARY_PAIRS),
+                "must_appears_admitted": len(WIKI_L2_PRIMARY_PAIRS),
+            },
+            {
+                "level": 3,
+                "level_description": "all wiki-documented pairs — deferred per spec §12 #10",
+                "f_min": None,
+                "vocab_size": None,
+                "must_appears_count": 0,
+                "must_appears_admitted": 0,
+                "deferral_reason": "Cascade #5 + recursive marginal-cost-of-cut: enumerate where reviewable benefit exists.",
+            },
         ],
         "proposed_elbow": {
             "level": 1,
             "f_value": float(f_l1),
             "exception_list": [],
-            "rationale": "Default L1; reviewer redirects to L2/L3 at halt if elbow shifts.",
+            "rationale": "Default L1 (28 keys, full primary feature set); reviewer redirects to L2 at halt if Δvocab_size / Δmust-appears between L1 and L2 favors L2.",
         },
         "proposed_x_threshold": {
-            "framing": "fixed_multiplier",
-            "value": 10.0 * float(f_l1),
-            "rationale": "10× F_global per BP1 fix C candidate; alternative = Singapore's own elbow-derived F.",
-            "paired_structural_check": "Hand-enumerate Singapore-frequency tags with fraction >= X; "
-                                       "each must appear above F in semantic_vocab.yaml.",
+            "candidate_a_singapore_elbow": x_threshold.get("candidate_a_singapore_elbow"),
+            "candidate_b_median_must_appear_freq": x_threshold.get("candidate_b_median_must_appear_freq"),
+            "scope_note": x_threshold.get("scope_note"),
+            "n_must_appears_present_in_singapore": x_threshold.get("n_must_appears_present_in_singapore"),
+            "n_must_appears_total": x_threshold.get("n_must_appears_total"),
+            "paired_structural_check": "For each Singapore-frequency-≥X (highway, value) and (building, value) pair: must appear above F in semantic_vocab.yaml. POI + base scope deferred per spec §12 #11.",
         },
         "_status": "PROPOSED — pending Halt 1 reviewer approval per spec §10.3.",
     }
@@ -499,45 +791,132 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 5: Write failing test for vocab loader**
+- [ ] **Step 5: Write failing test for vocab loader (extended with Safeguard 2 per-key count assertions)**
+
+**Per cascade #5 + Safeguard 2:** tests assert both (a) set-equality of L1 + L2 enumerations and (b) independently-derived per-key counts. Hand-counts come from visual inspection of wikitext, separately from the floor_analysis.py constants — so a miss in one set doesn't silently confirm a miss in the other.
+
+Create `tests/data/sub_f/__init__.py` as an empty file.
 
 Create `tests/data/sub_f/test_vocab.py`:
 
 ```python
 """Tests for sub-F vocab loading + Gate 6 structural check.
 
-Per spec §8.1 BP1 row: vocab passes iff (a) F frequency floor cuts at the
-chosen quantile AND (b) every hand-enumerated wiki Map_features must-appear
-is a first-class slot in semantic_vocab.yaml. Assertion logic does NOT use
-sub-F's own derivation in the expected-value computation per Gate 6.
+Per spec §8.1 BP1 row + cascade #5 + Safeguard 2: vocab passes iff:
+(a) F frequency floor cuts at the chosen quantile, AND
+(b) every hand-enumerated wiki Map_features must-appear is a first-class slot,
+    enumeration verified by set-equality AND per-key count assertions.
+
+Assertion logic does NOT use sub-F's own derivation in expected-value
+computation per Gate 6 + spec §13.5 protocol-v2 candidate iii (reviewer-supplied
+lists are untrusted; hand-counts derived independently from pair sets).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 import pytest
 import yaml
 
 CONFIG_ROOT = Path(__file__).resolve().parents[3] / "configs" / "sub_f"
 
+# Hand-derived from wikitext at configs/sub_f/wiki_map_features/2026-04-15.0.wikitext
+# `==Primary features==` section transclusion count. Independently counted from
+# the WIKI_L1_MUST_APPEARS tuple in floor_analysis.py per Safeguard 2.
+N_L1_MUST_APPEARS_EXPECTED: Final[int] = 28
+
+# Hand-derived from Template:Map_Features:highway value table (Roads + Link
+# roads + Special road types + Paths + Lifecycle subsections). Excludes
+# Other highway features (stops, signals, infrastructure point-features).
+N_L2_HIGHWAY_EXPECTED: Final[int] = 23
+
+# Hand-derived from Template:Building_typology value table + 1 "yes" catch-all.
+N_L2_BUILDING_EXPECTED: Final[int] = 33
+
 
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def test_vocab_floor_analysis_has_l1_must_appears():
-    """Floor analysis YAML enumerates 15 wiki L1 must-appears."""
+def test_vocab_floor_analysis_has_28_l1_must_appears():
+    """L1 enumeration covers all 28 wiki primary feature keys per cascade #5."""
     data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
-    # Hand-enumerated from OSM wiki Map_features; assertion DOES NOT read
-    # sub-F's own enumeration into expected — pinned by name.
+    # Hand-pinned (assertion does NOT read sub-F's own enumeration into expected).
     expected_l1 = {
-        "highway", "building", "amenity", "landuse", "natural", "water",
-        "waterway", "leisure", "shop", "place", "boundary", "route",
-        "public_transport", "barrier", "man_made",
+        "aerialway", "aeroway", "amenity", "barrier", "boundary", "building",
+        "craft", "emergency", "geological", "healthcare", "highway", "historic",
+        "landuse", "leisure", "man_made", "military", "natural", "office",
+        "place", "power", "public_transport", "railway", "route", "shop",
+        "telecom", "tourism", "water", "waterway",
     }
     actual_l1 = set(data["wiki_l1_must_appears"])
-    assert actual_l1 == expected_l1, f"missing must-appears: {expected_l1 - actual_l1}"
+    assert actual_l1 == expected_l1, (
+        f"L1 set drift: missing={expected_l1 - actual_l1}, "
+        f"extra={actual_l1 - expected_l1}"
+    )
+
+
+def test_vocab_floor_analysis_l1_count_matches_independent_hand_count():
+    """Safeguard 2: per-key count derived independently from set."""
+    data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
+    actual_count = len(data["wiki_l1_must_appears"])
+    assert actual_count == N_L1_MUST_APPEARS_EXPECTED, (
+        f"L1 count mismatch: floor_analysis.py shipped {actual_count}, "
+        f"hand-counted from wikitext = {N_L1_MUST_APPEARS_EXPECTED}. "
+        f"If wikitext changed: re-count and update N_L1_MUST_APPEARS_EXPECTED."
+    )
+
+
+def test_vocab_floor_analysis_l2_highway_count_matches_independent_hand_count():
+    """Safeguard 2: highway L2 count derived independently from pair set."""
+    data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
+    actual = data["wiki_l2_highway_count"]
+    assert actual == N_L2_HIGHWAY_EXPECTED, (
+        f"L2 highway count mismatch: floor_analysis.py shipped {actual}, "
+        f"hand-counted from Template:Map_Features:highway = {N_L2_HIGHWAY_EXPECTED}. "
+        f"If template changed: re-count and update N_L2_HIGHWAY_EXPECTED."
+    )
+
+
+def test_vocab_floor_analysis_l2_building_count_matches_independent_hand_count():
+    """Safeguard 2: building L2 count derived independently from pair set."""
+    data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
+    actual = data["wiki_l2_building_count"]
+    assert actual == N_L2_BUILDING_EXPECTED, (
+        f"L2 building count mismatch: floor_analysis.py shipped {actual}, "
+        f"hand-counted from Template:Building_typology + 'yes' = {N_L2_BUILDING_EXPECTED}. "
+        f"If template changed: re-count and update N_L2_BUILDING_EXPECTED."
+    )
+
+
+def test_vocab_floor_analysis_l3_deferred_per_spec_12_10():
+    """L3 explicitly deferred per cascade #5 + spec §12 #10."""
+    data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
+    l3_row = next(r for r in data["curve"] if r["level"] == 3)
+    assert l3_row["f_min"] is None
+    assert l3_row["vocab_size"] is None
+    assert l3_row["must_appears_count"] == 0
+    assert "deferred" in l3_row["level_description"].lower()
+
+
+def test_vocab_floor_analysis_curve_includes_l1_and_l2_rows():
+    """Curve has L1 + L2 rows (L3 row exists but deferred per above test)."""
+    data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
+    levels = {r["level"] for r in data["curve"]}
+    assert levels == {1, 2, 3}, f"missing curve levels: {{1,2,3}} - {levels}"
+
+
+def test_vocab_floor_analysis_singapore_x_threshold_scoped_to_highway_building():
+    """Singapore X-threshold scope per cascade #4 (POI + base deferred per §12 #11)."""
+    data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
+    x = data["proposed_x_threshold"]
+    assert "highway + building" in x["scope_note"]
+    assert "POI + base" in x["scope_note"]
+    # Candidates surface concrete values (not just hand-waved).
+    assert "candidate_a_singapore_elbow" in x
+    assert "candidate_b_median_must_appear_freq" in x
 ```
 
 - [ ] **Step 6: Run test (expected fail — config does not exist yet)**
@@ -545,25 +924,71 @@ def test_vocab_floor_analysis_has_l1_must_appears():
 Run: `uv run pytest tests/data/sub_f/test_vocab.py -v`
 Expected: FAIL with `FileNotFoundError: configs/sub_f/vocab_floor_analysis.yaml`.
 
-- [ ] **Step 7: Run floor analysis to generate proposed YAML**
+- [ ] **Step 7: Run floor analysis (computes L1 + L2 curve + Singapore X-threshold)**
 
-Run: `uv run python scripts/sub_f/floor_analysis.py --release 2026-04-15.0`
-Expected: `configs/sub_f/vocab_floor_analysis.yaml` written with `_status: PROPOSED`.
+Floor analysis now reads sub-C Singapore extracts for Singapore X-threshold computation (Bug 5 fix per cascade #4 scope). Sub-C cache must exist at `data/processed/sub_c/2026-04-15.0/singapore/` (sub-E precedent — sub-C already cached for sub-E's Singapore integration tests).
 
-- [ ] **Step 8: Run test (expected pass)**
+Run:
+```bash
+uv run python scripts/sub_f/floor_analysis.py \
+    --release 2026-04-15.0 \
+    --sub-c-region-dir data/processed/sub_c/2026-04-15.0/singapore/
+```
 
-Run: `uv run pytest tests/data/sub_f/test_vocab.py::test_vocab_floor_analysis_has_l1_must_appears -v`
-Expected: PASS.
+Expected: `configs/sub_f/vocab_floor_analysis.yaml` written with `_status: PROPOSED`. Spot-check fields:
+- `wiki_l1_must_appears` length = 28
+- `wiki_l2_highway_count` = 23
+- `wiki_l2_building_count` = 33
+- `wiki_l3_status` = `"deferred per spec §12 #10"`
+- `curve` has 3 rows (levels 1, 2, 3 — level 3 is deferred placeholder)
+- `proposed_x_threshold` has concrete `candidate_a_singapore_elbow` + `candidate_b_median_must_appear_freq` values
+
+If sub-C cache is missing: STOP, report BLOCKED with the missing path.
+
+- [ ] **Step 8: Run full test suite (expected 7 PASS)**
+
+Run: `uv run pytest tests/data/sub_f/test_vocab.py -v`
+Expected: 7 PASS covering:
+- L1 set-equality (28 keys vs hand-enumerated expected set)
+- L1 independent hand-count match (Safeguard 2)
+- L2 highway hand-count match (Safeguard 2)
+- L2 building hand-count match (Safeguard 2)
+- L3 deferred per spec §12 #10
+- Curve has L1 + L2 + L3 rows
+- Singapore X-threshold scoped to highway + building
 
 - [ ] **Step 9: HALT 1 — surface to reviewer**
 
 **Implementer commits halt report** at `reports/2026-MM-DD-phase-1-sub-F-task-1-halt.md` containing:
-- Snapshot artifacts list (taginfo CSV row count + first 5 rows; wiki revision_id + sha256).
-- Marginal-cost curve table (L1 row at minimum; L2/L3 if Step 4 extension ran).
-- Proposed elbow + exception list.
-- Proposed X-threshold value + framing (10× F_global or Singapore-own-elbow).
+
+**Snapshot artifacts:**
+- taginfo CSV: row count, first 5 rows verbatim, file size, sha256.
+- wiki Map_features: revision_id (integer), wikitext byte count, sha256.
+
+**Marginal-cost curve (per cascade #5 scope: L1 full + L2 highway+building; L3 deferred):**
+- L1 row: 28 keys, F_min value, vocab_size at F_min.
+- L2 row: highway + building primary pairs, F_min, vocab_size.
+- L3 row: deferred per spec §12 #10 — reason note included.
+
+**Proposed elbow:**
+- Granularity level (1 by default).
+- F value.
+- Exception list (empty by default; reviewer adds sub-floor must-appears to drop if any).
+- Rationale (cite Δvocab_size / Δmust-appears between L1 and L2).
+
+**Proposed X-threshold (cascade #4 scope: highway + building only):**
+- Candidate A: Singapore-elbow-derived value + concrete number.
+- Candidate B: median Singapore must-appear frequency + concrete number.
+- Scope note: POI + base deferred per spec §12 #11.
 - Paired structural check framing (per §2 + Gate 6).
-- §10.5 telemetry fields: implementer-time-to-data-surface.
+
+**Cascade documentation (mandatory at Halt 1 per spec §13.5):**
+- Cascade #4 outcome: Singapore X scope = highway + building. POI/base deferred to sub-F-v2.
+- Cascade #5 outcome: L1 corrected to 28 keys; L3 deferred entirely.
+- §13.5 protocol-v2 candidates surfaced: (i) transitive-documentation citing, (ii) hand-enumeration with complete-count assertion, (iii) reviewer-supplied lists as untrusted input.
+
+**§10.5 telemetry:**
+- Implementer-time-to-data-surface: wall-clock from dispatch start to this halt report commit.
 
 DO NOT lock `semantic_vocab.yaml` autonomously. Reviewer approves elbow + exception list + X-threshold at Halt 1 per spec §10.3.
 
