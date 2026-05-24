@@ -50,15 +50,19 @@ All code blocks + step instructions are in the plan file at `docs/superpowers/pl
 
 ### Pre-dispatch audit (3 steps; STOP and report BLOCKED if any surfaces a 6th cascade)
 
-#### Audit step 1: confirm taginfo API for global key+value frequency
+#### Audit step 1: confirm taginfo API for global key+value frequency (matches snapshot_taginfo.py TAGINFO_VALUES_URL)
 
-Run: `curl -sI 'https://taginfo.openstreetmap.org/api/4/key/values?key=highway&page=1&rp=100&sortname=count&sortorder=desc' | head -5`
-Expected: HTTP 200; JSON contains `data` array.
+Run: `curl -s 'https://taginfo.openstreetmap.org/api/4/key/values?key=highway&page=1&rp=1000&sortname=count&sortorder=desc' | head -c 500`
+Expected: JSON payload with `data` array containing objects with `value` and `count` fields.
 
-#### Audit step 2: confirm wiki API for Map_features wikitext
+If response missing the `data` array or first row `value` / `count` fields: STOP, report BLOCKED — that's a real taginfo API change, 6th §9.6.1 cascade.
 
-Run: `curl -s 'https://wiki.openstreetmap.org/w/api.php?action=raw&page=Map_features&format=json' | head -100`
-Expected: raw wikitext starting with `==` headers.
+#### Audit step 2: confirm wiki API for Map_features wikitext (matches snapshot_wiki.py implementation)
+
+Run: `curl -s 'https://wiki.openstreetmap.org/w/api.php?action=query&prop=revisions&titles=Map_features&rvprop=content|ids&rvslots=main&format=json&formatversion=2' | head -c 500`
+Expected: JSON payload with structure `{"query": {"pages": [{"revisions": [{"revid": <int>, "slots": {"main": {"content": "<wikitext...>"}}}]}]}}`. The wikitext content begins with `==` headers.
+
+If response missing the `query.pages[0].revisions[0].slots.main.content` path or `revid` field: STOP, report BLOCKED — that's a real MediaWiki API change, 6th §9.6.1 cascade.
 
 #### Audit step 3: verify sub-C feature_class enum still matches cascade #4 scope
 
