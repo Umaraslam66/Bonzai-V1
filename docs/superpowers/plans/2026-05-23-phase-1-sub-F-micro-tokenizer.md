@@ -16,7 +16,7 @@
 
 ## Plan revisions from pre-dispatch audit (§9.6.1 cascade outcomes)
 
-Five revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch audit. Revisions 4+5 surfaced at prompt-derivation review (third-layer audit) along with five Task 1 code bugs (corrected inline in Task 1 code blocks below). All cascades resolve per §9.6.1 discipline (sub-D wins / canonical source wins; lock value updates; §2 paired check re-validates; §13 revision ledger entries committed at sub-F-close + spec sync at `cd5d332` already applied).
+Six revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch audit. Revisions 4+5 surfaced at prompt-derivation review (third-layer audit) along with five Task 1 code bugs (corrected inline in Task 1 code blocks below). Revision 6 surfaced at reviewer-side check before Task 1 redispatch. All cascades resolve per §9.6.1 discipline (sub-D wins / canonical source wins; lock value updates; §2 paired check re-validates; §13 revision ledger entries committed at sub-F-close + spec sync updates applied).
 
 ### Revision 1: `compare_version` mechanism — enum-extension, not kwarg-extension
 
@@ -59,6 +59,14 @@ Five revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch aud
 **Plan applies:** Task 1's `WIKI_L1_MUST_APPEARS` shipped with 28-key tuple. L2 enumeration scoped to highway + building only per cascade #4 alignment (Singapore X has signal only for these two keys at v1; other 26 keys' L2 elbows have no reviewable Singapore data at Halt 1, so L2 enumeration for them would be sunk cost). L3 deferred entirely per spec §12 entry #10 (recursive marginal-cost-of-cut: enumerate only where reviewable benefit exists).
 
 **Per-key hand-count assertions** (Safeguard 2) added to `test_vocab.py`: independent hand-counts of section headers in wikitext (28 transclusion lines in `==Primary features==`; highway template L3 row count; building template L3 row count) separately from the pair-set extraction itself. Catches per-section enumeration errors that flat set comparison misses.
+
+### Revision 6: taginfo `rp=1000` rejected; building values paginated, other keys capped at `rp=999`
+
+**Original Task 1 plan code** shipped `TAGINFO_VALUES_URL` with `rp=1000`.
+
+**Audit found** (reviewer-side check before Task 1 redispatch): taginfo enforces `rp <= 999` (`{"error":"results per page must be integer between 0 and 999"}`). A diagnostic count over the 28 L1 keys found `highway` has 534 values (fits one page) and `building` has 8759 values (requires pagination). Fourteen non-cascade-#4-scope L1 keys also have >999 upstream values (`amenity, barrier, craft, healthcare, historic, landuse, leisure, man_made, natural, office, route, shop, tourism, water`), but their value tails affect no sub-F-v1 Halt 1 output because L2 scope is highway + building and L3 is deferred.
+
+**Plan applies:** Task 1's `snapshot_taginfo.py` uses `rp=999`, paginates `building` only (cascade #4 Singapore X scope), and captures single-page `rp=999` value rows for all other keys. Value-tail coverage for the 26 non-cascade-#4-scope L1 keys is deferred to sub-F-v2 per spec §12 #12. `test_vocab.py` adds a building-row pagination assertion (`>= 8000` building value rows) so future regressions cannot silently collapse building back to one page.
 
 ### Task 1 plan code bug fixes (5 substantive bugs surfaced at prompt-derivation review)
 
@@ -242,7 +250,9 @@ Schema:
     count_ways/nodes/relations = 0 (taginfo /key/values doesn't return
     per-element-type breakdown for values — value rows inherit parent
     key's dominant ET distribution as documented approximation in
-    floor_analysis.py).
+    floor_analysis.py). Per cascade #6, building is paginated because it is
+    in cascade #4 Singapore X scope; non-scope keys are capped at first
+    999 results where applicable per spec §12 #12.
 """
 
 from __future__ import annotations
@@ -259,7 +269,7 @@ import json
 TAGINFO_KEYS_URL = "https://taginfo.openstreetmap.org/api/4/keys/all"
 TAGINFO_VALUES_URL = (
     "https://taginfo.openstreetmap.org/api/4/key/values"
-    "?key={key}&page=1&rp=1000&sortname=count&sortorder=desc"
+    "?key={key}&page={page}&rp=999&sortname=count&sortorder=desc"
 )
 
 USER_AGENT = "bonzai-osm-sub-f-snapshot/1.0 (research)"
@@ -269,6 +279,20 @@ def _fetch_json(url: str) -> Any:
     req = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(req, timeout=120) as resp:
         return json.loads(resp.read())
+
+
+def fetch_all_values_for_key(key: str, max_total: int = 20000) -> list[dict]:
+    """Fetch all (or up to max_total) values for key, paginating taginfo."""
+    values: list[dict] = []
+    page = 1
+    while True:
+        url = TAGINFO_VALUES_URL.format(key=key, page=page)
+        resp = _fetch_json(url)
+        page_data = resp.get("data", [])
+        values.extend(page_data)
+        if len(page_data) < 999 or len(values) >= max_total:
+            return values[:max_total]
+        page += 1
 
 
 def snapshot(out_csv: Path, top_n_keys: int = 200) -> None:
@@ -303,8 +327,12 @@ def snapshot(out_csv: Path, top_n_keys: int = 200) -> None:
             # provided by this endpoint. Value rows inherit parent key's
             # dominant ET in floor_analysis.py (documented approximation).
             try:
-                values_resp = _fetch_json(TAGINFO_VALUES_URL.format(key=key))
-                for v in values_resp["data"]:
+                if key == "building":  # cascade #4: building needs full coverage
+                    values_data = fetch_all_values_for_key(key)
+                else:
+                    values_resp = _fetch_json(TAGINFO_VALUES_URL.format(key=key, page=1))
+                    values_data = values_resp.get("data", [])
+                for v in values_data:
                     writer.writerow(
                         [
                             key, v["value"], v["count"], 0, 0, 0,
@@ -814,6 +842,7 @@ lists are untrusted; hand-counts derived independently from pair sets).
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from typing import Final
 
@@ -917,12 +946,28 @@ def test_vocab_floor_analysis_singapore_x_threshold_scoped_to_highway_building()
     # Candidates surface concrete values (not just hand-waved).
     assert "candidate_a_singapore_elbow" in x
     assert "candidate_b_median_must_appear_freq" in x
+
+
+def test_taginfo_snapshot_paginates_building_values():
+    """Cascade #6: building value rows require multi-page taginfo coverage."""
+    csv_path = CONFIG_ROOT / "taginfo" / "2026-04-15.0.csv"
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    building_values = [
+        r for r in rows
+        if r["row_type"] == "value" and r["parent_key"] == "building"
+    ]
+    assert len(building_values) >= 8000, (
+        "Expected building value rows to include paginated taginfo results. "
+        f"Observed only {len(building_values)} rows, which indicates a likely "
+        "regression to single-page rp=999 coverage."
+    )
 ```
 
 - [ ] **Step 6: Run test (expected fail — config does not exist yet)**
 
 Run: `uv run pytest tests/data/sub_f/test_vocab.py -v`
-Expected: FAIL with `FileNotFoundError: configs/sub_f/vocab_floor_analysis.yaml`.
+Expected: FAIL with `FileNotFoundError` for missing sub-F config artifacts.
 
 - [ ] **Step 7: Run floor analysis (computes L1 + L2 curve + Singapore X-threshold)**
 
@@ -945,10 +990,10 @@ Expected: `configs/sub_f/vocab_floor_analysis.yaml` written with `_status: PROPO
 
 If sub-C cache is missing: STOP, report BLOCKED with the missing path.
 
-- [ ] **Step 8: Run full test suite (expected 7 PASS)**
+- [ ] **Step 8: Run full test suite (expected 8 PASS)**
 
 Run: `uv run pytest tests/data/sub_f/test_vocab.py -v`
-Expected: 7 PASS covering:
+Expected: 8 PASS covering:
 - L1 set-equality (28 keys vs hand-enumerated expected set)
 - L1 independent hand-count match (Safeguard 2)
 - L2 highway hand-count match (Safeguard 2)
@@ -956,6 +1001,7 @@ Expected: 7 PASS covering:
 - L3 deferred per spec §12 #10
 - Curve has L1 + L2 + L3 rows
 - Singapore X-threshold scoped to highway + building
+- Building value rows paginated (`>= 8000` rows)
 
 - [ ] **Step 9: HALT 1 — surface to reviewer**
 
@@ -985,7 +1031,8 @@ Expected: 7 PASS covering:
 **Cascade documentation (mandatory at Halt 1 per spec §13.5):**
 - Cascade #4 outcome: Singapore X scope = highway + building. POI/base deferred to sub-F-v2.
 - Cascade #5 outcome: L1 corrected to 28 keys; L3 deferred entirely.
-- §13.5 protocol-v2 candidates surfaced: (i) transitive-documentation citing, (ii) hand-enumeration with complete-count assertion, (iii) reviewer-supplied lists as untrusted input.
+- Cascade #6 outcome: taginfo values use `rp=999`; `building` paginated per cascade #4 scope; non-scope L1 value rows capped at first 999 results where applicable per spec §12 #12.
+- §13.5 protocol-v2 candidates surfaced: (i) transitive-documentation citing, (ii) hand-enumeration with complete-count assertion, (iii) reviewer-supplied lists as untrusted input, (iv) prompt audits reuse implementation call/code path, (v) exact-parameter diagnostic calls, (vi) reviewer-supplied parameter values as untrusted input.
 
 **§10.5 telemetry:**
 - Implementer-time-to-data-surface: wall-clock from dispatch start to this halt report commit.
@@ -4370,10 +4417,12 @@ Cross-bite-point revisions surfaced during implementation:
 - Audit-time cascade pattern (Plan Revisions 1+2): retroactive sub-D/sub-E manifest gap.
 - Halt-cost-telemetry as standard practice.
 - Cross-bite-point revision ledger as standard practice.
+- Dispatch-prompt audit steps reuse implementation call/code paths, including exact parameter values.
+- Reviewer-supplied parameter values are untrusted input requiring upstream-contract verification.
 
 ## Deferral ledger reference
 
-See spec §12 (9 entries). Status per entry at sub-F close: <each entry —
+See spec §12 (12 entries). Status per entry at sub-F close: <each entry —
 remains deferred | trigger fired | reopened in sub-F-v2 plan>.
 
 ## Pointers
@@ -4417,8 +4466,3 @@ Plan complete. Two execution options per writing-plans skill:
 Reviewer chooses execution mode AFTER plan review.
 
 **Per reviewer's gating discipline:** plan commits on `phase-1-sub-F-micro-tokenizer` branch; no push; NO Task dispatch until reviewer approves the plan.
-
-
-
-
-
