@@ -1,9 +1,9 @@
 # Task 1 implementer dispatch prompt
 
-**Status:** Approved by reviewer; ready for dispatch.
+**Status:** Revised v2; pending reviewer read-through / approval before dispatch.
 **Target:** General-purpose subagent / Codex agent.
 **Suggested model:** Sonnet-class (network calls + multi-step coordination + audit-level decisions; haiku may struggle).
-**Branch:** `phase-1-sub-F-micro-tokenizer` (current head: `69b835c`).
+**Branch:** `phase-1-sub-F-micro-tokenizer` (base includes plan/spec cascade #6 commit `9d59e13`).
 
 > The prompt below is the verbatim text to give the implementer agent. Everything between the `===` markers is the agent's prompt body.
 
@@ -15,8 +15,8 @@ You are implementing Phase 1 sub-F Task 1 pre-halt steps: BP1 vocab floor analys
 
 - **Working directory:** `/Users/umaraslam/Projects/Bonzai-OSM`
 - **Current branch:** `phase-1-sub-F-micro-tokenizer`. DO NOT create new branches, DO NOT push, DO NOT create PRs.
-- **Spec reference:** `docs/superpowers/specs/2026-05-23-phase-1-sub-F-micro-tokenizer-design.md` (commit `cd5d332`).
-- **Plan reference:** `docs/superpowers/plans/2026-05-23-phase-1-sub-F-micro-tokenizer.md` (commit `69b835c`).
+- **Spec reference:** `docs/superpowers/specs/2026-05-23-phase-1-sub-F-micro-tokenizer-design.md` (commit `9d59e13`).
+- **Plan reference:** `docs/superpowers/plans/2026-05-23-phase-1-sub-F-micro-tokenizer.md` (commit `9d59e13`).
 - **Protocol reference:** `docs/protocols/sub-project-planning-protocol-v1.md`.
 
 ## Discipline constraints (non-negotiable)
@@ -27,7 +27,7 @@ You are implementing Phase 1 sub-F Task 1 pre-halt steps: BP1 vocab floor analys
 4. **Halt-on-defect.** Unexpected errors, type mismatches, missing helpers → STOP and report DONE_WITH_CONCERNS or BLOCKED. No silent inline fixes.
 5. **Verify-before-lock.** If a file:line citation or expected API shape diverges from actual code, STOP and report. Do NOT autonomously cascade.
 6. **No autonomous YAML lock past the halt.** Plan Steps 10–11 (writing final `semantic_vocab.yaml` after reviewer approval) are EXPLICITLY out of scope. Stop at Step 9 (Halt 1 surface).
-7. **Cascade discipline.** This plan has FIVE prior §9.6.1 cascade outcomes baked into Task 1 code (cascades #1–#5 documented in plan's "Plan revisions from pre-dispatch audit" section). If any audit step surfaces a SIXTH cascade — e.g., the taginfo API has changed shape, or sub-C feature_class enum has been extended — STOP and report. Do NOT cascade autonomously past those already captured.
+7. **Cascade discipline.** This plan has SIX prior §9.6.1 cascade outcomes baked into Task 1 code (cascades #1–#6 documented in plan's "Plan revisions from pre-dispatch audit" section). If any audit step surfaces a SEVENTH cascade — e.g., the taginfo API has changed shape beyond cascade #6, or sub-C feature_class enum has been extended — STOP and report. Do NOT cascade autonomously past those already captured.
 
 ## Scope for this dispatch
 
@@ -48,34 +48,34 @@ All code blocks + step instructions are in the plan file at `docs/superpowers/pl
 - `tests/data/sub_f/__init__.py`
 - `tests/data/sub_f/test_vocab.py`
 
-### Pre-dispatch audit (3 steps; STOP and report BLOCKED if any surfaces a 6th cascade)
+### Pre-dispatch audit (3 steps; STOP and report BLOCKED if any surfaces a 7th cascade)
 
 #### Audit step 1: confirm taginfo API for global key+value frequency (matches snapshot_taginfo.py TAGINFO_VALUES_URL)
 
-Run: `curl -s 'https://taginfo.openstreetmap.org/api/4/key/values?key=highway&page=1&rp=1000&sortname=count&sortorder=desc' | head -c 500`
+Run: `curl -s 'https://taginfo.openstreetmap.org/api/4/key/values?key=highway&page=1&rp=999&sortname=count&sortorder=desc' | head -c 500`
 Expected: JSON payload with `data` array containing objects with `value` and `count` fields.
 
-If response missing the `data` array or first row `value` / `count` fields: STOP, report BLOCKED — that's a real taginfo API change, 6th §9.6.1 cascade.
+If response missing the `data` array or first row `value` / `count` fields: STOP, report BLOCKED — that's a real taginfo API change, 7th §9.6.1 cascade.
 
 #### Audit step 2: confirm wiki API for Map_features wikitext (matches snapshot_wiki.py implementation)
 
 Run: `curl -s 'https://wiki.openstreetmap.org/w/api.php?action=query&prop=revisions&titles=Map_features&rvprop=content|ids&rvslots=main&format=json&formatversion=2' | head -c 500`
-Expected: JSON payload with structure `{"query": {"pages": [{"revisions": [{"revid": <int>, "slots": {"main": {"content": "<wikitext...>"}}}]}]}}`. The wikitext content begins with `==` headers.
+Expected: JSON payload with structure `{"query": {"pages": [{"revisions": [{"revid": <int>, "slots": {"main": {"content": "<wikitext...>"}}}]}]}}`. The content is non-empty raw wikitext (it may begin with MediaWiki template preamble before `==` section headers).
 
-If response missing the `query.pages[0].revisions[0].slots.main.content` path or `revid` field: STOP, report BLOCKED — that's a real MediaWiki API change, 6th §9.6.1 cascade.
+If response missing the `query.pages[0].revisions[0].slots.main.content` path or `revid` field: STOP, report BLOCKED — that's a real MediaWiki API change, 7th §9.6.1 cascade.
 
 #### Audit step 3: verify sub-C feature_class enum still matches cascade #4 scope
 
 Run: `grep -A 2 "FEATURE_CLASS" src/cfm/data/sub_c/enums.py`
 Expected: `FEATURE_CLASS: dict[int, str] = {0: "road", 1: "building", 2: "poi", 3: "base"}` (4 closed values, NO new entries).
 
-If different (new feature_class values added since plan was written): STOP, report BLOCKED — that's a 6th §9.6.1 cascade requiring plan-revision, not in-dispatch handling.
+If different (new feature_class values added since plan was written): STOP, report BLOCKED — that's a 7th §9.6.1 cascade requiring plan-revision, not in-dispatch handling.
 
 ### Implementation steps (follow plan §Task 1 Steps 1–9 exactly)
 
 #### Step 1: Write `scripts/sub_f/snapshot_taginfo.py`
 
-Copy verbatim from plan §Task 1 Step 1. Bug 1 fix applied — raw counts schema with `row_type`, no fraction columns. Header row is `key,value,count_all,count_ways,count_nodes,count_relations,row_type,parent_key`.
+Copy verbatim from plan §Task 1 Step 1. Bug 1 fix applied — raw counts schema with `row_type`, no fraction columns. Cascade #6 fix applied — taginfo values use `rp=999`, with building-only pagination because building is in cascade #4 Singapore X scope. Header row is `key,value,count_all,count_ways,count_nodes,count_relations,row_type,parent_key`.
 
 #### Step 2: Write `scripts/sub_f/snapshot_wiki.py`
 
@@ -106,12 +106,13 @@ If you find a typo in the plan's code: STOP, report BLOCKED.
 
 #### Step 5: Write `tests/data/sub_f/__init__.py` (empty) + `tests/data/sub_f/test_vocab.py`
 
-Copy verbatim from plan §Task 1 Step 5. Test file ships 7 tests including Safeguard 2 per-key count assertions.
+Copy verbatim from plan §Task 1 Step 5. Test file ships 8 tests including Safeguard 2 per-key count assertions and the cascade #6 building pagination assertion.
 
 Hand-derived constants to preserve VERBATIM:
 - `N_L1_MUST_APPEARS_EXPECTED = 28`
 - `N_L2_HIGHWAY_EXPECTED = 23`
 - `N_L2_BUILDING_EXPECTED = 33`
+- Building value-row pagination assertion: `len(building_values) >= 8000`
 
 #### Step 6: Run test (expected fail — config does not exist yet)
 
@@ -119,7 +120,7 @@ Hand-derived constants to preserve VERBATIM:
 uv run pytest tests/data/sub_f/test_vocab.py -v
 ```
 
-Expected: tests FAIL with `FileNotFoundError`. All 7 tests should fail in this mode.
+Expected: tests FAIL with `FileNotFoundError`. All 8 tests should fail in this mode.
 
 #### Step 7: Run floor analysis
 
@@ -141,14 +142,15 @@ Spot-check the YAML:
 - `curve` has 3 entries (levels 1, 2, 3)
 - `proposed_x_threshold.candidate_a_singapore_elbow` is a concrete float
 - `proposed_x_threshold.candidate_b_median_must_appear_freq` is a concrete float
+- `tests/data/sub_f/test_vocab.py::test_taginfo_snapshot_paginates_building_values` will see at least 8000 `building` value rows in the taginfo CSV.
 
-#### Step 8: Run full test suite (expected 7 PASS)
+#### Step 8: Run full test suite (expected 8 PASS)
 
 ```bash
 uv run pytest tests/data/sub_f/test_vocab.py -v
 ```
 
-Expected: 7 PASS. If any FAIL: STOP, report BLOCKED with the failing assertion message.
+Expected: 8 PASS. If any FAIL: STOP, report BLOCKED with the failing assertion message.
 
 #### Step 9: HALT 1 — surface to reviewer
 
@@ -174,11 +176,13 @@ Write `reports/2026-05-23-phase-1-sub-F-task-1-halt.md` with this structure:
 - Candidate B: median must-appear frequency + concrete number.
 - Scope note: POI + base deferred per spec §12 #11.
 - Paired structural check framing.
+- Building pagination confirmation: building value-row count from taginfo CSV (must be >= 8000).
 
 **Cascade documentation (mandatory per spec §13.5):**
 - Cascade #4 outcome: Singapore X scope = highway + building. POI/base deferred to sub-F-v2.
 - Cascade #5 outcome: L1 corrected to 28 keys; L3 deferred entirely.
-- §13.5 protocol-v2 candidates surfaced: (i) transitive-documentation citing, (ii) hand-enumeration with complete-count assertion, (iii) reviewer-supplied lists as untrusted input.
+- Cascade #6 outcome: taginfo `rp=1000` rejected; implementation uses `rp=999`, paginates `building` only, and documents non-scope L1 value-tail cap per spec §12 #12.
+- §13.5 protocol-v2 candidates surfaced: (i) transitive-documentation citing, (ii) hand-enumeration with complete-count assertion, (iii) reviewer-supplied lists as untrusted input, (iv) dispatch prompt audits reuse implementation call/code path, (v) exact-parameter upstream diagnostics, (vi) reviewer-supplied parameter values as untrusted input.
 
 **§10.5 telemetry:**
 - Implementer-time-to-data-surface: wall-clock from dispatch start to this halt report commit.
@@ -209,7 +213,7 @@ Note `wip:` prefix because YAML is `_status: PROPOSED`. Final `feat: T1 ... (Hal
 2. Snapshot artifacts exist: 4 files under `configs/sub_f/`.
 3. YAML PROPOSED status: `grep "_status" configs/sub_f/vocab_floor_analysis.yaml` shows `PROPOSED`.
 4. YAML cascade scopes correct (28 L1 / 23 L2-highway / 33 L2-building / L3 deferred / Singapore X with concrete candidates).
-5. 7 tests pass.
+5. 8 tests pass.
 6. Halt report committed (`git log -1 --oneline` shows the `wip:` commit).
 7. `semantic_vocab.yaml` does NOT exist (continuation dispatch creates it).
 8. No autonomous cascade.
@@ -225,14 +229,14 @@ Include:
 - **Halt report path:** `reports/2026-05-23-phase-1-sub-F-task-1-halt.md`.
 - **Key numbers (5 lines max):** F_l1, vocab_size_l1, F_l2, vocab_size_l2, Singapore X candidate A.
 - **Files created (with byte counts for snapshot artifacts):** verbatim list.
-- **Tests:** `tests/data/sub_f/test_vocab.py` — 7 tests, PASS.
-- **Audit findings:** any §3 verification surprises (cite cascade # if matches plan's; flag as 6th cascade candidate if novel).
+- **Tests:** `tests/data/sub_f/test_vocab.py` — 8 tests, PASS.
+- **Audit findings:** any §3 verification surprises (cite cascade # if matches plan's; flag as 7th cascade candidate if novel).
 - **Commit SHA:** WIP commit hash.
 - **§10.5 telemetry:** implementer-time-to-data-surface (wall-clock minutes).
 
 Report BLOCKED only if:
 - Network calls fail (taginfo or wiki API down/changed shape).
-- Sub-C feature_class enum has changed since plan write (6th cascade).
+- Sub-C feature_class enum has changed since plan write (7th cascade).
 - Sub-C Singapore cache missing.
 - Wiki snapshot per-key counts diverge from expected (Safeguard 2 catch — wiki revised since plan was written).
 - Plan code block has a typo or unclear logic.
