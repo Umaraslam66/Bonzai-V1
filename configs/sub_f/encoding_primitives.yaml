@@ -1,0 +1,1559 @@
+_status: PROPOSED
+release: 2026-04-15.0
+source_scope:
+  path: data/processed/sub_c/2026-04-15.0/singapore
+  path_glob: data/processed/sub_c/2026-04-15.0/singapore/tile=EPSG3414_*/features.parquet
+  tile_count: 494
+  feature_count: 862436
+joint_surface:
+- direction_count: 8
+  magnitude_quantum_m: 0.25
+  analytical_angle_half_bin_deg: 22.5
+  analytical_magnitude_half_quantum_m: 0.125
+  analytical_l_inf_bound_m: 12.37087
+  roundtrip_l_inf_mean_m: 6.202399
+  roundtrip_l_inf_p50_m: 2.565138
+  roundtrip_l_inf_p95_m: 26.263963
+  roundtrip_l_inf_p99_m: 54.107252
+  roundtrip_l_inf_max_m: 93.40356
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 1.293843
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 4.398705
+  right_angle_post_roundtrip_p99_deg: 45.0
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.591945
+  right_angle_abs_change_p50_deg: 0.194528
+  right_angle_abs_change_p95_deg: 4.751245
+  right_angle_abs_change_p99_deg: 43.672223
+  right_angle_abs_change_max_deg: 94.76527
+  right_angle_measured_corner_count: 2086045
+  right_angle_skip_count: 3191
+- direction_count: 8
+  magnitude_quantum_m: 0.5
+  analytical_angle_half_bin_deg: 22.5
+  analytical_magnitude_half_quantum_m: 0.25
+  analytical_l_inf_bound_m: 12.49587
+  roundtrip_l_inf_mean_m: 6.220171
+  roundtrip_l_inf_p50_m: 2.616825
+  roundtrip_l_inf_p95_m: 26.265232
+  roundtrip_l_inf_p99_m: 54.107252
+  roundtrip_l_inf_max_m: 93.40356
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 1.331283
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 5.350673
+  right_angle_post_roundtrip_p99_deg: 45.0
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.63167
+  right_angle_abs_change_p50_deg: 0.19159
+  right_angle_abs_change_p95_deg: 5.371478
+  right_angle_abs_change_p99_deg: 43.900366
+  right_angle_abs_change_max_deg: 94.900722
+  right_angle_measured_corner_count: 2082338
+  right_angle_skip_count: 6898
+- direction_count: 8
+  magnitude_quantum_m: 1.0
+  analytical_angle_half_bin_deg: 22.5
+  analytical_magnitude_half_quantum_m: 0.5
+  analytical_l_inf_bound_m: 12.74587
+  roundtrip_l_inf_mean_m: 6.284994
+  roundtrip_l_inf_p50_m: 2.656481
+  roundtrip_l_inf_p95_m: 26.265981
+  roundtrip_l_inf_p99_m: 54.107252
+  roundtrip_l_inf_max_m: 93.40356
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 1.428182
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 7.020364
+  right_angle_post_roundtrip_p99_deg: 45.0
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.729832
+  right_angle_abs_change_p50_deg: 0.188411
+  right_angle_abs_change_p95_deg: 6.871901
+  right_angle_abs_change_p99_deg: 44.601859
+  right_angle_abs_change_max_deg: 94.50345
+  right_angle_measured_corner_count: 2071223
+  right_angle_skip_count: 18013
+- direction_count: 16
+  magnitude_quantum_m: 0.25
+  analytical_angle_half_bin_deg: 11.25
+  analytical_magnitude_half_quantum_m: 0.125
+  analytical_l_inf_bound_m: 6.36789
+  roundtrip_l_inf_mean_m: 2.977576
+  roundtrip_l_inf_p50_m: 1.291279
+  roundtrip_l_inf_p95_m: 12.186847
+  roundtrip_l_inf_p99_m: 24.587543
+  roundtrip_l_inf_max_m: 36.489518
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 0.899663
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 3.814075
+  right_angle_post_roundtrip_p99_deg: 22.5
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.18221
+  right_angle_abs_change_p50_deg: 0.195476
+  right_angle_abs_change_p95_deg: 4.410996
+  right_angle_abs_change_p99_deg: 22.15868
+  right_angle_abs_change_max_deg: 94.76527
+  right_angle_measured_corner_count: 2086291
+  right_angle_skip_count: 2945
+- direction_count: 16
+  magnitude_quantum_m: 0.5
+  analytical_angle_half_bin_deg: 11.25
+  analytical_magnitude_half_quantum_m: 0.25
+  analytical_l_inf_bound_m: 6.49289
+  roundtrip_l_inf_mean_m: 3.010403
+  roundtrip_l_inf_p50_m: 1.322873
+  roundtrip_l_inf_p95_m: 12.28804
+  roundtrip_l_inf_p99_m: 24.414844
+  roundtrip_l_inf_max_m: 36.489518
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 0.969898
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 4.763642
+  right_angle_post_roundtrip_p99_deg: 22.5
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.254403
+  right_angle_abs_change_p50_deg: 0.193165
+  right_angle_abs_change_p95_deg: 4.853061
+  right_angle_abs_change_p99_deg: 22.216266
+  right_angle_abs_change_max_deg: 94.900721
+  right_angle_measured_corner_count: 2082827
+  right_angle_skip_count: 6409
+- direction_count: 16
+  magnitude_quantum_m: 1.0
+  analytical_angle_half_bin_deg: 11.25
+  analytical_magnitude_half_quantum_m: 0.5
+  analytical_l_inf_bound_m: 6.74289
+  roundtrip_l_inf_mean_m: 3.102123
+  roundtrip_l_inf_p50_m: 1.474671
+  roundtrip_l_inf_p95_m: 12.254952
+  roundtrip_l_inf_p99_m: 24.846901
+  roundtrip_l_inf_max_m: 36.489518
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 1.128016
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 6.340192
+  right_angle_post_roundtrip_p99_deg: 22.5
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.413459
+  right_angle_abs_change_p50_deg: 0.1908
+  right_angle_abs_change_p95_deg: 6.342622
+  right_angle_abs_change_p99_deg: 22.551247
+  right_angle_abs_change_max_deg: 94.040239
+  right_angle_measured_corner_count: 2072012
+  right_angle_skip_count: 17224
+- direction_count: 24
+  magnitude_quantum_m: 0.25
+  analytical_angle_half_bin_deg: 7.5
+  analytical_magnitude_half_quantum_m: 0.125
+  analytical_l_inf_bound_m: 4.301838
+  roundtrip_l_inf_mean_m: 2.019708
+  roundtrip_l_inf_p50_m: 0.980589
+  roundtrip_l_inf_p95_m: 7.462548
+  roundtrip_l_inf_p99_m: 15.142919
+  roundtrip_l_inf_max_m: 26.029678
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 0.816138
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 4.291384
+  right_angle_post_roundtrip_p99_deg: 15.0
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.080564
+  right_angle_abs_change_p50_deg: 0.195835
+  right_angle_abs_change_p95_deg: 4.603113
+  right_angle_abs_change_p99_deg: 14.779519
+  right_angle_abs_change_max_deg: 94.76527
+  right_angle_measured_corner_count: 2086425
+  right_angle_skip_count: 2811
+- direction_count: 24
+  magnitude_quantum_m: 0.5
+  analytical_angle_half_bin_deg: 7.5
+  analytical_magnitude_half_quantum_m: 0.25
+  analytical_l_inf_bound_m: 4.426838
+  roundtrip_l_inf_mean_m: 2.056296
+  roundtrip_l_inf_p50_m: 1.011991
+  roundtrip_l_inf_p95_m: 7.585238
+  roundtrip_l_inf_p99_m: 15.094348
+  roundtrip_l_inf_max_m: 26.029678
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 0.900961
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 5.201025
+  right_angle_post_roundtrip_p99_deg: 15.0
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.167315
+  right_angle_abs_change_p50_deg: 0.193936
+  right_angle_abs_change_p95_deg: 5.253961
+  right_angle_abs_change_p99_deg: 14.96102
+  right_angle_abs_change_max_deg: 93.244213
+  right_angle_measured_corner_count: 2083012
+  right_angle_skip_count: 6224
+- direction_count: 24
+  magnitude_quantum_m: 1.0
+  analytical_angle_half_bin_deg: 7.5
+  analytical_magnitude_half_quantum_m: 0.5
+  analytical_l_inf_bound_m: 4.676838
+  roundtrip_l_inf_mean_m: 2.153339
+  roundtrip_l_inf_p50_m: 1.115434
+  roundtrip_l_inf_p95_m: 7.583544
+  roundtrip_l_inf_p99_m: 15.126002
+  roundtrip_l_inf_max_m: 26.029678
+  roundtrip_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  roundtrip_skip_counts:
+    polylines: 0
+    polygon_exterior_rings: 0
+  right_angle_post_roundtrip_mean_deg: 1.075759
+  right_angle_post_roundtrip_p50_deg: 0.0
+  right_angle_post_roundtrip_p95_deg: 7.125016
+  right_angle_post_roundtrip_p99_deg: 19.775761
+  right_angle_post_roundtrip_max_deg: 90.0
+  right_angle_abs_change_mean_deg: 1.343048
+  right_angle_abs_change_p50_deg: 0.191866
+  right_angle_abs_change_p95_deg: 7.142823
+  right_angle_abs_change_p99_deg: 19.830561
+  right_angle_abs_change_max_deg: 94.323335
+  right_angle_measured_corner_count: 2072271
+  right_angle_skip_count: 16965
+input_geometry_characterization:
+  geometry_type_feature_counts:
+    0: 149666
+    1: 303302
+    2: 399695
+    4: 5690
+    5: 4083
+  geometry_type_labels:
+    0: Point
+    1: LineString
+    2: Polygon
+    4: MultiLineString
+    5: MultiPolygon
+  eligible_geometry_counts:
+    polylines: 315092
+    polygon_exterior_rings: 408700
+  measured_geometry_sample_counts:
+    polylines: 1000
+    polygon_exterior_rings: 1000
+  measured_geometry_candidate_counts:
+    polylines: 315092
+    polygon_exterior_rings: 408700
+  turn_angle_distribution:
+    polylines_abs_deg:
+      count: 794988
+      mean: 14.186135
+      p50: 8.006368
+      p95: 48.379857
+      p99: 90.585819
+      max: 179.998539
+    polygon_exterior_rings_abs_deg:
+      count: 2637483
+      mean: 83.511275
+      p50: 89.976487
+      p95: 94.829084
+      p99: 140.371925
+      max: 179.796385
+  vertex_spacing_distribution_m:
+    polylines:
+      count: 1110080
+      mean: 19.652705
+      p50: 10.416614
+      p95: 68.368683
+      p99: 129.568841
+      max: 342.586384
+    polygon_exterior_rings:
+      count: 2637483
+      mean: 10.219272
+      p50: 6.418139
+      p95: 29.666283
+      p99: 65.007026
+      max: 344.087801
+  building_corner_angle_abs_deviation_from_90_distribution_deg:
+    count: 2551646
+    mean: 8.699538
+    p50: 0.255536
+    p95: 67.964586
+    p99: 89.902538
+    max: 90.0
+right_angle_input_characterization:
+  definition: abs(angle_deg - 90) <= 5
+  total_building_polygon_corner_count: 2551646
+  input_right_angle_corner_count: 2089236
+  fraction_within_5_deg_of_90: 0.81878
+  abs_deviation_from_90_deg:
+    p50: 0.255536
+    p95: 67.964586
+    p99: 89.902538
+collinearity_candidate_distribution:
+  definition: Polyline interior triples with abs(turn angle) <= 5 deg; value is middle vertex perpendicular deviation from the straight line through neighbors.
+  collinear_candidate_triples: 320168
+  total_polyline_interior_triples: 794945
+  weak_empirical_p95_basis: false
+  distribution_perpendicular_m:
+    count: 320168
+    mean: 0.230744
+    p50: 0.093474
+    p95: 0.928048
+    p99: 1.751071
+    max: 6.090856
+  fixed_multiple_thresholds_m:
+    1x_magnitude_quantum: 0.5
+    2x_magnitude_quantum: 1.0
+  proposed_threshold_method: empirical_p95_perpendicular_deviation
+  proposed_threshold_m: 0.928048
+l_inf_decomposition_proposed_24_0_5:
+  candidate:
+    direction_count: 24
+    magnitude_quantum_m: 0.5
+    geometry_class: polylines
+  sample_seed: 20260523
+  sample_sort_key: (tile_id, source_feature_id, cell_i, cell_j, primitive_index); primary key preserves requested (tile_id, source_feature_id) ordering with deterministic tie-breakers
+  sample_count: 1000
+  skip_count: 0
+  correlations:
+    total_length_m:
+      pearson: 0.692405
+      spearman: 0.780424
+    vertex_count:
+      pearson: 0.258424
+      spearman: 0.429506
+    max_abs_turn_angle_deg:
+      pearson: 0.03913
+      spearman: 0.31168
+    mean_vertex_spacing_m:
+      pearson: 0.483501
+      spearman: 0.633627
+  root_cause_classification:
+    dominant_driver: total_length_m
+    dominant_abs_spearman: 0.780424
+    classification: length_correlated_threshold_chunking_lever
+    reviewer_action: Revisit chunking threshold or accumulated direction quantization before lock.
+  top_50_worst_polyline_features:
+  - tile_id: tile=EPSG3414_i5_j15
+    source_feature_id: b34f3fc5-9022-4f4e-a33e-5ac923fd1793
+    cell_i: 3
+    cell_j: 6
+    primitive_index: 0
+    l_inf_m: 26.029678
+    total_length_m: 252.011482
+    vertex_count: 9
+    max_abs_turn_angle_deg: 1.027644
+    mean_vertex_spacing_m: 31.501435
+  - tile_id: tile=EPSG3414_i23_j24
+    source_feature_id: d0ab078f-aa1a-4b57-9a29-f9b235cf1bd7
+    cell_i: 0
+    cell_j: 5
+    primitive_index: 0
+    l_inf_m: 24.298875
+    total_length_m: 266.878671
+    vertex_count: 2
+    max_abs_turn_angle_deg: 0.0
+    mean_vertex_spacing_m: 266.878671
+  - tile_id: tile=EPSG3414_i6_j21
+    source_feature_id: 2c07931b-dfee-4d81-8a35-b7c887054f71
+    cell_i: 4
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 22.649894
+    total_length_m: 260.422332
+    vertex_count: 5
+    max_abs_turn_angle_deg: 22.671624
+    mean_vertex_spacing_m: 65.105583
+  - tile_id: tile=EPSG3414_i17_j23
+    source_feature_id: dd34210c-c519-4fe4-b061-21bbf9ccffda
+    cell_i: 0
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 21.846263
+    total_length_m: 238.285686
+    vertex_count: 3
+    max_abs_turn_angle_deg: 0.05715
+    mean_vertex_spacing_m: 119.142843
+  - tile_id: tile=EPSG3414_i12_j16
+    source_feature_id: 108b16b2-8972-4125-a388-aaceab254cd9
+    cell_i: 2
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 21.371145
+    total_length_m: 242.036258
+    vertex_count: 5
+    max_abs_turn_angle_deg: 2.429904
+    mean_vertex_spacing_m: 60.509065
+  - tile_id: tile=EPSG3414_i23_j24
+    source_feature_id: 09c9a03d-bf89-4bfc-851a-5418c4f71241
+    cell_i: 4
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 21.219808
+    total_length_m: 183.750932
+    vertex_count: 2
+    max_abs_turn_angle_deg: 0.0
+    mean_vertex_spacing_m: 183.750932
+  - tile_id: tile=EPSG3414_i3_j24
+    source_feature_id: 758b2c24-e4f6-46e6-b1a2-0ad48309fbd7
+    cell_i: 7
+    cell_j: 5
+    primitive_index: 0
+    l_inf_m: 20.610246
+    total_length_m: 252.475646
+    vertex_count: 4
+    max_abs_turn_angle_deg: 1.55866
+    mean_vertex_spacing_m: 84.158549
+  - tile_id: tile=EPSG3414_i18_j25
+    source_feature_id: 67b5cb85-6011-456e-b097-ee23c721356a
+    cell_i: 3
+    cell_j: 0
+    primitive_index: 0
+    l_inf_m: 20.044217
+    total_length_m: 309.826585
+    vertex_count: 11
+    max_abs_turn_angle_deg: 7.840014
+    mean_vertex_spacing_m: 30.982659
+  - tile_id: tile=EPSG3414_i3_j14
+    source_feature_id: 2b248272-15df-48f0-9de0-eeef7ce374b4
+    cell_i: 0
+    cell_j: 5
+    primitive_index: 0
+    l_inf_m: 19.059053
+    total_length_m: 250.990122
+    vertex_count: 9
+    max_abs_turn_angle_deg: 22.445056
+    mean_vertex_spacing_m: 31.373765
+  - tile_id: tile=EPSG3414_i18_j18
+    source_feature_id: 6abeea86-9d49-4cbd-934e-b85c9009121f
+    cell_i: 7
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 19.003815
+    total_length_m: 274.192272
+    vertex_count: 8
+    max_abs_turn_angle_deg: 11.621878
+    mean_vertex_spacing_m: 39.170325
+  - tile_id: tile=EPSG3414_i7_j22
+    source_feature_id: cdc5419d-8b52-4fdf-bd89-e86a7a3d3110
+    cell_i: 3
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 18.900673
+    total_length_m: 298.337679
+    vertex_count: 8
+    max_abs_turn_angle_deg: 24.886906
+    mean_vertex_spacing_m: 42.619668
+  - tile_id: tile=EPSG3414_i2_j16
+    source_feature_id: fd67e7ee-e538-41ab-8826-2bd1d23755e1
+    cell_i: 4
+    cell_j: 0
+    primitive_index: 0
+    l_inf_m: 18.445055
+    total_length_m: 266.892358
+    vertex_count: 9
+    max_abs_turn_angle_deg: 4.640226
+    mean_vertex_spacing_m: 33.361545
+  - tile_id: tile=EPSG3414_i12_j16
+    source_feature_id: 9e8e0c61-3ffb-47bc-a1a3-5b3b72ecac35
+    cell_i: 0
+    cell_j: 3
+    primitive_index: 0
+    l_inf_m: 17.719391
+    total_length_m: 199.541985
+    vertex_count: 5
+    max_abs_turn_angle_deg: 3.457914
+    mean_vertex_spacing_m: 49.885496
+  - tile_id: tile=EPSG3414_i1_j24
+    source_feature_id: 428798ed-7fa9-4ab7-a351-5e9732b3c782
+    cell_i: 1
+    cell_j: 5
+    primitive_index: 0
+    l_inf_m: 17.196418
+    total_length_m: 198.488607
+    vertex_count: 2
+    max_abs_turn_angle_deg: 0.0
+    mean_vertex_spacing_m: 198.488607
+  - tile_id: tile=EPSG3414_i7_j16
+    source_feature_id: edf473e9-3bef-41b2-8871-844d6dca345e
+    cell_i: 2
+    cell_j: 3
+    primitive_index: 0
+    l_inf_m: 16.075527
+    total_length_m: 250.518434
+    vertex_count: 6
+    max_abs_turn_angle_deg: 1.836172
+    mean_vertex_spacing_m: 50.103687
+  - tile_id: tile=EPSG3414_i2_j23
+    source_feature_id: 4db3702c-fc3e-4979-86ae-5a586e74d078
+    cell_i: 0
+    cell_j: 4
+    primitive_index: 0
+    l_inf_m: 16.070101
+    total_length_m: 280.813572
+    vertex_count: 11
+    max_abs_turn_angle_deg: 11.082661
+    mean_vertex_spacing_m: 28.081357
+  - tile_id: tile=EPSG3414_i11_j14
+    source_feature_id: f1e5c003-a90f-4329-85ba-07ebb9e4761f
+    cell_i: 1
+    cell_j: 5
+    primitive_index: 0
+    l_inf_m: 15.695517
+    total_length_m: 263.108478
+    vertex_count: 15
+    max_abs_turn_angle_deg: 92.673557
+    mean_vertex_spacing_m: 18.793463
+  - tile_id: tile=EPSG3414_i6_j16
+    source_feature_id: 713cefef-20b3-43ac-9d63-f343e02a25c4
+    cell_i: 2
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 15.532888
+    total_length_m: 146.764777
+    vertex_count: 2
+    max_abs_turn_angle_deg: 0.0
+    mean_vertex_spacing_m: 146.764777
+  - tile_id: tile=EPSG3414_i2_j14
+    source_feature_id: 5fa84f4c-7950-41e4-af10-ab24365f1112
+    cell_i: 2
+    cell_j: 7
+    primitive_index: 0
+    l_inf_m: 15.411587
+    total_length_m: 149.226259
+    vertex_count: 5
+    max_abs_turn_angle_deg: 0.943589
+    mean_vertex_spacing_m: 37.306565
+  - tile_id: tile=EPSG3414_i17_j23
+    source_feature_id: f1d6bb5f-d053-4b78-b377-d5df04337fa7
+    cell_i: 0
+    cell_j: 4
+    primitive_index: 0
+    l_inf_m: 15.094038
+    total_length_m: 179.778476
+    vertex_count: 5
+    max_abs_turn_angle_deg: 33.413617
+    mean_vertex_spacing_m: 44.944619
+  - tile_id: tile=EPSG3414_i10_j21
+    source_feature_id: 6a6c5c59-734c-4340-b1aa-f019926155e5
+    cell_i: 1
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 15.037335
+    total_length_m: 235.411048
+    vertex_count: 7
+    max_abs_turn_angle_deg: 13.076018
+    mean_vertex_spacing_m: 39.235175
+  - tile_id: tile=EPSG3414_i4_j14
+    source_feature_id: c853932e-3be6-4b1a-b788-87ac827ca621
+    cell_i: 6
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 14.897807
+    total_length_m: 201.159982
+    vertex_count: 7
+    max_abs_turn_angle_deg: 37.726252
+    mean_vertex_spacing_m: 33.526664
+  - tile_id: tile=EPSG3414_i12_j24
+    source_feature_id: 9d94c80e-eae6-4cd7-a2f4-6ed960802cab
+    cell_i: 0
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 14.767759
+    total_length_m: 235.055138
+    vertex_count: 8
+    max_abs_turn_angle_deg: 1.89093
+    mean_vertex_spacing_m: 33.579305
+  - tile_id: tile=EPSG3414_i16_j17
+    source_feature_id: 6c87c8fa-2ea7-4181-b6da-5e99c792d4fd
+    cell_i: 3
+    cell_j: 4
+    primitive_index: 0
+    l_inf_m: 14.582334
+    total_length_m: 234.39405
+    vertex_count: 3
+    max_abs_turn_angle_deg: 1.523253
+    mean_vertex_spacing_m: 117.197025
+  - tile_id: tile=EPSG3414_i16_j17
+    source_feature_id: 7368e695-840a-453b-bb51-76c20bd80e3c
+    cell_i: 1
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 14.570683
+    total_length_m: 236.526974
+    vertex_count: 9
+    max_abs_turn_angle_deg: 1.673811
+    mean_vertex_spacing_m: 29.565872
+  - tile_id: tile=EPSG3414_i19_j19
+    source_feature_id: c60d6fc3-fad4-4d9f-b959-64795c57af89
+    cell_i: 7
+    cell_j: 6
+    primitive_index: 0
+    l_inf_m: 14.490005
+    total_length_m: 160.983683
+    vertex_count: 8
+    max_abs_turn_angle_deg: 1.68785
+    mean_vertex_spacing_m: 22.997669
+  - tile_id: tile=EPSG3414_i7_j21
+    source_feature_id: 0a71cb64-241f-3c3d-836e-8847543614a1
+    cell_i: 1
+    cell_j: 6
+    primitive_index: 0
+    l_inf_m: 14.240957
+    total_length_m: 262.801489
+    vertex_count: 3
+    max_abs_turn_angle_deg: 24.244709
+    mean_vertex_spacing_m: 131.400745
+  - tile_id: tile=EPSG3414_i18_j18
+    source_feature_id: c143084d-77a5-4fba-9bc5-f284a2d96ce1
+    cell_i: 6
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 13.949066
+    total_length_m: 127.367653
+    vertex_count: 3
+    max_abs_turn_angle_deg: 1.061013
+    mean_vertex_spacing_m: 63.683826
+  - tile_id: tile=EPSG3414_i17_j20
+    source_feature_id: 486b2fe2-e178-48fb-beac-91258fbd1f11
+    cell_i: 0
+    cell_j: 3
+    primitive_index: 0
+    l_inf_m: 13.831497
+    total_length_m: 263.278501
+    vertex_count: 6
+    max_abs_turn_angle_deg: 2.809574
+    mean_vertex_spacing_m: 52.6557
+  - tile_id: tile=EPSG3414_i4_j16
+    source_feature_id: ea5319b1-6e70-49be-a6a4-98531fc0c4c7
+    cell_i: 6
+    cell_j: 5
+    primitive_index: 0
+    l_inf_m: 13.789066
+    total_length_m: 187.707731
+    vertex_count: 3
+    max_abs_turn_angle_deg: 0.147482
+    mean_vertex_spacing_m: 93.853866
+  - tile_id: tile=EPSG3414_i23_j18
+    source_feature_id: ee960f52-2c3a-3d24-abab-bc2b7ed83edc
+    cell_i: 7
+    cell_j: 6
+    primitive_index: 0
+    l_inf_m: 13.376573
+    total_length_m: 122.086079
+    vertex_count: 2
+    max_abs_turn_angle_deg: 0.0
+    mean_vertex_spacing_m: 122.086079
+  - tile_id: tile=EPSG3414_i23_j18
+    source_feature_id: 01f31db0-ba0a-4266-a6a8-4f92be0f1424
+    cell_i: 3
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 13.282245
+    total_length_m: 121.343951
+    vertex_count: 2
+    max_abs_turn_angle_deg: 0.0
+    mean_vertex_spacing_m: 121.343951
+  - tile_id: tile=EPSG3414_i19_j17
+    source_feature_id: d5faf8fe-812d-4047-bbee-9f8761ed6579
+    cell_i: 7
+    cell_j: 7
+    primitive_index: 0
+    l_inf_m: 13.090724
+    total_length_m: 262.121045
+    vertex_count: 5
+    max_abs_turn_angle_deg: 13.876201
+    mean_vertex_spacing_m: 65.530261
+  - tile_id: tile=EPSG3414_i15_j20
+    source_feature_id: 9d99707f-7321-4982-9fe1-a96cb460edf8
+    cell_i: 6
+    cell_j: 3
+    primitive_index: 0
+    l_inf_m: 12.949211
+    total_length_m: 179.78533
+    vertex_count: 9
+    max_abs_turn_angle_deg: 3.958228
+    mean_vertex_spacing_m: 22.473166
+  - tile_id: tile=EPSG3414_i15_j15
+    source_feature_id: cbe05c34-8dd8-4019-bb54-b9b82a0adb39
+    cell_i: 0
+    cell_j: 3
+    primitive_index: 0
+    l_inf_m: 12.938083
+    total_length_m: 309.977978
+    vertex_count: 3
+    max_abs_turn_angle_deg: 4.677662
+    mean_vertex_spacing_m: 154.988989
+  - tile_id: tile=EPSG3414_i16_j17
+    source_feature_id: 82c95689-71c4-4585-ac2c-adedfc22c404
+    cell_i: 6
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 12.172531
+    total_length_m: 137.335959
+    vertex_count: 5
+    max_abs_turn_angle_deg: 5.597255
+    mean_vertex_spacing_m: 34.33399
+  - tile_id: tile=EPSG3414_i13_j15
+    source_feature_id: 9e0e3ce4-502d-475a-b7d4-d8cc86b4576b
+    cell_i: 6
+    cell_j: 5
+    primitive_index: 0
+    l_inf_m: 12.058583
+    total_length_m: 212.076851
+    vertex_count: 10
+    max_abs_turn_angle_deg: 10.420847
+    mean_vertex_spacing_m: 23.564095
+  - tile_id: tile=EPSG3414_i14_j14
+    source_feature_id: 88656aaa-12f3-471c-91a0-a3657e8841c8
+    cell_i: 6
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 11.804143
+    total_length_m: 261.803789
+    vertex_count: 13
+    max_abs_turn_angle_deg: 9.597295
+    mean_vertex_spacing_m: 21.816982
+  - tile_id: tile=EPSG3414_i2_j22
+    source_feature_id: 08cac3fc-36d7-4de3-a42c-3cf2d19b2740
+    cell_i: 3
+    cell_j: 6
+    primitive_index: 0
+    l_inf_m: 11.744796
+    total_length_m: 135.544186
+    vertex_count: 4
+    max_abs_turn_angle_deg: 1.208594
+    mean_vertex_spacing_m: 45.181395
+  - tile_id: tile=EPSG3414_i10_j19
+    source_feature_id: 3a7aff43-7650-4af4-965a-c582887b9037
+    cell_i: 0
+    cell_j: 3
+    primitive_index: 0
+    l_inf_m: 11.676049
+    total_length_m: 408.845289
+    vertex_count: 12
+    max_abs_turn_angle_deg: 46.81387
+    mean_vertex_spacing_m: 37.167754
+  - tile_id: tile=EPSG3414_i5_j14
+    source_feature_id: ea31d863-770f-40bf-bc50-98c43b85079d
+    cell_i: 1
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 11.635707
+    total_length_m: 128.860266
+    vertex_count: 2
+    max_abs_turn_angle_deg: 0.0
+    mean_vertex_spacing_m: 128.860266
+  - tile_id: tile=EPSG3414_i12_j15
+    source_feature_id: 198a832a-2107-47ba-ace5-dc5371c9e865
+    cell_i: 1
+    cell_j: 4
+    primitive_index: 0
+    l_inf_m: 11.634339
+    total_length_m: 219.273521
+    vertex_count: 3
+    max_abs_turn_angle_deg: 5.503537
+    mean_vertex_spacing_m: 109.636761
+  - tile_id: tile=EPSG3414_i21_j21
+    source_feature_id: 325298e7-1cf9-45b0-8140-06cb5d848397
+    cell_i: 2
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 11.108489
+    total_length_m: 267.922557
+    vertex_count: 9
+    max_abs_turn_angle_deg: 33.23351
+    mean_vertex_spacing_m: 33.49032
+  - tile_id: tile=EPSG3414_i11_j24
+    source_feature_id: 270cd050-e578-42cd-ad95-cbb758f89c87
+    cell_i: 7
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 11.081864
+    total_length_m: 170.372827
+    vertex_count: 4
+    max_abs_turn_angle_deg: 3.200939
+    mean_vertex_spacing_m: 56.790942
+  - tile_id: tile=EPSG3414_i2_j16
+    source_feature_id: 24c6b227-3ded-4261-8c24-ea83ff96b1d0
+    cell_i: 4
+    cell_j: 6
+    primitive_index: 1
+    l_inf_m: 10.993916
+    total_length_m: 277.802649
+    vertex_count: 13
+    max_abs_turn_angle_deg: 66.368257
+    mean_vertex_spacing_m: 23.150221
+  - tile_id: tile=EPSG3414_i15_j19
+    source_feature_id: fb8a213f-51f8-402e-bbdd-3565635a94b8
+    cell_i: 0
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 10.910065
+    total_length_m: 123.311376
+    vertex_count: 8
+    max_abs_turn_angle_deg: 0.04417
+    mean_vertex_spacing_m: 17.615911
+  - tile_id: tile=EPSG3414_i1_j21
+    source_feature_id: 814854a6-3985-4179-84c3-eb44333ded97
+    cell_i: 5
+    cell_j: 3
+    primitive_index: 0
+    l_inf_m: 10.778479
+    total_length_m: 145.884052
+    vertex_count: 6
+    max_abs_turn_angle_deg: 24.827071
+    mean_vertex_spacing_m: 29.17681
+  - tile_id: tile=EPSG3414_i6_j14
+    source_feature_id: d18a4138-4f1f-4901-9479-43e6477028de
+    cell_i: 3
+    cell_j: 3
+    primitive_index: 0
+    l_inf_m: 10.749919
+    total_length_m: 256.650856
+    vertex_count: 8
+    max_abs_turn_angle_deg: 20.926917
+    mean_vertex_spacing_m: 36.664408
+  - tile_id: tile=EPSG3414_i12_j22
+    source_feature_id: 8ad5decb-e59b-4e5c-9d85-746ef5f8ffa7
+    cell_i: 1
+    cell_j: 2
+    primitive_index: 0
+    l_inf_m: 10.573444
+    total_length_m: 128.551023
+    vertex_count: 2
+    max_abs_turn_angle_deg: 0.0
+    mean_vertex_spacing_m: 128.551023
+  - tile_id: tile=EPSG3414_i17_j16
+    source_feature_id: c7e915f1-d0e4-4cf4-8e74-d7e6b10ca720
+    cell_i: 1
+    cell_j: 1
+    primitive_index: 0
+    l_inf_m: 10.453089
+    total_length_m: 219.170994
+    vertex_count: 10
+    max_abs_turn_angle_deg: 19.716025
+    mean_vertex_spacing_m: 24.352333
+right_angle_catastrophic_decomposition_proposed_24_0_5:
+  candidate:
+    direction_count: 24
+    magnitude_quantum_m: 0.5
+  measured_right_angle_corner_count: 2083012
+  skip_count: 6224
+  buckets:
+  - bucket: <5 deg
+    count: 1975732
+    fraction: 0.94849766
+  - bucket: 5-15 deg
+    count: 65477
+    fraction: 0.03143381
+  - bucket: 15-45 deg
+    count: 37286
+    fraction: 0.01790004
+  - bucket: '>45 deg'
+    count: 4517
+    fraction: 0.00216849
+  catastrophic_count: 4517
+  catastrophic_fraction: 0.00216849
+  classification: structural_encoding_bug_surface_for_plan_revision
+  decision_thresholds:
+    edge_case_if_less_than_fraction: 0.0001
+    structural_bug_if_greater_than_fraction: 0.001
+l_inf_chunk_threshold_sweep_24_0_5_hierarchical:
+  candidate:
+    direction_count: 24
+    magnitude_quantum_m: 0.5
+    anchor_scheme: hierarchical
+    geometry_class: polylines
+  sample_seed: 20260523
+  rows:
+  - chunk_threshold_m: 32
+    roundtrip_l_inf_mean_m: 2.872919
+    roundtrip_l_inf_p50_m: 1.505613
+    roundtrip_l_inf_p95_m: 10.342844
+    roundtrip_l_inf_p99_m: 18.901704
+    roundtrip_l_inf_max_m: 26.029678
+    sample_count: 1000
+    skip_count: 0
+    top_10_worst_polyline_features:
+    - tile_id: tile=EPSG3414_i5_j15
+      source_feature_id: b34f3fc5-9022-4f4e-a33e-5ac923fd1793
+      cell_i: 3
+      cell_j: 6
+      primitive_index: 0
+      l_inf_m: 26.029678
+      total_length_m: 252.011482
+      vertex_count: 9
+      max_abs_turn_angle_deg: 1.027644
+      mean_vertex_spacing_m: 31.501435
+    - tile_id: tile=EPSG3414_i23_j24
+      source_feature_id: d0ab078f-aa1a-4b57-9a29-f9b235cf1bd7
+      cell_i: 0
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 24.298875
+      total_length_m: 266.878671
+      vertex_count: 2
+      max_abs_turn_angle_deg: 0.0
+      mean_vertex_spacing_m: 266.878671
+    - tile_id: tile=EPSG3414_i6_j21
+      source_feature_id: 2c07931b-dfee-4d81-8a35-b7c887054f71
+      cell_i: 4
+      cell_j: 1
+      primitive_index: 0
+      l_inf_m: 22.649894
+      total_length_m: 260.422332
+      vertex_count: 5
+      max_abs_turn_angle_deg: 22.671624
+      mean_vertex_spacing_m: 65.105583
+    - tile_id: tile=EPSG3414_i17_j23
+      source_feature_id: dd34210c-c519-4fe4-b061-21bbf9ccffda
+      cell_i: 0
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 21.846263
+      total_length_m: 238.285686
+      vertex_count: 3
+      max_abs_turn_angle_deg: 0.05715
+      mean_vertex_spacing_m: 119.142843
+    - tile_id: tile=EPSG3414_i12_j16
+      source_feature_id: 108b16b2-8972-4125-a388-aaceab254cd9
+      cell_i: 2
+      cell_j: 1
+      primitive_index: 0
+      l_inf_m: 21.371145
+      total_length_m: 242.036258
+      vertex_count: 5
+      max_abs_turn_angle_deg: 2.429904
+      mean_vertex_spacing_m: 60.509065
+    - tile_id: tile=EPSG3414_i23_j24
+      source_feature_id: 09c9a03d-bf89-4bfc-851a-5418c4f71241
+      cell_i: 4
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 21.219808
+      total_length_m: 183.750932
+      vertex_count: 2
+      max_abs_turn_angle_deg: 0.0
+      mean_vertex_spacing_m: 183.750932
+    - tile_id: tile=EPSG3414_i3_j24
+      source_feature_id: 758b2c24-e4f6-46e6-b1a2-0ad48309fbd7
+      cell_i: 7
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 20.610246
+      total_length_m: 252.475646
+      vertex_count: 4
+      max_abs_turn_angle_deg: 1.55866
+      mean_vertex_spacing_m: 84.158549
+    - tile_id: tile=EPSG3414_i18_j25
+      source_feature_id: 67b5cb85-6011-456e-b097-ee23c721356a
+      cell_i: 3
+      cell_j: 0
+      primitive_index: 0
+      l_inf_m: 20.044217
+      total_length_m: 309.826585
+      vertex_count: 11
+      max_abs_turn_angle_deg: 7.840014
+      mean_vertex_spacing_m: 30.982659
+    - tile_id: tile=EPSG3414_i3_j14
+      source_feature_id: 2b248272-15df-48f0-9de0-eeef7ce374b4
+      cell_i: 0
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 19.059053
+      total_length_m: 250.990122
+      vertex_count: 9
+      max_abs_turn_angle_deg: 22.445056
+      mean_vertex_spacing_m: 31.373765
+    - tile_id: tile=EPSG3414_i18_j18
+      source_feature_id: 6abeea86-9d49-4cbd-934e-b85c9009121f
+      cell_i: 7
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 19.003815
+      total_length_m: 274.192272
+      vertex_count: 8
+      max_abs_turn_angle_deg: 11.621878
+      mean_vertex_spacing_m: 39.170325
+  - chunk_threshold_m: 24
+    roundtrip_l_inf_mean_m: 2.872919
+    roundtrip_l_inf_p50_m: 1.505613
+    roundtrip_l_inf_p95_m: 10.342844
+    roundtrip_l_inf_p99_m: 18.901704
+    roundtrip_l_inf_max_m: 26.029678
+    sample_count: 1000
+    skip_count: 0
+    top_10_worst_polyline_features:
+    - tile_id: tile=EPSG3414_i5_j15
+      source_feature_id: b34f3fc5-9022-4f4e-a33e-5ac923fd1793
+      cell_i: 3
+      cell_j: 6
+      primitive_index: 0
+      l_inf_m: 26.029678
+      total_length_m: 252.011482
+      vertex_count: 9
+      max_abs_turn_angle_deg: 1.027644
+      mean_vertex_spacing_m: 31.501435
+    - tile_id: tile=EPSG3414_i23_j24
+      source_feature_id: d0ab078f-aa1a-4b57-9a29-f9b235cf1bd7
+      cell_i: 0
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 24.298875
+      total_length_m: 266.878671
+      vertex_count: 2
+      max_abs_turn_angle_deg: 0.0
+      mean_vertex_spacing_m: 266.878671
+    - tile_id: tile=EPSG3414_i6_j21
+      source_feature_id: 2c07931b-dfee-4d81-8a35-b7c887054f71
+      cell_i: 4
+      cell_j: 1
+      primitive_index: 0
+      l_inf_m: 22.649894
+      total_length_m: 260.422332
+      vertex_count: 5
+      max_abs_turn_angle_deg: 22.671624
+      mean_vertex_spacing_m: 65.105583
+    - tile_id: tile=EPSG3414_i17_j23
+      source_feature_id: dd34210c-c519-4fe4-b061-21bbf9ccffda
+      cell_i: 0
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 21.846263
+      total_length_m: 238.285686
+      vertex_count: 3
+      max_abs_turn_angle_deg: 0.05715
+      mean_vertex_spacing_m: 119.142843
+    - tile_id: tile=EPSG3414_i12_j16
+      source_feature_id: 108b16b2-8972-4125-a388-aaceab254cd9
+      cell_i: 2
+      cell_j: 1
+      primitive_index: 0
+      l_inf_m: 21.371145
+      total_length_m: 242.036258
+      vertex_count: 5
+      max_abs_turn_angle_deg: 2.429904
+      mean_vertex_spacing_m: 60.509065
+    - tile_id: tile=EPSG3414_i23_j24
+      source_feature_id: 09c9a03d-bf89-4bfc-851a-5418c4f71241
+      cell_i: 4
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 21.219808
+      total_length_m: 183.750932
+      vertex_count: 2
+      max_abs_turn_angle_deg: 0.0
+      mean_vertex_spacing_m: 183.750932
+    - tile_id: tile=EPSG3414_i3_j24
+      source_feature_id: 758b2c24-e4f6-46e6-b1a2-0ad48309fbd7
+      cell_i: 7
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 20.610246
+      total_length_m: 252.475646
+      vertex_count: 4
+      max_abs_turn_angle_deg: 1.55866
+      mean_vertex_spacing_m: 84.158549
+    - tile_id: tile=EPSG3414_i18_j25
+      source_feature_id: 67b5cb85-6011-456e-b097-ee23c721356a
+      cell_i: 3
+      cell_j: 0
+      primitive_index: 0
+      l_inf_m: 20.044217
+      total_length_m: 309.826585
+      vertex_count: 11
+      max_abs_turn_angle_deg: 7.840014
+      mean_vertex_spacing_m: 30.982659
+    - tile_id: tile=EPSG3414_i3_j14
+      source_feature_id: 2b248272-15df-48f0-9de0-eeef7ce374b4
+      cell_i: 0
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 19.059053
+      total_length_m: 250.990122
+      vertex_count: 9
+      max_abs_turn_angle_deg: 22.445056
+      mean_vertex_spacing_m: 31.373765
+    - tile_id: tile=EPSG3414_i18_j18
+      source_feature_id: 6abeea86-9d49-4cbd-934e-b85c9009121f
+      cell_i: 7
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 19.003815
+      total_length_m: 274.192272
+      vertex_count: 8
+      max_abs_turn_angle_deg: 11.621878
+      mean_vertex_spacing_m: 39.170325
+  - chunk_threshold_m: 16
+    roundtrip_l_inf_mean_m: 2.872919
+    roundtrip_l_inf_p50_m: 1.505613
+    roundtrip_l_inf_p95_m: 10.342844
+    roundtrip_l_inf_p99_m: 18.901704
+    roundtrip_l_inf_max_m: 26.029678
+    sample_count: 1000
+    skip_count: 0
+    top_10_worst_polyline_features:
+    - tile_id: tile=EPSG3414_i5_j15
+      source_feature_id: b34f3fc5-9022-4f4e-a33e-5ac923fd1793
+      cell_i: 3
+      cell_j: 6
+      primitive_index: 0
+      l_inf_m: 26.029678
+      total_length_m: 252.011482
+      vertex_count: 9
+      max_abs_turn_angle_deg: 1.027644
+      mean_vertex_spacing_m: 31.501435
+    - tile_id: tile=EPSG3414_i23_j24
+      source_feature_id: d0ab078f-aa1a-4b57-9a29-f9b235cf1bd7
+      cell_i: 0
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 24.298875
+      total_length_m: 266.878671
+      vertex_count: 2
+      max_abs_turn_angle_deg: 0.0
+      mean_vertex_spacing_m: 266.878671
+    - tile_id: tile=EPSG3414_i6_j21
+      source_feature_id: 2c07931b-dfee-4d81-8a35-b7c887054f71
+      cell_i: 4
+      cell_j: 1
+      primitive_index: 0
+      l_inf_m: 22.649894
+      total_length_m: 260.422332
+      vertex_count: 5
+      max_abs_turn_angle_deg: 22.671624
+      mean_vertex_spacing_m: 65.105583
+    - tile_id: tile=EPSG3414_i17_j23
+      source_feature_id: dd34210c-c519-4fe4-b061-21bbf9ccffda
+      cell_i: 0
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 21.846263
+      total_length_m: 238.285686
+      vertex_count: 3
+      max_abs_turn_angle_deg: 0.05715
+      mean_vertex_spacing_m: 119.142843
+    - tile_id: tile=EPSG3414_i12_j16
+      source_feature_id: 108b16b2-8972-4125-a388-aaceab254cd9
+      cell_i: 2
+      cell_j: 1
+      primitive_index: 0
+      l_inf_m: 21.371145
+      total_length_m: 242.036258
+      vertex_count: 5
+      max_abs_turn_angle_deg: 2.429904
+      mean_vertex_spacing_m: 60.509065
+    - tile_id: tile=EPSG3414_i23_j24
+      source_feature_id: 09c9a03d-bf89-4bfc-851a-5418c4f71241
+      cell_i: 4
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 21.219808
+      total_length_m: 183.750932
+      vertex_count: 2
+      max_abs_turn_angle_deg: 0.0
+      mean_vertex_spacing_m: 183.750932
+    - tile_id: tile=EPSG3414_i3_j24
+      source_feature_id: 758b2c24-e4f6-46e6-b1a2-0ad48309fbd7
+      cell_i: 7
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 20.610246
+      total_length_m: 252.475646
+      vertex_count: 4
+      max_abs_turn_angle_deg: 1.55866
+      mean_vertex_spacing_m: 84.158549
+    - tile_id: tile=EPSG3414_i18_j25
+      source_feature_id: 67b5cb85-6011-456e-b097-ee23c721356a
+      cell_i: 3
+      cell_j: 0
+      primitive_index: 0
+      l_inf_m: 20.044217
+      total_length_m: 309.826585
+      vertex_count: 11
+      max_abs_turn_angle_deg: 7.840014
+      mean_vertex_spacing_m: 30.982659
+    - tile_id: tile=EPSG3414_i3_j14
+      source_feature_id: 2b248272-15df-48f0-9de0-eeef7ce374b4
+      cell_i: 0
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 19.059053
+      total_length_m: 250.990122
+      vertex_count: 9
+      max_abs_turn_angle_deg: 22.445056
+      mean_vertex_spacing_m: 31.373765
+    - tile_id: tile=EPSG3414_i18_j18
+      source_feature_id: 6abeea86-9d49-4cbd-934e-b85c9009121f
+      cell_i: 7
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 19.003815
+      total_length_m: 274.192272
+      vertex_count: 8
+      max_abs_turn_angle_deg: 11.621878
+      mean_vertex_spacing_m: 39.170325
+  - chunk_threshold_m: 12
+    roundtrip_l_inf_mean_m: 2.872919
+    roundtrip_l_inf_p50_m: 1.505613
+    roundtrip_l_inf_p95_m: 10.342844
+    roundtrip_l_inf_p99_m: 18.901704
+    roundtrip_l_inf_max_m: 26.029678
+    sample_count: 1000
+    skip_count: 0
+    top_10_worst_polyline_features:
+    - tile_id: tile=EPSG3414_i5_j15
+      source_feature_id: b34f3fc5-9022-4f4e-a33e-5ac923fd1793
+      cell_i: 3
+      cell_j: 6
+      primitive_index: 0
+      l_inf_m: 26.029678
+      total_length_m: 252.011482
+      vertex_count: 9
+      max_abs_turn_angle_deg: 1.027644
+      mean_vertex_spacing_m: 31.501435
+    - tile_id: tile=EPSG3414_i23_j24
+      source_feature_id: d0ab078f-aa1a-4b57-9a29-f9b235cf1bd7
+      cell_i: 0
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 24.298875
+      total_length_m: 266.878671
+      vertex_count: 2
+      max_abs_turn_angle_deg: 0.0
+      mean_vertex_spacing_m: 266.878671
+    - tile_id: tile=EPSG3414_i6_j21
+      source_feature_id: 2c07931b-dfee-4d81-8a35-b7c887054f71
+      cell_i: 4
+      cell_j: 1
+      primitive_index: 0
+      l_inf_m: 22.649894
+      total_length_m: 260.422332
+      vertex_count: 5
+      max_abs_turn_angle_deg: 22.671624
+      mean_vertex_spacing_m: 65.105583
+    - tile_id: tile=EPSG3414_i17_j23
+      source_feature_id: dd34210c-c519-4fe4-b061-21bbf9ccffda
+      cell_i: 0
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 21.846263
+      total_length_m: 238.285686
+      vertex_count: 3
+      max_abs_turn_angle_deg: 0.05715
+      mean_vertex_spacing_m: 119.142843
+    - tile_id: tile=EPSG3414_i12_j16
+      source_feature_id: 108b16b2-8972-4125-a388-aaceab254cd9
+      cell_i: 2
+      cell_j: 1
+      primitive_index: 0
+      l_inf_m: 21.371145
+      total_length_m: 242.036258
+      vertex_count: 5
+      max_abs_turn_angle_deg: 2.429904
+      mean_vertex_spacing_m: 60.509065
+    - tile_id: tile=EPSG3414_i23_j24
+      source_feature_id: 09c9a03d-bf89-4bfc-851a-5418c4f71241
+      cell_i: 4
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 21.219808
+      total_length_m: 183.750932
+      vertex_count: 2
+      max_abs_turn_angle_deg: 0.0
+      mean_vertex_spacing_m: 183.750932
+    - tile_id: tile=EPSG3414_i3_j24
+      source_feature_id: 758b2c24-e4f6-46e6-b1a2-0ad48309fbd7
+      cell_i: 7
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 20.610246
+      total_length_m: 252.475646
+      vertex_count: 4
+      max_abs_turn_angle_deg: 1.55866
+      mean_vertex_spacing_m: 84.158549
+    - tile_id: tile=EPSG3414_i18_j25
+      source_feature_id: 67b5cb85-6011-456e-b097-ee23c721356a
+      cell_i: 3
+      cell_j: 0
+      primitive_index: 0
+      l_inf_m: 20.044217
+      total_length_m: 309.826585
+      vertex_count: 11
+      max_abs_turn_angle_deg: 7.840014
+      mean_vertex_spacing_m: 30.982659
+    - tile_id: tile=EPSG3414_i3_j14
+      source_feature_id: 2b248272-15df-48f0-9de0-eeef7ce374b4
+      cell_i: 0
+      cell_j: 5
+      primitive_index: 0
+      l_inf_m: 19.059053
+      total_length_m: 250.990122
+      vertex_count: 9
+      max_abs_turn_angle_deg: 22.445056
+      mean_vertex_spacing_m: 31.373765
+    - tile_id: tile=EPSG3414_i18_j18
+      source_feature_id: 6abeea86-9d49-4cbd-934e-b85c9009121f
+      cell_i: 7
+      cell_j: 2
+      primitive_index: 0
+      l_inf_m: 19.003815
+      total_length_m: 274.192272
+      vertex_count: 8
+      max_abs_turn_angle_deg: 11.621878
+      mean_vertex_spacing_m: 39.170325
+  classification: chunking_is_no_op_on_test_sample
+  reviewer_guidance: 'Chunk-as-lever hypothesis falsified: 32/24/16/12m chunk thresholds are identical to reported precision on this sample.'
+  proposed_chunk_threshold_m: 32
+  proposed_l_inf_threshold_m: 15.1
+  proposed_l_inf_threshold_status: PENDING_DIRECTION_SWEEP
+l_inf_direction_count_sweep_0_5_hierarchical:
+  candidate:
+    magnitude_quantum_m: 0.5
+    anchor_scheme: hierarchical
+    chunk_threshold_m: 32
+    geometry_class: polylines
+  sample_seed: 20260523
+  rows:
+  - direction_count: 24
+    roundtrip_l_inf_mean_m: 2.872919
+    roundtrip_l_inf_p50_m: 1.505613
+    roundtrip_l_inf_p95_m: 10.342844
+    roundtrip_l_inf_p99_m: 18.901704
+    roundtrip_l_inf_max_m: 26.029678
+    sample_count: 1000
+    skip_count: 0
+    bp2_fit:
+      placeholder_range: 300..1499
+      placeholder_slot_count: 1200
+      required_slots: 185
+      components:
+        anchor_vocab_size: 96
+        direction_vocab_size: 24
+        magnitude_vocab_size: 65
+        structural_sentinel_count: 0
+      accounting_note: No structural sentinels are included in Task 2 BP2 fit accounting.
+      fits_placeholder: true
+  - direction_count: 32
+    roundtrip_l_inf_mean_m: 2.084777
+    roundtrip_l_inf_p50_m: 1.113633
+    roundtrip_l_inf_p95_m: 7.869212
+    roundtrip_l_inf_p99_m: 14.147772
+    roundtrip_l_inf_max_m: 21.94527
+    sample_count: 1000
+    skip_count: 0
+    bp2_fit:
+      placeholder_range: 300..1499
+      placeholder_slot_count: 1200
+      required_slots: 193
+      components:
+        anchor_vocab_size: 96
+        direction_vocab_size: 32
+        magnitude_vocab_size: 65
+        structural_sentinel_count: 0
+      accounting_note: No structural sentinels are included in Task 2 BP2 fit accounting.
+      fits_placeholder: true
+  - direction_count: 48
+    roundtrip_l_inf_mean_m: 1.402802
+    roundtrip_l_inf_p50_m: 0.767266
+    roundtrip_l_inf_p95_m: 4.790393
+    roundtrip_l_inf_p99_m: 8.335855
+    roundtrip_l_inf_max_m: 12.883383
+    sample_count: 1000
+    skip_count: 0
+    bp2_fit:
+      placeholder_range: 300..1499
+      placeholder_slot_count: 1200
+      required_slots: 209
+      components:
+        anchor_vocab_size: 96
+        direction_vocab_size: 48
+        magnitude_vocab_size: 65
+        structural_sentinel_count: 0
+      accounting_note: No structural sentinels are included in Task 2 BP2 fit accounting.
+      fits_placeholder: true
+  - direction_count: 72
+    roundtrip_l_inf_mean_m: 0.985186
+    roundtrip_l_inf_p50_m: 0.57306
+    roundtrip_l_inf_p95_m: 3.339377
+    roundtrip_l_inf_p99_m: 5.69697
+    roundtrip_l_inf_max_m: 7.857616
+    sample_count: 1000
+    skip_count: 0
+    bp2_fit:
+      placeholder_range: 300..1499
+      placeholder_slot_count: 1200
+      required_slots: 233
+      components:
+        anchor_vocab_size: 96
+        direction_vocab_size: 72
+        magnitude_vocab_size: 65
+        structural_sentinel_count: 0
+      accounting_note: No structural sentinels are included in Task 2 BP2 fit accounting.
+      fits_placeholder: true
+  classification: forty_eight_dirs_restores_poc_target_band
+  reviewer_guidance: 48 directions drop p95 into the 3-5m target band and fit BP2; propose direction_count=48.
+  proposed_direction_count: 48
+  proposed_l_inf_threshold_m: 4.8
+  proposed_l_inf_threshold_status: PROPOSED_AFTER_DIRECTION_SWEEP
+anchor_verification_cross_measurement:
+  joint_surface_anchor_scheme: anchor_scheme_independent
+  joint_surface_geometry_scope: combined_polylines_and_polygon_exterior_rings
+  joint_surface_24_0_5_l_inf_p95_m: 7.585238
+  lock_threshold_surface_anchor_scheme: hierarchical
+  lock_threshold_surface_geometry_scope: polylines_only
+  lock_threshold_surface_24_0_5_l_inf_p95_m: 10.342844
+  verified_inconsistency_cause: geometry_scope_difference_not_anchor_scheme
+  note: Analysis-local encode/decode uses vertex-anchor deltas; flat vs hierarchical anchor tokenization affects BP2 vocab/sequence accounting, not decoded geometry coordinates. The 7.59m vs 10.34m p95 mismatch comes from combined geometry-class joint-surface aggregation versus polyline-only lock-threshold measurement.
+  anchor_tradeoff: Hierarchical saves namespace (96 anchor slots vs flat 1000) with a bounded sequence-length cost; L_inf lock-threshold surfaces are labeled hierarchical and do not rely on pre-revision joint-surface aggregate numbers.
+right_angle_catastrophic_root_cause_24_0_5:
+  candidate:
+    direction_count: 24
+    magnitude_quantum_m: 0.5
+  right_angle_catastrophic_v1_classification: accepted_v1_known_loss_cascade_8_candidate_for_sub_f_v2
+  v1_known_loss_note: '4517 / 2.08M catastrophic corners (0.22%) accepted for v1; cascade #8 candidate against BP2 anchor + direction-bin alignment for sub-F-v2.'
+  catastrophic_corner_count: 4517
+  ring_position_buckets:
+  - &id001
+    bucket: position_0_or_1
+    count: 2681
+    fraction: 0.59353553
+  - bucket: position_2_to_mid
+    count: 0
+    fraction: 0.0
+  - bucket: position_mid_to_last
+    count: 1836
+    fraction: 0.40646447
+  input_deviation_buckets:
+  - &id002
+    bucket: <1deg
+    count: 3608
+    fraction: 0.79876024
+  - bucket: 1_to_3deg
+    count: 611
+    fraction: 0.13526677
+  - bucket: 3_to_5deg
+    count: 298
+    fraction: 0.06597299
+  perimeter_buckets:
+  - bucket: <10m
+    count: 53
+    fraction: 0.01173345
+  - bucket: 10_to_30m
+    count: 385
+    fraction: 0.08523356
+  - bucket: 30_to_100m
+    count: 1365
+    fraction: 0.30219172
+  - &id003
+    bucket: '>100m'
+    count: 2714
+    fraction: 0.60084127
+  root_cause_classification:
+    classification: multiple_structural_hypotheses_triggered
+    reviewer_guidance: Catastrophic corners trigger multiple structural hypotheses; review anchor handling and direction-bin boundary/angle wrapping before angle lock.
+    triggered_hypotheses:
+    - possible_bp2_anchor_design_structural_issue_cascade_8_candidate
+    - possible_direction_bin_boundary_or_angle_wrapping_bug
+    - larger_perimeter_dominates_not_small_polygon_loss
+    dominant_ring_position_bucket: *id001
+    dominant_input_deviation_bucket: *id002
+    dominant_perimeter_bucket: *id003
+right_angle_v1_known_loss_threshold_proposal:
+  candidate:
+    direction_count: 48
+    magnitude_quantum_m: 0.5
+  threshold_basis: non_catastrophic_post_deviation_p95
+  excluded_catastrophic_gt_45_deg: true
+  non_catastrophic_corner_count: 2080459
+  catastrophic_corner_count: 2771
+  non_catastrophic_distribution_deg:
+    count: 2080459
+    mean: 0.678967
+    p50: 0.0
+    p95: 7.5
+    p99: 10.342093
+    max: 45.0
+  round_trip_angle_threshold_deg: 7.5
+  round_trip_angle_threshold_status: PROPOSED_V1_KNOWN_LOSS_EXCLUDING_CATASTROPHIC
+  v1_known_loss_classification: accepted_v1_known_loss_cascade_8_candidate_for_sub_f_v2
+  cascade_8_candidate: BP2 anchor + direction-bin alignment redesign for sub-F-v2
+protocol_v2_candidate_9_capture:
+  candidate: 9
+  classification: hypothesis_falsified_capture
+  note: 'Protocol-v2 candidate (9th): when diagnostic measurement contradicts prior hypothesis classification, surface hypothesis falsified explicitly. Sub-F Task 2 Continuation #2 Item A: chunk-as-lever hypothesis was falsified by identical L_inf across 4 chunk values; classification should have been chunking_is_no_op_on_test_sample rather than default chunking retained.'
+anchor_scheme_comparison:
+- scheme: flat
+  anchor_vocab_size: 1000
+  tokens_per_anchor: 2
+  vocab_derivation: 2 * ceil(250 / magnitude_quantum_m)
+  cell_count: 15460
+  mean_sequence_length_per_cell: 638.968047
+  p95_sequence_length_per_cell: 2024.0
+- scheme: hierarchical
+  anchor_vocab_size: 96
+  tokens_per_anchor: 4
+  vocab_derivation: (16 coarse + 32 fine) * 2 axes
+  cell_count: 15460
+  mean_sequence_length_per_cell: 732.602199
+  p95_sequence_length_per_cell: 2292.0
+bp2_placeholder_fit:
+  placeholder_start_id: 300
+  placeholder_end_id: 1499
+  placeholder_range: 300..1499
+  placeholder_slot_count: 1200
+  proposed_required_slots: 209
+  components:
+    anchor_vocab_size: 96
+    direction_vocab_size: 48
+    magnitude_vocab_size: 65
+  fits_placeholder: true
+proposed_lock:
+  direction_count: 48
+  magnitude_quantum_m: 0.5
+  anchor_scheme: hierarchical
+  chunk_threshold_m: 32
+  round_trip_l_inf_threshold_m: 4.8
+  round_trip_l_inf_threshold_status: PROPOSED_AFTER_DIRECTION_SWEEP
+  round_trip_angle_threshold_deg: 7.5
+  round_trip_angle_threshold_status: PROPOSED_V1_KNOWN_LOSS_EXCLUDING_CATASTROPHIC
+  collinearity_admission_perpendicular_m: 0.928048
+  rationale: 'Direction count follows the bounded direction sweep proposal while 0.5m quantum is kept because 0.25m adds magnitude vocabulary with little measured L_inf gain. Hierarchical anchors are proposed under project design principle #1, cheap-to-keep and impossible-to-recover: flat consumes 1000/1200 BP2 placeholder slots while hierarchical consumes 96/1200, and the bounded sequence-length cost is recoverable training-compute cost while vocab namespace cost is permanent within phase.'
