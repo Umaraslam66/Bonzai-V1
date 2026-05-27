@@ -10,6 +10,7 @@ import yaml
 
 CONFIG_ROOT = Path(__file__).resolve().parents[3] / "configs" / "sub_f"
 ENCODING_PRIMITIVES_PATH = CONFIG_ROOT / "encoding_primitives.yaml"
+SENTINEL_INVENTORY_PATH = CONFIG_ROOT / "sentinel_inventory.yaml"
 
 
 @pytest.fixture(scope="module")
@@ -21,8 +22,13 @@ def encoding_primitives() -> dict:
     return yaml.safe_load(ENCODING_PRIMITIVES_PATH.read_text(encoding="utf-8"))
 
 
-def test_encoding_primitives_status_is_proposed(encoding_primitives):
-    assert encoding_primitives["_status"] == "PROPOSED"
+@pytest.fixture(scope="module")
+def sentinel_inventory() -> dict:
+    return yaml.safe_load(SENTINEL_INVENTORY_PATH.read_text(encoding="utf-8"))
+
+
+def test_encoding_primitives_status_is_locked(encoding_primitives):
+    assert encoding_primitives["_status"] == "LOCKED"
 
 
 def test_joint_surface_contains_exact_candidate_grid(encoding_primitives):
@@ -152,19 +158,23 @@ def test_anchor_vocab_derivation_is_spec_locked(encoding_primitives):
     )
 
 
-def test_proposed_lock_uses_hierarchical_anchor_and_pending_thresholds(
+def test_proposed_lock_uses_approved_halt2_values(
     encoding_primitives,
 ):
     proposed = encoding_primitives["proposed_lock"]
-    assert proposed["direction_count"] in {24, 48}
+    assert proposed["direction_count"] == 48
     assert proposed["magnitude_quantum_m"] == 0.5
     assert proposed["anchor_scheme"] == "hierarchical"
+    assert proposed["chunk_threshold_m"] == 32
+    assert proposed["round_trip_l_inf_threshold_m"] == 4.8
     assert proposed["round_trip_l_inf_threshold_status"] == (
-        "PROPOSED_AFTER_DIRECTION_SWEEP"
+        "LOCKED_HALT_2_APPROVED"
     )
+    assert proposed["round_trip_angle_threshold_deg"] == 7.5
     assert proposed["round_trip_angle_threshold_status"] == (
-        "PROPOSED_V1_KNOWN_LOSS_EXCLUDING_CATASTROPHIC"
+        "LOCKED_HALT_2_APPROVED"
     )
+    assert proposed["collinearity_admission_perpendicular_m"] == 0.928048
 
 
 def test_bp2_placeholder_fit_references_reserved_block(encoding_primitives):
@@ -178,6 +188,65 @@ def test_bp2_placeholder_fit_references_reserved_block(encoding_primitives):
         encoding_primitives["proposed_lock"]["direction_count"]
     )
     assert fit["components"]["magnitude_vocab_size"] == 65
+
+
+def test_encoding_primitives_lock_metadata_preserves_methodology(
+    encoding_primitives,
+):
+    lock = encoding_primitives["lock_metadata"]
+    assert lock["halt"] == "Halt 2"
+    assert lock["status"] == "APPROVED_LOCKED"
+    assert lock["measurement_methodology"]["deterministic_seed"] == 20260523
+    assert lock["measurement_methodology"]["l_inf_scope"] == "polyline_only"
+    assert lock["measurement_methodology"]["angle_threshold_scope"] == (
+        "non_catastrophic_right_angle_corners_only"
+    )
+    assert lock["measurement_methodology"]["catastrophic_angle_exclusion"] == (
+        "post_roundtrip_abs_deviation_from_90_deg > 45"
+    )
+    assert lock["cascade_8_candidate"]["candidate"] == (
+        "BP2 anchor + direction-bin alignment"
+    )
+    assert "cascade #8" in lock["cascade_8_candidate"]["note"]
+    assert lock["chunking_classification"]["classification"] == (
+        "chunking_is_no_op_on_test_sample"
+    )
+    assert lock["chunking_classification"]["reference"] == (
+        "Continuation #2 Item A"
+    )
+    assert lock["source_config_cross_references"] == [
+        "configs/sub_f/semantic_vocab.yaml",
+        "configs/sub_f/unknown_family.yaml",
+        "configs/sub_f/sentinel_inventory.yaml",
+    ]
+
+
+def test_sentinel_inventory_locks_bp2_subranges(sentinel_inventory):
+    bp2 = sentinel_inventory["bp2_encoding_primitives"]
+    assert bp2["start_id"] == 300
+    assert bp2["end_id"] == 1499
+    assert bp2["status"] == "LOCKED at Halt 2 approval"
+    assert bp2["placeholder"] is False
+    assert bp2["used_count"] == 209
+    assert bp2["reserved_count"] == 991
+    assert bp2["sub_blocks"] == {
+        "anchor": {"start_id": 300, "end_id": 395, "slot_count": 96},
+        "direction": {"start_id": 396, "end_id": 443, "slot_count": 48},
+        "magnitude": {"start_id": 444, "end_id": 508, "slot_count": 65},
+        "reserved_v2_headroom": {
+            "start_id": 509,
+            "end_id": 1499,
+            "slot_count": 991,
+        },
+    }
+    assert "bp2_encoding_primitives_placeholder" not in sentinel_inventory
+
+
+def test_sentinel_inventory_keeps_bp7_placeholder(sentinel_inventory):
+    bp7 = sentinel_inventory["bp7_boundary_ref_placeholder"]
+    assert bp7["start_id"] == 1500
+    assert bp7["end_id"] == 1599
+    assert bp7["placeholder"] is True
 
 
 def test_linf_decomposition_reports_top_50_and_driver_summary(
@@ -273,7 +342,7 @@ def test_proposed_lock_carries_chunk_threshold_metadata(encoding_primitives):
     direction_sweep = encoding_primitives["l_inf_direction_count_sweep_0_5_hierarchical"]
     assert proposed["direction_count"] == direction_sweep["proposed_direction_count"]
     assert proposed["round_trip_l_inf_threshold_status"] == (
-        "PROPOSED_AFTER_DIRECTION_SWEEP"
+        "LOCKED_HALT_2_APPROVED"
     )
 
 

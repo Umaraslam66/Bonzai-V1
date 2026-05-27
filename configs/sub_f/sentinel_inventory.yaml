@@ -6,12 +6,32 @@ bp1_semantic:
   status: LOCKED at Halt 3 continuation
   used_count: 127
   used_range: 0..126
-bp2_encoding_primitives_placeholder:
+bp2_encoding_primitives:
   end_id: 1499
-  placeholder: true
-  slide_condition: If Task 2 encoding-primitive count lands above 1200, this block slides.
+  placeholder: false
+  reserved_count: 991
   start_id: 300
-  status: PLACEHOLDER; final size locks at Task 2 halt
+  status: LOCKED at Halt 2 approval
+  sub_block_ordering: anchor, direction, magnitude, reserved_v2_headroom
+  sub_blocks:
+    anchor:
+      end_id: 395
+      slot_count: 96
+      start_id: 300
+    direction:
+      end_id: 443
+      slot_count: 48
+      start_id: 396
+    magnitude:
+      end_id: 508
+      slot_count: 65
+      start_id: 444
+    reserved_v2_headroom:
+      end_id: 1499
+      slot_count: 991
+      start_id: 509
+  used_count: 209
+  used_range: 300..508
 bp4_unknown_family:
   end_id: 255
   reserved_count: 28
@@ -50,4 +70,4 @@ dataloader_sentinels:
     token: <cell_end>
 halt: Halt 3
 release: 2026-04-15.0
-scope_note: BP1 + BP4 + dataloader sentinel IDs are LOCKED by Halt 3 approval. BP2/BP7 remain PLACEHOLDER blocks pending later task halts.
+scope_note: BP1 + BP4 + dataloader sentinel IDs are LOCKED by Halt 3 approval. BP2 is LOCKED by Halt 2 approval with sub-block ordering fixed for Task 8 writer. BP7 remains PLACEHOLDER pending Task 7 halt.

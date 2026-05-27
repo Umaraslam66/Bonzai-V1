@@ -1,10 +1,40 @@
-_status: PROPOSED
+_status: LOCKED
 release: 2026-04-15.0
 source_scope:
   path: data/processed/sub_c/2026-04-15.0/singapore
   path_glob: data/processed/sub_c/2026-04-15.0/singapore/tile=EPSG3414_*/features.parquet
   tile_count: 494
   feature_count: 862436
+lock_metadata:
+  halt: Halt 2
+  status: APPROVED_LOCKED
+  task: Sub-F Task 2 BP2 encoder primitives
+  approved_lock_values:
+    direction_count: 48
+    magnitude_quantum_m: 0.5
+    anchor_scheme: hierarchical
+    chunk_threshold_m: 32
+    round_trip_l_inf_threshold_m: 4.8
+    round_trip_angle_threshold_deg: 7.5
+    collinearity_admission_perpendicular_m: 0.928048
+  measurement_methodology:
+    deterministic_seed: 20260523
+    l_inf_scope: polyline_only
+    l_inf_sample_basis: deterministic 1000 Singapore polyline sample sorted by stable feature key
+    angle_threshold_scope: non_catastrophic_right_angle_corners_only
+    catastrophic_angle_exclusion: post_roundtrip_abs_deviation_from_90_deg > 45
+  cascade_8_candidate:
+    candidate: BP2 anchor + direction-bin alignment
+    v2_scope: sub-F-v2
+    note: 'right-angle catastrophic known-loss 0.22% accepted for v1; revisit anchor + direction-bin alignment in cascade #8.'
+  chunking_classification:
+    classification: chunking_is_no_op_on_test_sample
+    reference: 'Continuation #2 Item A'
+    note: 32/24/16/12m chunk thresholds measured identical to 6 decimals on the deterministic 1000-polyline sample.
+  source_config_cross_references:
+  - configs/sub_f/semantic_vocab.yaml
+  - configs/sub_f/unknown_family.yaml
+  - configs/sub_f/sentinel_inventory.yaml
 joint_surface:
 - direction_count: 8
   magnitude_quantum_m: 0.25
@@ -1552,8 +1582,8 @@ proposed_lock:
   anchor_scheme: hierarchical
   chunk_threshold_m: 32
   round_trip_l_inf_threshold_m: 4.8
-  round_trip_l_inf_threshold_status: PROPOSED_AFTER_DIRECTION_SWEEP
+  round_trip_l_inf_threshold_status: LOCKED_HALT_2_APPROVED
   round_trip_angle_threshold_deg: 7.5
-  round_trip_angle_threshold_status: PROPOSED_V1_KNOWN_LOSS_EXCLUDING_CATASTROPHIC
+  round_trip_angle_threshold_status: LOCKED_HALT_2_APPROVED
   collinearity_admission_perpendicular_m: 0.928048
-  rationale: 'Direction count follows the bounded direction sweep proposal while 0.5m quantum is kept because 0.25m adds magnitude vocabulary with little measured L_inf gain. Hierarchical anchors are proposed under project design principle #1, cheap-to-keep and impossible-to-recover: flat consumes 1000/1200 BP2 placeholder slots while hierarchical consumes 96/1200, and the bounded sequence-length cost is recoverable training-compute cost while vocab namespace cost is permanent within phase.'
+  rationale: 'Halt 2 approved lock: 48 directions restore polyline-only L_inf p95 to the target band while fitting BP2; 0.5m quantum is kept because 0.25m adds magnitude vocabulary with little measured L_inf gain. Hierarchical anchors lock project design principle #1, cheap-to-keep and impossible-to-recover: flat consumes 1000/1200 BP2 slots while hierarchical consumes 96/1200, and the bounded sequence-length cost is recoverable training-compute cost while vocab namespace cost is permanent within phase. Right-angle catastrophic >45deg cases are accepted v1 known-loss and excluded from the non-catastrophic angle threshold.'

@@ -1,12 +1,12 @@
 # Phase 1 Sub-F Task 2 Halt 2 Surface
 
-Status: DONE_WITH_CONCERNS
+Status: DONE - Halt 2 approved; Task 2 closed
 
 ## Audit outcomes
 
 - WKB writer audit: PASS; `src/cfm/data/sub_c/io.py` retains `byte_order=1`, `dump_wkb`, and shapely/WKB symbols.
 - Singapore cache audit: PASS; tile count `494` from `tile=EPSG3414_*`, with WKB byte order verified as `1` before implementation.
-- BP2 placeholder audit: PASS; placeholder block `300..1499` remains available.
+- BP2 lock audit: PASS; block `300..1499` is LOCKED at Halt 2 approval with Task 8 writer sub-block ordering fixed.
 
 ## All-tile input inventory
 
@@ -256,23 +256,41 @@ Spec framing applied: collinearity admission threshold is the maximum perpendicu
 
 Boundary-reference overhead is out of scope for Task 2; Tasks 3/7 cover cross-cell overhead later.
 
-## Proposed lock inputs
+## Locked BP2 primitive inputs
 
 - Direction count: 48
 - Magnitude quantum: 0.5 m
 - Anchor scheme: hierarchical
 - Chunk threshold: 32 m
-- Round-trip L_inf threshold: 4.8 m (PROPOSED_AFTER_DIRECTION_SWEEP)
-- Round-trip 95th-percentile angle threshold: 7.5 deg (PROPOSED_V1_KNOWN_LOSS_EXCLUDING_CATASTROPHIC)
+- Round-trip L_inf threshold: 4.8 m (LOCKED_HALT_2_APPROVED)
+- Round-trip 95th-percentile angle threshold: 7.5 deg (LOCKED_HALT_2_APPROVED; catastrophic >45 deg cases excluded from threshold basis)
 - Collinearity admission perpendicular threshold: 0.928048 m
-- Rationale: Direction count follows the bounded direction sweep proposal while 0.5m quantum is kept because 0.25m adds magnitude vocabulary with little measured L_inf gain. Hierarchical anchors are proposed under project design principle #1, cheap-to-keep and impossible-to-recover: flat consumes 1000/1200 BP2 placeholder slots while hierarchical consumes 96/1200, and the bounded sequence-length cost is recoverable training-compute cost while vocab namespace cost is permanent within phase.
+- Methodology preserved: deterministic seed `20260523`; polyline-only L_inf scope; non-catastrophic angle scope excludes post-roundtrip absolute deviation from 90 deg >45 deg.
+- Rationale: Halt 2 approved lock. 48 directions restore polyline-only L_inf p95 to the target band while fitting BP2. Hierarchical anchors lock project design principle #1, cheap-to-keep and impossible-to-recover.
 
-## BP2 placeholder fit
+## BP2 locked fit and sub-blocks
 
-- Placeholder: 300..1499
-- Proposed required slots: 209
+- Block: 300..1499
+- Used slots: 209
+- Reserved/v2 headroom: 991
 - Components: `{'anchor_vocab_size': 96, 'direction_vocab_size': 48, 'magnitude_vocab_size': 65}`
 - Fits placeholder: True
+- Sub-block order locked for Task 8 writer:
+  - anchor: `300..395` (96)
+  - direction: `396..443` (48)
+  - magnitude: `444..508` (65)
+  - BP2 reserved/v2 headroom: `509..1499` (991)
+- BP7 remains PLACEHOLDER at `1500..1599`; Task 7 halt locks BP7.
+
+## Halt 2 close addendum
+
+- `configs/sub_f/encoding_primitives.yaml` is LOCKED by Halt 2 approval.
+- `configs/sub_f/sentinel_inventory.yaml` transitions BP2 `300..1499` from PLACEHOLDER to LOCKED.
+- Cascade #8 candidate for sub-F-v2: BP2 anchor + direction-bin alignment.
+- Right-angle catastrophic known-loss accepted for v1: 4517 / 2.08M, approximately 0.22%; non-catastrophic angle threshold locks at 7.5 deg.
+- Chunking-is-no-op classification retained: Continuation #2 Item A measured identical L_inf across 32/24/16/12m chunk thresholds.
+- Protocol-v2 candidate #9 capture retained: diagnostic measurements that falsify prior hypotheses must explicitly surface `hypothesis falsified`.
+- Cross-references: `configs/sub_f/semantic_vocab.yaml`, `configs/sub_f/unknown_family.yaml`, and `configs/sub_f/sentinel_inventory.yaml`.
 
 ## Section 10.5 telemetry
 
@@ -280,4 +298,4 @@ Boundary-reference overhead is out of scope for Task 2; Tasks 3/7 cover cross-ce
 - Candidate grid: direction_count in 8, 16, 24 crossed with magnitude_quantum_m in 0.25, 0.5, 1.0.
 - Data read mode: `pq.ParquetFile(path).read()` per tile, not parent-directory reads.
 - Geometry decode: `shapely.wkb.loads` from Sub-C little-endian WKB.
-- Halt boundary: YAML remains `_status: PROPOSED`; sentinel inventory remains BP2 PLACEHOLDER.
+- Halt boundary: Halt 2 approved; `encoding_primitives.yaml` is `_status: LOCKED`; sentinel inventory BP2 is LOCKED; BP7 remains PLACEHOLDER.
