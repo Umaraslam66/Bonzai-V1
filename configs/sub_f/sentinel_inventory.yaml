@@ -1,4 +1,4 @@
-_status: LOCKED_BP1_BP4_DATALOADER__BP2_BP7_PLACEHOLDER
+_status: LOCKED
 bp1_semantic:
   end_id: 199
   reserved_count: 72
@@ -50,4 +50,4 @@ dataloader_sentinels:
     token: <cell_end>
 halt: Halt 3
 release: 2026-04-15.0
-scope_note: BP1 + BP4 + dataloader sentinel IDs are locked at Halt 3 continuation. BP2/BP7 remain placeholder blocks pending later task halts.
+scope_note: BP1 + BP4 + dataloader sentinel IDs are LOCKED by Halt 3 approval. BP2/BP7 remain PLACEHOLDER blocks pending later task halts.

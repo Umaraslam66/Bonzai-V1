@@ -1,36 +1,36 @@
 **Halt 3: BP4 unknown family + sentinel inventory**
 
-Status: `DONE_WITH_CONCERNS` pending reviewer approval; do not proceed past Halt 3 lock.
+Status: `DONE` - Halt 3 approved; Task 4 closed.
 
 **Enumerated `<unknown_*>` slots:**
-1. `<unknown_aerialway>` - key `aerialway` - proposed ID `200`
-2. `<unknown_aeroway>` - key `aeroway` - proposed ID `201`
-3. `<unknown_amenity>` - key `amenity` - proposed ID `202`
-4. `<unknown_barrier>` - key `barrier` - proposed ID `203`
-5. `<unknown_boundary>` - key `boundary` - proposed ID `204`
-6. `<unknown_building>` - key `building` - proposed ID `205`
-7. `<unknown_craft>` - key `craft` - proposed ID `206`
-8. `<unknown_emergency>` - key `emergency` - proposed ID `207`
-9. `<unknown_geological>` - key `geological` - proposed ID `208`
-10. `<unknown_healthcare>` - key `healthcare` - proposed ID `209`
-11. `<unknown_highway>` - key `highway` - proposed ID `210`
-12. `<unknown_historic>` - key `historic` - proposed ID `211`
-13. `<unknown_landuse>` - key `landuse` - proposed ID `212`
-14. `<unknown_leisure>` - key `leisure` - proposed ID `213`
-15. `<unknown_man_made>` - key `man_made` - proposed ID `214`
-16. `<unknown_military>` - key `military` - proposed ID `215`
-17. `<unknown_natural>` - key `natural` - proposed ID `216`
-18. `<unknown_office>` - key `office` - proposed ID `217`
-19. `<unknown_place>` - key `place` - proposed ID `218`
-20. `<unknown_power>` - key `power` - proposed ID `219`
-21. `<unknown_public_transport>` - key `public_transport` - proposed ID `220`
-22. `<unknown_railway>` - key `railway` - proposed ID `221`
-23. `<unknown_route>` - key `route` - proposed ID `222`
-24. `<unknown_shop>` - key `shop` - proposed ID `223`
-25. `<unknown_telecom>` - key `telecom` - proposed ID `224`
-26. `<unknown_tourism>` - key `tourism` - proposed ID `225`
-27. `<unknown_water>` - key `water` - proposed ID `226`
-28. `<unknown_waterway>` - key `waterway` - proposed ID `227`
+1. `<unknown_aerialway>` - key `aerialway` - locked ID `200`
+2. `<unknown_aeroway>` - key `aeroway` - locked ID `201`
+3. `<unknown_amenity>` - key `amenity` - locked ID `202`
+4. `<unknown_barrier>` - key `barrier` - locked ID `203`
+5. `<unknown_boundary>` - key `boundary` - locked ID `204`
+6. `<unknown_building>` - key `building` - locked ID `205`
+7. `<unknown_craft>` - key `craft` - locked ID `206`
+8. `<unknown_emergency>` - key `emergency` - locked ID `207`
+9. `<unknown_geological>` - key `geological` - locked ID `208`
+10. `<unknown_healthcare>` - key `healthcare` - locked ID `209`
+11. `<unknown_highway>` - key `highway` - locked ID `210`
+12. `<unknown_historic>` - key `historic` - locked ID `211`
+13. `<unknown_landuse>` - key `landuse` - locked ID `212`
+14. `<unknown_leisure>` - key `leisure` - locked ID `213`
+15. `<unknown_man_made>` - key `man_made` - locked ID `214`
+16. `<unknown_military>` - key `military` - locked ID `215`
+17. `<unknown_natural>` - key `natural` - locked ID `216`
+18. `<unknown_office>` - key `office` - locked ID `217`
+19. `<unknown_place>` - key `place` - locked ID `218`
+20. `<unknown_power>` - key `power` - locked ID `219`
+21. `<unknown_public_transport>` - key `public_transport` - locked ID `220`
+22. `<unknown_railway>` - key `railway` - locked ID `221`
+23. `<unknown_route>` - key `route` - locked ID `222`
+24. `<unknown_shop>` - key `shop` - locked ID `223`
+25. `<unknown_telecom>` - key `telecom` - locked ID `224`
+26. `<unknown_tourism>` - key `tourism` - locked ID `225`
+27. `<unknown_water>` - key `water` - locked ID `226`
+28. `<unknown_waterway>` - key `waterway` - locked ID `227`
 
 **Singapore occurrence table:**
 
@@ -65,7 +65,7 @@ Status: `DONE_WITH_CONCERNS` pending reviewer approval; do not proceed past Halt
 | `<unknown_water>` | `water` | 0 | 0 | 0 | 0 |
 | `<unknown_waterway>` | `waterway` | 0 | 0 | 0 | 0 |
 
-**Over-firing / zero-firing proposal table:**
+**Over-firing / zero-firing locked table:**
 
 | token | numerator | denominator | ratio | over-firing | zero-firing | rationale |
 |---|---:|---:|---:|---|---|---|
@@ -105,7 +105,7 @@ Status: `DONE_WITH_CONCERNS` pending reviewer approval; do not proceed past Halt
 **Halt 3 continuation addendum: B__UNK__ / highway=unknown decomposition**
 
 - `building=B__UNK__`: raw-cache join missing count `0` across `301418` rows; raw-class top-20 coverage `100.0000%`.
-- Classification: raw upstream building class missingness handled by sub-C missing-value policy, not BP1 under-inclusion. No BP1 cascade: raw Overture buildings.class is NULL for the sentinel rows, so there are no recoverable wiki/semantic building values hidden behind B__UNK__ in class_raw.
+- Classification: root cause (b), real OSM long-tail / upstream under-typed source data; no BP1 cascade #8 and no sub-C-v2 candidate from this decomposition. Raw Overture buildings.class is NULL for the sentinel rows, so there are no recoverable wiki/semantic building values hidden behind B__UNK__ in class_raw.
 
 `building=B__UNK__` raw `buildings.class` top values:
 
@@ -128,7 +128,7 @@ Status: `DONE_WITH_CONCERNS` pending reviewer approval; do not proceed past Halt
 | `residential` | 4 | 0.0013% |
 
 - `highway=unknown`: raw-cache join missing count `0` across `9748` rows; raw-class top-20 coverage `100.0000%`.
-- Classification: literal raw upstream highway `unknown`, not BP1 under-inclusion. No BP1 cascade: raw Overture transportation.class is literal 'unknown' for these rows, not a hidden wiki/semantic highway value.
+- Classification: root cause (b), real OSM long-tail / literal upstream `unknown`; no BP1 cascade #8 and no sub-C-v2 candidate from this decomposition. Raw Overture transportation.class is literal 'unknown' for these rows, not a hidden wiki/semantic highway value.
 
 `highway=unknown` raw `transportation.class` top values:
 
@@ -153,7 +153,7 @@ Status: `DONE_WITH_CONCERNS` pending reviewer approval; do not proceed past Halt
 
 **`sentinel_inventory.yaml` post-N/dataloader reservation:**
 
-- `_status`: `LOCKED_BP1_BP4_DATALOADER__BP2_BP7_PLACEHOLDER`
+- `_status`: `LOCKED`
 - Dataloader sentinel reservations are marked `on_disk: false`.
 - BP2/BP7 remain explicit placeholder blocks in the namespace anchor.
 
@@ -162,9 +162,9 @@ Status: `DONE_WITH_CONCERNS` pending reviewer approval; do not proceed past Halt
 - BP2 (`300..1499`) and BP7 (`1500..1599`) are PLACEHOLDER blocks.
 - Their final sizes are empirically locked at Tasks 2 and 7 halts respectively.
 - If Task 2 encoding-primitive count lands above `1200` or Task 7 boundary-ref count above `100`, BP2/BP7 blocks slide.
-- Only BP1 + BP4 + dataloader sentinel IDs are locked at Halt 3 continuation.
+- Only BP1 + BP4 + dataloader sentinel IDs are LOCKED at Halt 3 approval.
 
 **§10.5 telemetry:**
 
 - Implementer-time-to-data-surface: approximately `30` wall-clock minutes from Task 4 start to Halt 3 report generation.
-- Report generated at: `2026-05-27T15:56:54Z`.
+- Report generated at: `2026-05-27T16:19:26Z`.

@@ -46,12 +46,8 @@ N_L2_BUILDING_EXPECTED: Final[int] = 33
 UNKNOWN_FAMILY_START_ID: Final[int] = 200
 UNKNOWN_FAMILY_END_ID: Final[int] = 255
 UNKNOWN_FAMILY_USED_END_ID: Final[int] = 227
-UNKNOWN_FAMILY_SLOT_STATUS: Final[str] = (
-    "LOCKED_SLOT_LIST__PENDING_HALT_3_OVERFIRING_REVIEW"
-)
-SENTINEL_INVENTORY_STATUS: Final[str] = (
-    "LOCKED_BP1_BP4_DATALOADER__BP2_BP7_PLACEHOLDER"
-)
+UNKNOWN_FAMILY_SLOT_STATUS: Final[str] = "LOCKED"
+SENTINEL_INVENTORY_STATUS: Final[str] = "LOCKED"
 SENTINEL_VALUES: Final[frozenset[str]] = frozenset({"unknown"})
 SENTINEL_PREFIXES: Final[tuple[str, ...]] = ("B_",)
 
@@ -205,9 +201,9 @@ def test_taginfo_snapshot_paginates_building_values():
     )
 
 
-def test_unknown_family_has_28_locked_slots_pending_overfiring_review(unknown_family):
+def test_unknown_family_has_28_locked_slots(unknown_family):
     assert unknown_family["_status"] == UNKNOWN_FAMILY_SLOT_STATUS
-    assert unknown_family["slot_list_status"] == "LOCKED_28_SLOT_RETENTION_APPROVED"
+    assert unknown_family["slot_list_status"] == "LOCKED"
     assert len(unknown_family["slots"]) == N_L1_MUST_APPEARS_EXPECTED
 
 
@@ -302,7 +298,8 @@ def test_unknown_family_reports_building_b_unk_raw_cache_decomposition(unknown_f
     }
     assert building["raw_subtype_top20"][0]["value"] == "<NULL>"
     assert building["raw_subtype_top20"][0]["count"] == 299237
-    assert "not_bp1_underinclusion" in building["root_cause_classification"]
+    assert "root_cause_b" in building["root_cause_classification"]
+    assert "no_cascade_8" in building["root_cause_classification"]
 
 
 def test_unknown_family_reports_highway_unknown_raw_cache_decomposition(unknown_family):
@@ -316,7 +313,18 @@ def test_unknown_family_reports_highway_unknown_raw_cache_decomposition(unknown_
     }
     subtype_counts = {r["value"]: r["count"] for r in highway["raw_subtype_top20"]}
     assert subtype_counts == {"road": 8226, "rail": 1522}
-    assert "not_bp1_underinclusion" in highway["root_cause_classification"]
+    assert "root_cause_b" in highway["root_cause_classification"]
+    assert "no_cascade_8" in highway["root_cause_classification"]
+
+
+def test_unknown_family_over_firing_classification_is_locked_no_cascade_8(
+    unknown_family,
+):
+    classification = unknown_family["over_firing_classification"]
+    assert classification["status"] == "LOCKED_NO_CASCADE_8"
+    assert classification["no_sub_c_v2_candidate"] is True
+    assert "Root cause (b)" in classification["building"]
+    assert "Root cause (b)" in classification["highway"]
 
 
 def test_sentinel_inventory_reserves_dataloader_only_ids(sentinel_inventory):

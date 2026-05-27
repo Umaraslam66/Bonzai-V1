@@ -1,4 +1,4 @@
-_status: LOCKED_SLOT_LIST__PENDING_HALT_3_OVERFIRING_REVIEW
+_status: LOCKED
 derivation:
   ordering: Preserve semantic_vocab L1 order; do not sort empirically.
   singapore_scope: Sub-C feature_class mapping only covers highway/building; all other keys remain zero-count placeholders pending future scope expansion.
@@ -12,10 +12,15 @@ family_block:
   used_count: 28
   used_end_id: 227
   used_start_id: 200
+over_firing_classification:
+  building: 'Root cause (b): real OSM long-tail / upstream under-typed source data. 99.3% of B__UNK__ rows have null upstream subtype; sub-C correctly preserves null and sub-F captures via BP4.'
+  highway: 'Root cause (b): real OSM long-tail / literal upstream unknown. All 9,748 rows are raw transportation.class=''unknown''; sub-C propagates the explicit upstream unknown and sub-F captures via BP4.'
+  no_sub_c_v2_candidate: true
+  status: LOCKED_NO_CASCADE_8
 release: 2026-04-15.0
 sentinel_decomposition:
   building_b_unk:
-    cascade_8_assessment: 'No BP1 cascade: raw Overture buildings.class is NULL for the sentinel rows, so there are no recoverable wiki/semantic building values hidden behind B__UNK__ in class_raw.'
+    cascade_8_assessment: Raw Overture buildings.class is NULL for the sentinel rows, so there are no recoverable wiki/semantic building values hidden behind B__UNK__ in class_raw.
     raw_class_top20:
     - count: 301418
       fraction: 1.0
@@ -51,14 +56,14 @@ sentinel_decomposition:
       fraction: 1.3270607594768726e-05
       value: residential
     raw_subtype_top20_coverage_fraction: 1.0
-    root_cause_classification: raw_overture_buildings_class_null_missingness_not_bp1_underinclusion
+    root_cause_classification: root_cause_b_real_osm_long_tail_source_under_typed_no_cascade_8
     source_id_join_missing_count: 0
     sub_c_filter:
       class_raw: B__UNK__
       feature_class: 1
     total_count: 301418
   highway_unknown:
-    cascade_8_assessment: 'No BP1 cascade: raw Overture transportation.class is literal ''unknown'' for these rows, not a hidden wiki/semantic highway value.'
+    cascade_8_assessment: Raw Overture transportation.class is literal 'unknown' for these rows, not a hidden wiki/semantic highway value.
     raw_class_top20:
     - count: 9748
       fraction: 1.0
@@ -73,13 +78,13 @@ sentinel_decomposition:
       fraction: 0.15613459171112024
       value: rail
     raw_subtype_top20_coverage_fraction: 1.0
-    root_cause_classification: raw_overture_transportation_class_literal_unknown_not_bp1_underinclusion
+    root_cause_classification: root_cause_b_real_osm_long_tail_literal_upstream_unknown_no_cascade_8
     source_id_join_missing_count: 0
     sub_c_filter:
       class_raw: unknown
       feature_class: 0
     total_count: 9748
-slot_list_status: LOCKED_28_SLOT_RETENTION_APPROVED
+slot_list_status: LOCKED
 slots:
 - id: 200
   key: aerialway

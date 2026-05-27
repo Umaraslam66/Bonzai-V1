@@ -1,4 +1,4 @@
-"""Derive the proposed BP4 unknown family + Halt 3 sentinel inventory surface."""
+"""Derive the locked BP4 unknown family + Halt 3 sentinel inventory surface."""
 
 from __future__ import annotations
 
@@ -135,12 +135,12 @@ def build_sentinel_decomposition() -> dict:
             "raw_dataset": "buildings.parquet",
             "raw_lookup": raw_buildings,
             "classification": (
-                "raw_overture_buildings_class_null_missingness_not_bp1_underinclusion"
+                "root_cause_b_real_osm_long_tail_source_under_typed_no_cascade_8"
             ),
             "cascade_8_assessment": (
-                "No BP1 cascade: raw Overture buildings.class is NULL for the "
-                "sentinel rows, so there are no recoverable wiki/semantic building "
-                "values hidden behind B__UNK__ in class_raw."
+                "Raw Overture buildings.class is NULL for the sentinel rows, so "
+                "there are no recoverable wiki/semantic building values hidden "
+                "behind B__UNK__ in class_raw."
             ),
         },
         "highway_unknown": {
@@ -149,11 +149,11 @@ def build_sentinel_decomposition() -> dict:
             "raw_dataset": "transportation.parquet",
             "raw_lookup": raw_transportation,
             "classification": (
-                "raw_overture_transportation_class_literal_unknown_not_bp1_underinclusion"
+                "root_cause_b_real_osm_long_tail_literal_upstream_unknown_no_cascade_8"
             ),
             "cascade_8_assessment": (
-                "No BP1 cascade: raw Overture transportation.class is literal "
-                "'unknown' for these rows, not a hidden wiki/semantic highway value."
+                "Raw Overture transportation.class is literal 'unknown' for these "
+                "rows, not a hidden wiki/semantic highway value."
             ),
         },
     }
@@ -277,7 +277,7 @@ def build_unknown_slots(semantic_vocab: dict) -> list[dict]:
 def build_unknown_family(semantic_vocab: dict) -> dict:
     slots = build_unknown_slots(semantic_vocab)
     return {
-        "_status": "LOCKED_SLOT_LIST__PENDING_HALT_3_OVERFIRING_REVIEW",
+        "_status": "LOCKED",
         "release": semantic_vocab["release"],
         "derivation": {
             "source": "locked semantic_vocab.yaml L1 slots",
@@ -292,10 +292,24 @@ def build_unknown_family(semantic_vocab: dict) -> dict:
                 "keys remain zero-count placeholders pending future scope expansion."
             ),
         },
-        "slot_list_status": "LOCKED_28_SLOT_RETENTION_APPROVED",
+        "slot_list_status": "LOCKED",
         "zero_firing_slots_policy": {
             "status": "LOCKED_KEEP_ALL_28_UNKNOWN_SLOTS",
             "note": ZERO_FIRING_SCOPE_NOTE,
+        },
+        "over_firing_classification": {
+            "status": "LOCKED_NO_CASCADE_8",
+            "building": (
+                "Root cause (b): real OSM long-tail / upstream under-typed source "
+                "data. 99.3% of B__UNK__ rows have null upstream subtype; sub-C "
+                "correctly preserves null and sub-F captures via BP4."
+            ),
+            "highway": (
+                "Root cause (b): real OSM long-tail / literal upstream unknown. "
+                "All 9,748 rows are raw transportation.class='unknown'; sub-C "
+                "propagates the explicit upstream unknown and sub-F captures via BP4."
+            ),
+            "no_sub_c_v2_candidate": True,
         },
         "family_block": {
             "name": "BP4 unknown family",
@@ -315,12 +329,12 @@ def build_sentinel_inventory(semantic_vocab: dict, unknown_family: dict) -> dict
     semantic_count = len(semantic_vocab["slots"])
     unknown_count = len(unknown_family["slots"])
     return {
-        "_status": "LOCKED_BP1_BP4_DATALOADER__BP2_BP7_PLACEHOLDER",
+        "_status": "LOCKED",
         "release": semantic_vocab["release"],
         "halt": "Halt 3",
         "scope_note": (
-            "BP1 + BP4 + dataloader sentinel IDs are locked at Halt 3 continuation. "
-            "BP2/BP7 remain placeholder blocks pending later task halts."
+            "BP1 + BP4 + dataloader sentinel IDs are LOCKED by Halt 3 approval. "
+            "BP2/BP7 remain PLACEHOLDER blocks pending later task halts."
         ),
         "bp1_semantic": {
             "start_id": 0,
@@ -402,13 +416,13 @@ def build_report(
     lines = [
         "**Halt 3: BP4 unknown family + sentinel inventory**",
         "",
-        "Status: `DONE_WITH_CONCERNS` pending reviewer approval; do not proceed past Halt 3 lock.",
+        "Status: `DONE` - Halt 3 approved; Task 4 closed.",
         "",
         "**Enumerated `<unknown_*>` slots:**",
     ]
     for i, slot in enumerate(slots, start=1):
         lines.append(
-            f"{i}. `{slot['token']}` - key `{slot['key']}` - proposed ID `{slot['id']}`"
+            f"{i}. `{slot['token']}` - key `{slot['key']}` - locked ID `{slot['id']}`"
         )
 
     lines.extend(
@@ -432,7 +446,7 @@ def build_report(
     lines.extend(
         [
             "",
-            "**Over-firing / zero-firing proposal table:**",
+            "**Over-firing / zero-firing locked table:**",
             "",
             "| token | numerator | denominator | ratio | over-firing | zero-firing | rationale |",
             "|---|---:|---:|---:|---|---|---|",
@@ -462,8 +476,9 @@ def build_report(
             f"`{building['source_id_join_missing_count']}` across "
             f"`{building['total_count']}` rows; "
             f"raw-class top-20 coverage `{_percent_text(building['raw_class_top20_coverage_fraction'])}`.",
-            "- Classification: raw upstream building class missingness handled by "
-            f"sub-C missing-value policy, not BP1 under-inclusion. "
+            "- Classification: root cause (b), real OSM long-tail / upstream "
+            "under-typed source data; no BP1 cascade #8 and no sub-C-v2 "
+            f"candidate from this decomposition. "
             f"{building['cascade_8_assessment']}",
             "",
             "`building=B__UNK__` raw `buildings.class` top values:",
@@ -481,8 +496,9 @@ def build_report(
             f"`{highway['source_id_join_missing_count']}` across "
             f"`{highway['total_count']}` rows; "
             f"raw-class top-20 coverage `{_percent_text(highway['raw_class_top20_coverage_fraction'])}`.",
-            "- Classification: literal raw upstream highway `unknown`, not BP1 "
-            f"under-inclusion. {highway['cascade_8_assessment']}",
+            "- Classification: root cause (b), real OSM long-tail / literal "
+            "upstream `unknown`; no BP1 cascade #8 and no sub-C-v2 candidate "
+            f"from this decomposition. {highway['cascade_8_assessment']}",
             "",
             "`highway=unknown` raw `transportation.class` top values:",
         ]
@@ -514,7 +530,7 @@ def build_report(
             "- BP2 (`300..1499`) and BP7 (`1500..1599`) are PLACEHOLDER blocks.",
             "- Their final sizes are empirically locked at Tasks 2 and 7 halts respectively.",
             "- If Task 2 encoding-primitive count lands above `1200` or Task 7 boundary-ref count above `100`, BP2/BP7 blocks slide.",
-            "- Only BP1 + BP4 + dataloader sentinel IDs are locked at Halt 3 continuation.",
+            "- Only BP1 + BP4 + dataloader sentinel IDs are LOCKED at Halt 3 approval.",
             "",
             "**§10.5 telemetry:**",
             "",
