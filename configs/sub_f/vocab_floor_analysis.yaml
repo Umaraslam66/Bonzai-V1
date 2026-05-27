@@ -1,0 +1,76 @@
+_status: "PROPOSED \u2014 pending Halt 1 reviewer approval per spec \xA710.3."
+curve:
+- f_min: 0.0005953467798612618
+  level: 1
+  level_description: top-level keys (28 must-appears)
+  must_appears_admitted: 28
+  must_appears_count: 28
+  vocab_size: 186
+- f_min: 9.95794913319044e-08
+  level: 2
+  level_description: "(key, primary-value) pairs \u2014 highway + building per cascade\
+    \ #4"
+  must_appears_admitted: 56
+  must_appears_count: 56
+  vocab_size: 56
+- deferral_reason: 'Cascade #5 + recursive marginal-cost-of-cut: enumerate where reviewable
+    benefit exists.'
+  f_min: null
+  level: 3
+  level_description: "all wiki-documented pairs \u2014 deferred per spec \xA712 #10"
+  must_appears_admitted: 0
+  must_appears_count: 0
+  vocab_size: null
+f_denominator: fraction-of-feature-bearing-elements within dominant ET per key (BP1
+  fix 2; value rows inherit parent's dominant ET as documented approximation)
+proposed_elbow:
+  exception_list: []
+  f_value: 0.0005953467798612618
+  level: 1
+  rationale: "Default L1 (28 keys, full primary feature set); reviewer redirects to\
+    \ L2 at halt if \u0394vocab_size / \u0394must-appears between L1 and L2 favors\
+    \ L2."
+proposed_x_threshold:
+  candidate_a_singapore_elbow: 1.4337986487881535e-06
+  candidate_b_median_must_appear_freq: 0.004748741124786364
+  n_must_appears_present_in_singapore: 35
+  n_must_appears_total: 56
+  paired_structural_check: "For each Singapore-frequency-\u2265X (highway, value)\
+    \ and (building, value) pair: must appear above F in semantic_vocab.yaml. POI\
+    \ + base scope deferred per spec \xA712 #11."
+  scope_note: "highway + building only per cascade #4; POI + base deferred per spec\
+    \ \xA712 #11."
+release: 2026-04-15.0
+wiki_l1_must_appears:
+- aerialway
+- aeroway
+- amenity
+- barrier
+- boundary
+- building
+- craft
+- emergency
+- geological
+- healthcare
+- highway
+- historic
+- landuse
+- leisure
+- man_made
+- military
+- natural
+- office
+- place
+- power
+- public_transport
+- railway
+- route
+- shop
+- telecom
+- tourism
+- water
+- waterway
+wiki_l2_building_count: 33
+wiki_l2_highway_count: 23
+wiki_l2_primary_pairs_count: 56
+wiki_l3_status: "deferred per spec \xA712 #10"
