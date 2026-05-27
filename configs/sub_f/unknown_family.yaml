@@ -1,0 +1,478 @@
+_status: LOCKED_SLOT_LIST__PENDING_HALT_3_OVERFIRING_REVIEW
+derivation:
+  ordering: Preserve semantic_vocab L1 order; do not sort empirically.
+  singapore_scope: Sub-C feature_class mapping only covers highway/building; all other keys remain zero-count placeholders pending future scope expansion.
+  source: locked semantic_vocab.yaml L1 slots
+  wiki_revision_id: 2876652
+family_block:
+  end_id: 255
+  name: BP4 unknown family
+  reserved_count: 28
+  start_id: 200
+  used_count: 28
+  used_end_id: 227
+  used_start_id: 200
+release: 2026-04-15.0
+sentinel_decomposition:
+  building_b_unk:
+    cascade_8_assessment: 'No BP1 cascade: raw Overture buildings.class is NULL for the sentinel rows, so there are no recoverable wiki/semantic building values hidden behind B__UNK__ in class_raw.'
+    raw_class_top20:
+    - count: 301418
+      fraction: 1.0
+      value: <NULL>
+    raw_class_top20_coverage_fraction: 1.0
+    raw_dataset: buildings.parquet
+    raw_subtype_top20:
+    - count: 299237
+      fraction: 0.9927642012089524
+      value: <NULL>
+    - count: 1018
+      fraction: 0.003377369632868641
+      value: civic
+    - count: 497
+      fraction: 0.0016488729936500143
+      value: religious
+    - count: 369
+      fraction: 0.001224213550617415
+      value: commercial
+    - count: 146
+      fraction: 0.0004843771772090585
+      value: entertainment
+    - count: 70
+      fraction: 0.0002322356329084527
+      value: education
+    - count: 64
+      fraction: 0.00021232972151629962
+      value: medical
+    - count: 13
+      fraction: 4.312947468299836e-05
+      value: transportation
+    - count: 4
+      fraction: 1.3270607594768726e-05
+      value: residential
+    raw_subtype_top20_coverage_fraction: 1.0
+    root_cause_classification: raw_overture_buildings_class_null_missingness_not_bp1_underinclusion
+    source_id_join_missing_count: 0
+    sub_c_filter:
+      class_raw: B__UNK__
+      feature_class: 1
+    total_count: 301418
+  highway_unknown:
+    cascade_8_assessment: 'No BP1 cascade: raw Overture transportation.class is literal ''unknown'' for these rows, not a hidden wiki/semantic highway value.'
+    raw_class_top20:
+    - count: 9748
+      fraction: 1.0
+      value: unknown
+    raw_class_top20_coverage_fraction: 1.0
+    raw_dataset: transportation.parquet
+    raw_subtype_top20:
+    - count: 8226
+      fraction: 0.8438654082888798
+      value: road
+    - count: 1522
+      fraction: 0.15613459171112024
+      value: rail
+    raw_subtype_top20_coverage_fraction: 1.0
+    root_cause_classification: raw_overture_transportation_class_literal_unknown_not_bp1_underinclusion
+    source_id_join_missing_count: 0
+    sub_c_filter:
+      class_raw: unknown
+      feature_class: 0
+    total_count: 9748
+slot_list_status: LOCKED_28_SLOT_RETENTION_APPROVED
+slots:
+- id: 200
+  key: aerialway
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=aerialway in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_aerialway>
+  zero_firing_flag: true
+- id: 201
+  key: aeroway
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=aeroway in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_aeroway>
+  zero_firing_flag: true
+- id: 202
+  key: amenity
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=amenity in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_amenity>
+  zero_firing_flag: true
+- id: 203
+  key: barrier
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=barrier in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_barrier>
+  zero_firing_flag: true
+- id: 204
+  key: boundary
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=boundary in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_boundary>
+  zero_firing_flag: true
+- id: 205
+  key: building
+  over_firing_denominator: 93759
+  over_firing_flag: true
+  over_firing_numerator: 301418
+  over_firing_ratio: 3.214816710929084
+  over_firing_rationale: Flag when unknown total / locked semantic-pair Singapore coverage >= 10% for key=building.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 93759
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 301418
+  singapore_count_total: 301418
+  token: <unknown_building>
+  zero_firing_flag: false
+- id: 206
+  key: craft
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=craft in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_craft>
+  zero_firing_flag: true
+- id: 207
+  key: emergency
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=emergency in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_emergency>
+  zero_firing_flag: true
+- id: 208
+  key: geological
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=geological in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_geological>
+  zero_firing_flag: true
+- id: 209
+  key: healthcare
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=healthcare in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_healthcare>
+  zero_firing_flag: true
+- id: 210
+  key: highway
+  over_firing_denominator: 292523
+  over_firing_flag: false
+  over_firing_numerator: 9748
+  over_firing_ratio: 0.03332387538757636
+  over_firing_rationale: Flag when unknown total / locked semantic-pair Singapore coverage >= 10% for key=highway.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 292523
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 9748
+  singapore_count_total: 9748
+  token: <unknown_highway>
+  zero_firing_flag: false
+- id: 211
+  key: historic
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=historic in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_historic>
+  zero_firing_flag: true
+- id: 212
+  key: landuse
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=landuse in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_landuse>
+  zero_firing_flag: true
+- id: 213
+  key: leisure
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=leisure in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_leisure>
+  zero_firing_flag: true
+- id: 214
+  key: man_made
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=man_made in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_man_made>
+  zero_firing_flag: true
+- id: 215
+  key: military
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=military in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_military>
+  zero_firing_flag: true
+- id: 216
+  key: natural
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=natural in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_natural>
+  zero_firing_flag: true
+- id: 217
+  key: office
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=office in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_office>
+  zero_firing_flag: true
+- id: 218
+  key: place
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=place in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_place>
+  zero_firing_flag: true
+- id: 219
+  key: power
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=power in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_power>
+  zero_firing_flag: true
+- id: 220
+  key: public_transport
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=public_transport in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_public_transport>
+  zero_firing_flag: true
+- id: 221
+  key: railway
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=railway in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_railway>
+  zero_firing_flag: true
+- id: 222
+  key: route
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=route in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_route>
+  zero_firing_flag: true
+- id: 223
+  key: shop
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=shop in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_shop>
+  zero_firing_flag: true
+- id: 224
+  key: telecom
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=telecom in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_telecom>
+  zero_firing_flag: true
+- id: 225
+  key: tourism
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=tourism in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_tourism>
+  zero_firing_flag: true
+- id: 226
+  key: water
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=water in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_water>
+  zero_firing_flag: true
+- id: 227
+  key: waterway
+  over_firing_denominator: 0
+  over_firing_flag: false
+  over_firing_numerator: 0
+  over_firing_ratio: null
+  over_firing_rationale: No scoped Singapore semantic-pair denominator for key=waterway in sub-C v1 mapping; ratio left null and over-firing remains false.
+  over_firing_threshold: 0.1
+  singapore_count_locked_semantic_pairs: 0
+  singapore_count_real_osm_below_F: 0
+  singapore_count_subc_sentinels: 0
+  singapore_count_total: 0
+  token: <unknown_waterway>
+  zero_firing_flag: true
+zero_firing_slots_policy:
+  note: '26 zero-firing slots are scope-of-coverage-zero, not OSM-real-zero. They preserve v1 IDs against multi-region unknown expansion at sub-F-v2 per cascade #4 deferral.'
+  status: LOCKED_KEEP_ALL_28_UNKNOWN_SLOTS

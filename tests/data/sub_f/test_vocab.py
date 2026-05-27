@@ -13,13 +13,23 @@ lists are untrusted; hand-counts derived independently from pair sets).
 from __future__ import annotations
 
 import csv
+from collections import Counter
 from pathlib import Path
 from typing import Final
 
+import pyarrow.parquet as pq
 import pytest
 import yaml
 
 CONFIG_ROOT = Path(__file__).resolve().parents[3] / "configs" / "sub_f"
+SUB_C_SG_ROOT = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "processed"
+    / "sub_c"
+    / "2026-04-15.0"
+    / "singapore"
+)
 
 # Hand-derived from wikitext at configs/sub_f/wiki_map_features/2026-04-15.0.wikitext
 # `==Primary features==` section transclusion count. Independently counted from
@@ -33,10 +43,58 @@ N_L2_HIGHWAY_EXPECTED: Final[int] = 23
 
 # Hand-derived from Template:Building_typology value table + 1 "yes" catch-all.
 N_L2_BUILDING_EXPECTED: Final[int] = 33
+UNKNOWN_FAMILY_START_ID: Final[int] = 200
+UNKNOWN_FAMILY_END_ID: Final[int] = 255
+UNKNOWN_FAMILY_USED_END_ID: Final[int] = 227
+UNKNOWN_FAMILY_SLOT_STATUS: Final[str] = (
+    "LOCKED_SLOT_LIST__PENDING_HALT_3_OVERFIRING_REVIEW"
+)
+SENTINEL_INVENTORY_STATUS: Final[str] = (
+    "LOCKED_BP1_BP4_DATALOADER__BP2_BP7_PLACEHOLDER"
+)
+SENTINEL_VALUES: Final[frozenset[str]] = frozenset({"unknown"})
+SENTINEL_PREFIXES: Final[tuple[str, ...]] = ("B_",)
 
 
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _is_sub_c_unknown_sentinel(value: str) -> bool:
+    return (
+        value in SENTINEL_VALUES
+        or "__UNK__" in value
+        or value.startswith(SENTINEL_PREFIXES)
+    )
+
+
+@pytest.fixture(scope="module")
+def semantic_vocab() -> dict:
+    return _load_yaml(CONFIG_ROOT / "semantic_vocab.yaml")
+
+
+@pytest.fixture(scope="module")
+def unknown_family() -> dict:
+    return _load_yaml(CONFIG_ROOT / "unknown_family.yaml")
+
+
+@pytest.fixture(scope="module")
+def sentinel_inventory() -> dict:
+    return _load_yaml(CONFIG_ROOT / "sentinel_inventory.yaml")
+
+
+@pytest.fixture(scope="module")
+def sub_c_singapore_counts() -> Counter[tuple[str, str], int]:
+    feature_class_to_key = {0: "highway", 1: "building"}
+    counts: Counter[tuple[str, str], int] = Counter()
+    for path in sorted(SUB_C_SG_ROOT.glob("tile=*/features.parquet")):
+        table = pq.ParquetFile(path).read()
+        for row in table.to_pylist():
+            key = feature_class_to_key.get(row["feature_class"])
+            value = row.get("class_raw")
+            if key and value:
+                counts[(key, value)] += 1
+    return counts
 
 
 def test_vocab_floor_analysis_has_28_l1_must_appears():
@@ -145,3 +203,151 @@ def test_taginfo_snapshot_paginates_building_values():
         f"Observed only {len(building_values)} rows, which indicates a likely "
         "regression to single-page rp=999 coverage."
     )
+
+
+def test_unknown_family_has_28_locked_slots_pending_overfiring_review(unknown_family):
+    assert unknown_family["_status"] == UNKNOWN_FAMILY_SLOT_STATUS
+    assert unknown_family["slot_list_status"] == "LOCKED_28_SLOT_RETENTION_APPROVED"
+    assert len(unknown_family["slots"]) == N_L1_MUST_APPEARS_EXPECTED
+
+
+def test_unknown_family_zero_firing_slots_keep_policy_is_locked(unknown_family):
+    policy = unknown_family["zero_firing_slots_policy"]
+    assert policy["status"] == "LOCKED_KEEP_ALL_28_UNKNOWN_SLOTS"
+    assert "scope-of-coverage-zero, not OSM-real-zero" in policy["note"]
+    assert "multi-region unknown expansion" in policy["note"]
+
+
+def test_unknown_family_slot_order_follows_semantic_vocab_l1_order(
+    semantic_vocab, unknown_family
+):
+    expected_keys = [
+        slot["tag"].split("=", 1)[0]
+        for slot in semantic_vocab["slots"]
+        if slot["tag"].endswith("=*")
+    ]
+    assert expected_keys == [
+        slot["key"] for slot in unknown_family["slots"]
+    ]
+
+
+def test_unknown_family_uses_bp4_reserved_block(unknown_family):
+    block = unknown_family["family_block"]
+    slots = unknown_family["slots"]
+    assert block["start_id"] == UNKNOWN_FAMILY_START_ID
+    assert block["end_id"] == UNKNOWN_FAMILY_END_ID
+    assert block["used_start_id"] == UNKNOWN_FAMILY_START_ID
+    assert block["used_end_id"] == UNKNOWN_FAMILY_USED_END_ID
+    assert [slot["id"] for slot in slots] == list(
+        range(UNKNOWN_FAMILY_START_ID, UNKNOWN_FAMILY_USED_END_ID + 1)
+    )
+
+
+def test_unknown_family_real_osm_counts_exclude_all_locked_semantic_tags(
+    semantic_vocab, unknown_family, sub_c_singapore_counts
+):
+    semantic_tags = {slot["tag"] for slot in semantic_vocab["slots"]}
+    expected_real_unknown = Counter()
+    expected_sentinel = Counter()
+    for (key, value), count in sub_c_singapore_counts.items():
+        tag = f"{key}={value}"
+        if _is_sub_c_unknown_sentinel(value):
+            expected_sentinel[key] += count
+        elif tag not in semantic_tags:
+            expected_real_unknown[key] += count
+
+    slots_by_key = {slot["key"]: slot for slot in unknown_family["slots"]}
+    assert (
+        slots_by_key["highway"]["singapore_count_real_osm_below_F"]
+        == expected_real_unknown["highway"]
+    )
+    assert (
+        slots_by_key["building"]["singapore_count_real_osm_below_F"]
+        == expected_real_unknown["building"]
+    )
+    assert (
+        slots_by_key["highway"]["singapore_count_subc_sentinels"]
+        == expected_sentinel["highway"]
+    )
+    assert (
+        slots_by_key["building"]["singapore_count_subc_sentinels"]
+        == expected_sentinel["building"]
+    )
+
+
+def test_unknown_family_subc_sentinel_counts_are_reported_separately(unknown_family):
+    slots_by_key = {slot["key"]: slot for slot in unknown_family["slots"]}
+    assert slots_by_key["highway"]["singapore_count_subc_sentinels"] > 0
+    assert slots_by_key["building"]["singapore_count_subc_sentinels"] > 0
+    assert (
+        slots_by_key["highway"]["singapore_count_total"]
+        == slots_by_key["highway"]["singapore_count_real_osm_below_F"]
+        + slots_by_key["highway"]["singapore_count_subc_sentinels"]
+    )
+    assert (
+        slots_by_key["building"]["singapore_count_total"]
+        == slots_by_key["building"]["singapore_count_real_osm_below_F"]
+        + slots_by_key["building"]["singapore_count_subc_sentinels"]
+    )
+
+
+def test_unknown_family_reports_building_b_unk_raw_cache_decomposition(unknown_family):
+    building = unknown_family["sentinel_decomposition"]["building_b_unk"]
+    assert building["total_count"] == 301418
+    assert building["source_id_join_missing_count"] == 0
+    assert building["raw_class_top20"][0] == {
+        "value": "<NULL>",
+        "count": 301418,
+        "fraction": 1.0,
+    }
+    assert building["raw_subtype_top20"][0]["value"] == "<NULL>"
+    assert building["raw_subtype_top20"][0]["count"] == 299237
+    assert "not_bp1_underinclusion" in building["root_cause_classification"]
+
+
+def test_unknown_family_reports_highway_unknown_raw_cache_decomposition(unknown_family):
+    highway = unknown_family["sentinel_decomposition"]["highway_unknown"]
+    assert highway["total_count"] == 9748
+    assert highway["source_id_join_missing_count"] == 0
+    assert highway["raw_class_top20"][0] == {
+        "value": "unknown",
+        "count": 9748,
+        "fraction": 1.0,
+    }
+    subtype_counts = {r["value"]: r["count"] for r in highway["raw_subtype_top20"]}
+    assert subtype_counts == {"road": 8226, "rail": 1522}
+    assert "not_bp1_underinclusion" in highway["root_cause_classification"]
+
+
+def test_sentinel_inventory_reserves_dataloader_only_ids(sentinel_inventory):
+    assert sentinel_inventory["_status"] == SENTINEL_INVENTORY_STATUS
+    dataloader = sentinel_inventory["dataloader_sentinels"]
+    assert dataloader["block"]["start_id"] == 256
+    assert dataloader["block"]["end_id"] == 299
+    assert dataloader["block"]["status"] == "LOCKED at Halt 3 continuation"
+    expected = {
+        "<pad>": 256,
+        "<eos>": 257,
+        "<bos>": 258,
+        "<cell_start>": 259,
+        "<cell_end>": 260,
+    }
+    actual = {slot["token"]: slot["id"] for slot in dataloader["slots"]}
+    assert actual == expected
+    assert all(slot["on_disk"] is False for slot in dataloader["slots"])
+
+
+def test_sentinel_inventory_has_bp2_and_bp7_placeholder_blocks(sentinel_inventory):
+    assert sentinel_inventory["bp1_semantic"]["status"] == "LOCKED at Halt 3 continuation"
+    assert (
+        sentinel_inventory["bp4_unknown_family"]["status"]
+        == "LOCKED at Halt 3 continuation"
+    )
+    bp2 = sentinel_inventory["bp2_encoding_primitives_placeholder"]
+    bp7 = sentinel_inventory["bp7_boundary_ref_placeholder"]
+    assert bp2["start_id"] == 300
+    assert bp2["end_id"] == 1499
+    assert bp2["placeholder"] is True
+    assert bp7["start_id"] == 1500
+    assert bp7["end_id"] == 1599
+    assert bp7["placeholder"] is True

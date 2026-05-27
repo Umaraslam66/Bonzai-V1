@@ -1,0 +1,53 @@
+_status: LOCKED_BP1_BP4_DATALOADER__BP2_BP7_PLACEHOLDER
+bp1_semantic:
+  end_id: 199
+  reserved_count: 72
+  start_id: 0
+  status: LOCKED at Halt 3 continuation
+  used_count: 127
+  used_range: 0..126
+bp2_encoding_primitives_placeholder:
+  end_id: 1499
+  placeholder: true
+  slide_condition: If Task 2 encoding-primitive count lands above 1200, this block slides.
+  start_id: 300
+  status: PLACEHOLDER; final size locks at Task 2 halt
+bp4_unknown_family:
+  end_id: 255
+  reserved_count: 28
+  start_id: 200
+  status: LOCKED at Halt 3 continuation
+  used_count: 28
+  used_range: 200..227
+bp7_boundary_ref_placeholder:
+  end_id: 1599
+  expected_used: 8
+  placeholder: true
+  reserved_count: 92
+  slide_condition: If Task 7 boundary-ref count lands above 100, this block slides.
+  start_id: 1500
+  status: PLACEHOLDER; final size locks at Task 7 halt
+dataloader_sentinels:
+  block:
+    end_id: 299
+    start_id: 256
+    status: LOCKED at Halt 3 continuation
+  slots:
+  - id: 256
+    on_disk: false
+    token: <pad>
+  - id: 257
+    on_disk: false
+    token: <eos>
+  - id: 258
+    on_disk: false
+    token: <bos>
+  - id: 259
+    on_disk: false
+    token: <cell_start>
+  - id: 260
+    on_disk: false
+    token: <cell_end>
+halt: Halt 3
+release: 2026-04-15.0
+scope_note: BP1 + BP4 + dataloader sentinel IDs are locked at Halt 3 continuation. BP2/BP7 remain placeholder blocks pending later task halts.
