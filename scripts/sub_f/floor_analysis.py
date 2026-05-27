@@ -220,6 +220,18 @@ def vocab_size_at_F(
 # SINGAPORE X-THRESHOLD computation (Bug 5 fix per cascade #4 scope).
 # ---------------------------------------------------------------------------
 
+SUB_C_UNKNOWN_SENTINEL_VALUES: Final[frozenset[str]] = frozenset({"unknown"})
+SUB_C_UNKNOWN_SENTINEL_PREFIXES: Final[tuple[str, ...]] = ("B_",)
+
+
+def is_sub_c_unknown_sentinel(value: str) -> bool:
+    """Return True for sub-C normalization sentinels, not real OSM values."""
+    return (
+        value in SUB_C_UNKNOWN_SENTINEL_VALUES
+        or "__UNK__" in value
+        or value.startswith(SUB_C_UNKNOWN_SENTINEL_PREFIXES)
+    )
+
 
 def compute_singapore_frequencies(
     sub_c_region: Path,
@@ -238,6 +250,21 @@ def compute_singapore_frequencies(
             if key and value:  # NULL class_raw skipped (POI rows have NULL)
                 counts[(key, value)] += 1
     return dict(counts)
+
+
+def filter_sub_c_unknown_sentinels(
+    sg_freqs: dict[tuple[str, str], int],
+) -> tuple[dict[tuple[str, str], int], dict[tuple[str, str], int]]:
+    """Remove sub-C unknown sentinels before deriving Singapore X (cascade #7)."""
+    filtered: dict[tuple[str, str], int] = {}
+    excluded: dict[tuple[str, str], int] = {}
+    for pair, count in sg_freqs.items():
+        value = pair[1]
+        if is_sub_c_unknown_sentinel(value):
+            excluded[pair] = count
+        else:
+            filtered[pair] = count
+    return filtered, excluded
 
 
 def derive_x_threshold(
@@ -267,7 +294,10 @@ def derive_x_threshold(
         ),
         "n_must_appears_present_in_singapore": len(present_fractions),
         "n_must_appears_total": len(wiki_must_appears),
-        "scope_note": "highway + building only per cascade #4; POI + base deferred per spec §12 #11.",
+        "scope_note": (
+            "highway + building only per cascade #4; sub-C unknown sentinels "
+            "filtered per cascade #7; POI + base deferred per spec §12 #11."
+        ),
     }
 
 
@@ -297,7 +327,9 @@ def main() -> int:
     vocab_l2 = vocab_size_at_F(rows, f_l2, level=2, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
 
     # Singapore X-threshold per BP1 fix C (Bug 5 fix per cascade #4 scope).
-    sg_freqs = compute_singapore_frequencies(args.sub_c_region_dir)
+    # Cascade #7: filter sub-C normalization sentinels before X derivation.
+    sg_freqs_raw = compute_singapore_frequencies(args.sub_c_region_dir)
+    sg_freqs, sg_filtered = filter_sub_c_unknown_sentinels(sg_freqs_raw)
     x_threshold = derive_x_threshold(sg_freqs, WIKI_L2_PRIMARY_PAIRS)
 
     output = {
@@ -340,10 +372,18 @@ def main() -> int:
             },
         ],
         "proposed_elbow": {
-            "level": 1,
-            "f_value": float(f_l1),
+            "status": "LOCKED_BY_REVIEWER_FOR_F_ELBOW; X-threshold pending",
+            "granularity": "L1+L2-mixed",
+            "f_value": float(f_l2),
+            "slot_count_before_x_exceptions": (
+                len(WIKI_L1_MUST_APPEARS) + len(WIKI_L2_PRIMARY_PAIRS)
+            ),
             "exception_list": [],
-            "rationale": "Default L1 (28 keys, full primary feature set); reviewer redirects to L2 at halt if Δvocab_size / Δmust-appears between L1 and L2 favors L2.",
+            "rationale": (
+                "Mixed-B lock: 28 L1 semantic categories + 56 L2 highway/building "
+                "primary pairs. Discretionary L1 keys at F_l1 are metadata-heavy "
+                "and are not admitted by default."
+            ),
         },
         "proposed_x_threshold": {
             "candidate_a_singapore_elbow": x_threshold.get("candidate_a_singapore_elbow"),
@@ -351,6 +391,20 @@ def main() -> int:
             "scope_note": x_threshold.get("scope_note"),
             "n_must_appears_present_in_singapore": x_threshold.get("n_must_appears_present_in_singapore"),
             "n_must_appears_total": x_threshold.get("n_must_appears_total"),
+            "sentinel_filter": {
+                "status": "applied before X derivation per cascade #7",
+                "patterns": [
+                    "value == 'unknown'",
+                    "'__UNK__' in value",
+                    "value startswith 'B_'",
+                ],
+                "excluded_pair_count": len(sg_filtered),
+                "excluded_feature_count": int(sum(sg_filtered.values())),
+                "excluded_pairs": [
+                    {"key": key, "value": value, "count": int(count)}
+                    for (key, value), count in sorted(sg_filtered.items())
+                ],
+            },
             "paired_structural_check": "For each Singapore-frequency-≥X (highway, value) and (building, value) pair: must appear above F in semantic_vocab.yaml. POI + base scope deferred per spec §12 #11.",
         },
         "_status": "PROPOSED — pending Halt 1 reviewer approval per spec §10.3.",

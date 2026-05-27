@@ -118,6 +118,19 @@ def test_vocab_floor_analysis_singapore_x_threshold_scoped_to_highway_building()
     assert "candidate_b_median_must_appear_freq" in x
 
 
+def test_vocab_floor_analysis_filters_sub_c_unknown_sentinels():
+    """Cascade #7: X-threshold excludes sub-C normalization sentinels."""
+    data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
+    sentinel_filter = data["proposed_x_threshold"]["sentinel_filter"]
+    excluded_pairs = {
+        (p["key"], p["value"]): p["count"]
+        for p in sentinel_filter["excluded_pairs"]
+    }
+    assert sentinel_filter["status"] == "applied before X derivation per cascade #7"
+    assert excluded_pairs[("building", "B__UNK__")] > 0
+    assert excluded_pairs[("highway", "unknown")] > 0
+
+
 def test_taginfo_snapshot_paginates_building_values():
     """Cascade #6: building value rows require multi-page taginfo coverage."""
     csv_path = CONFIG_ROOT / "taginfo" / "2026-04-15.0.csv"

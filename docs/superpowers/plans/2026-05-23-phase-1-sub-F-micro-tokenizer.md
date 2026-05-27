@@ -16,7 +16,7 @@
 
 ## Plan revisions from pre-dispatch audit (§9.6.1 cascade outcomes)
 
-Six revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch audit. Revisions 4+5 surfaced at prompt-derivation review (third-layer audit) along with five Task 1 code bugs (corrected inline in Task 1 code blocks below). Revision 6 surfaced at reviewer-side check before Task 1 redispatch. All cascades resolve per §9.6.1 discipline (sub-D wins / canonical source wins; lock value updates; §2 paired check re-validates; §13 revision ledger entries committed at sub-F-close + spec sync updates applied).
+Seven revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch audit. Revisions 4+5 surfaced at prompt-derivation review (third-layer audit) along with five Task 1 code bugs (corrected inline in Task 1 code blocks below). Revision 6 surfaced at reviewer-side check before Task 1 redispatch. Revision 7 surfaced during Halt 1 reviewer read-through. All cascades resolve per §9.6.1 discipline (sub-D wins / canonical source wins; lock value updates; §2 paired check re-validates; §13 revision ledger entries committed at sub-F-close + spec sync updates applied).
 
 ### Revision 1: `compare_version` mechanism — enum-extension, not kwarg-extension
 
@@ -67,6 +67,14 @@ Six revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch audi
 **Audit found** (reviewer-side check before Task 1 redispatch): taginfo enforces `rp <= 999` (`{"error":"results per page must be integer between 0 and 999"}`). A diagnostic count over the 28 L1 keys found `highway` has 534 values (fits one page) and `building` has 8759 values (requires pagination). Fourteen non-cascade-#4-scope L1 keys also have >999 upstream values (`amenity, barrier, craft, healthcare, historic, landuse, leisure, man_made, natural, office, route, shop, tourism, water`), but their value tails affect no sub-F-v1 Halt 1 output because L2 scope is highway + building and L3 is deferred.
 
 **Plan applies:** Task 1's `snapshot_taginfo.py` uses `rp=999`, paginates `building` only (cascade #4 Singapore X scope), and captures single-page `rp=999` value rows for all other keys. Value-tail coverage for the 26 non-cascade-#4-scope L1 keys is deferred to sub-F-v2 per spec §12 #12. `test_vocab.py` adds a building-row pagination assertion (`>= 8000` building value rows) so future regressions cannot silently collapse building back to one page.
+
+### Revision 7: Singapore X-threshold filters sub-C unknown sentinels before derivation
+
+**Original Task 1 plan code** computed Singapore X over sub-C-normalized `class_raw` values for `highway` and `building`, assuming those values were raw OSM values.
+
+**Halt 1 review found:** Singapore pass-lists admitted `building=B__UNK__` and `highway=unknown`. These are sub-C normalization sentinels, not OSM values. Cascade #4 correctly narrowed X scope to highway + building, but still assumed scoped `class_raw` values were raw OSM values. That assumption is false for unknown/sub-floor values emitted by sub-C.
+
+**Plan applies:** `floor_analysis.py` filters sub-C unknown sentinels (`value == "unknown"`, values containing `__UNK__`, and `B_*` values) before `derive_x_threshold()` runs. BP4 owns these cases: the encoder maps sub-C unknown sentinels to the `<unknown_*>` family, not to dedicated BP1 semantic slots. The Halt 1 X lock remains deferred until the filtered A'/B' candidates are reviewed.
 
 ### Task 1 plan code bug fixes (5 substantive bugs surfaced at prompt-derivation review)
 
@@ -673,6 +681,18 @@ def vocab_size_at_F(
 # SINGAPORE X-THRESHOLD computation (Bug 5 fix per cascade #4 scope).
 # ---------------------------------------------------------------------------
 
+SUB_C_UNKNOWN_SENTINEL_VALUES: Final[frozenset[str]] = frozenset({"unknown"})
+SUB_C_UNKNOWN_SENTINEL_PREFIXES: Final[tuple[str, ...]] = ("B_",)
+
+
+def is_sub_c_unknown_sentinel(value: str) -> bool:
+    """Return True for sub-C normalization sentinels, not real OSM values."""
+    return (
+        value in SUB_C_UNKNOWN_SENTINEL_VALUES
+        or "__UNK__" in value
+        or value.startswith(SUB_C_UNKNOWN_SENTINEL_PREFIXES)
+    )
+
 
 def compute_singapore_frequencies(
     sub_c_region: Path,
@@ -691,6 +711,21 @@ def compute_singapore_frequencies(
             if key and value:  # NULL class_raw skipped (POI rows have NULL)
                 counts[(key, value)] += 1
     return dict(counts)
+
+
+def filter_sub_c_unknown_sentinels(
+    sg_freqs: dict[tuple[str, str], int],
+) -> tuple[dict[tuple[str, str], int], dict[tuple[str, str], int]]:
+    """Remove sub-C unknown sentinels before deriving Singapore X (cascade #7)."""
+    filtered: dict[tuple[str, str], int] = {}
+    excluded: dict[tuple[str, str], int] = {}
+    for pair, count in sg_freqs.items():
+        value = pair[1]
+        if is_sub_c_unknown_sentinel(value):
+            excluded[pair] = count
+        else:
+            filtered[pair] = count
+    return filtered, excluded
 
 
 def derive_x_threshold(
@@ -720,7 +755,10 @@ def derive_x_threshold(
         ),
         "n_must_appears_present_in_singapore": len(present_fractions),
         "n_must_appears_total": len(wiki_must_appears),
-        "scope_note": "highway + building only per cascade #4; POI + base deferred per spec §12 #11.",
+        "scope_note": (
+            "highway + building only per cascade #4; sub-C unknown sentinels "
+            "filtered per cascade #7; POI + base deferred per spec §12 #11."
+        ),
     }
 
 
@@ -750,7 +788,9 @@ def main() -> int:
     vocab_l2 = vocab_size_at_F(rows, f_l2, level=2, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
 
     # Singapore X-threshold per BP1 fix C (Bug 5 fix per cascade #4 scope).
-    sg_freqs = compute_singapore_frequencies(args.sub_c_region_dir)
+    # Cascade #7: filter sub-C normalization sentinels before X derivation.
+    sg_freqs_raw = compute_singapore_frequencies(args.sub_c_region_dir)
+    sg_freqs, sg_filtered = filter_sub_c_unknown_sentinels(sg_freqs_raw)
     x_threshold = derive_x_threshold(sg_freqs, WIKI_L2_PRIMARY_PAIRS)
 
     output = {
@@ -793,10 +833,18 @@ def main() -> int:
             },
         ],
         "proposed_elbow": {
-            "level": 1,
-            "f_value": float(f_l1),
+            "status": "LOCKED_BY_REVIEWER_FOR_F_ELBOW; X-threshold pending",
+            "granularity": "L1+L2-mixed",
+            "f_value": float(f_l2),
+            "slot_count_before_x_exceptions": (
+                len(WIKI_L1_MUST_APPEARS) + len(WIKI_L2_PRIMARY_PAIRS)
+            ),
             "exception_list": [],
-            "rationale": "Default L1 (28 keys, full primary feature set); reviewer redirects to L2 at halt if Δvocab_size / Δmust-appears between L1 and L2 favors L2.",
+            "rationale": (
+                "Mixed-B lock: 28 L1 semantic categories + 56 L2 highway/building "
+                "primary pairs. Discretionary L1 keys at F_l1 are metadata-heavy "
+                "and are not admitted by default."
+            ),
         },
         "proposed_x_threshold": {
             "candidate_a_singapore_elbow": x_threshold.get("candidate_a_singapore_elbow"),
@@ -804,6 +852,20 @@ def main() -> int:
             "scope_note": x_threshold.get("scope_note"),
             "n_must_appears_present_in_singapore": x_threshold.get("n_must_appears_present_in_singapore"),
             "n_must_appears_total": x_threshold.get("n_must_appears_total"),
+            "sentinel_filter": {
+                "status": "applied before X derivation per cascade #7",
+                "patterns": [
+                    "value == 'unknown'",
+                    "'__UNK__' in value",
+                    "value startswith 'B_'",
+                ],
+                "excluded_pair_count": len(sg_filtered),
+                "excluded_feature_count": int(sum(sg_filtered.values())),
+                "excluded_pairs": [
+                    {"key": key, "value": value, "count": int(count)}
+                    for (key, value), count in sorted(sg_filtered.items())
+                ],
+            },
             "paired_structural_check": "For each Singapore-frequency-≥X (highway, value) and (building, value) pair: must appear above F in semantic_vocab.yaml. POI + base scope deferred per spec §12 #11.",
         },
         "_status": "PROPOSED — pending Halt 1 reviewer approval per spec §10.3.",
@@ -948,6 +1010,19 @@ def test_vocab_floor_analysis_singapore_x_threshold_scoped_to_highway_building()
     assert "candidate_b_median_must_appear_freq" in x
 
 
+def test_vocab_floor_analysis_filters_sub_c_unknown_sentinels():
+    """Cascade #7: X-threshold excludes sub-C normalization sentinels."""
+    data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
+    sentinel_filter = data["proposed_x_threshold"]["sentinel_filter"]
+    excluded_pairs = {
+        (p["key"], p["value"]): p["count"]
+        for p in sentinel_filter["excluded_pairs"]
+    }
+    assert sentinel_filter["status"] == "applied before X derivation per cascade #7"
+    assert excluded_pairs[("building", "B__UNK__")] > 0
+    assert excluded_pairs[("highway", "unknown")] > 0
+
+
 def test_taginfo_snapshot_paginates_building_values():
     """Cascade #6: building value rows require multi-page taginfo coverage."""
     csv_path = CONFIG_ROOT / "taginfo" / "2026-04-15.0.csv"
@@ -987,13 +1062,14 @@ Expected: `configs/sub_f/vocab_floor_analysis.yaml` written with `_status: PROPO
 - `wiki_l3_status` = `"deferred per spec §12 #10"`
 - `curve` has 3 rows (levels 1, 2, 3 — level 3 is deferred placeholder)
 - `proposed_x_threshold` has concrete `candidate_a_singapore_elbow` + `candidate_b_median_must_appear_freq` values
+- `proposed_x_threshold.sentinel_filter.status` = `"applied before X derivation per cascade #7"`
 
 If sub-C cache is missing: STOP, report BLOCKED with the missing path.
 
-- [ ] **Step 8: Run full test suite (expected 8 PASS)**
+- [ ] **Step 8: Run full test suite (expected 9 PASS)**
 
 Run: `uv run pytest tests/data/sub_f/test_vocab.py -v`
-Expected: 8 PASS covering:
+Expected: 9 PASS covering:
 - L1 set-equality (28 keys vs hand-enumerated expected set)
 - L1 independent hand-count match (Safeguard 2)
 - L2 highway hand-count match (Safeguard 2)
@@ -1001,6 +1077,7 @@ Expected: 8 PASS covering:
 - L3 deferred per spec §12 #10
 - Curve has L1 + L2 + L3 rows
 - Singapore X-threshold scoped to highway + building
+- Singapore X-threshold filters sub-C unknown sentinels before threshold derivation
 - Building value rows paginated (`>= 8000` rows)
 
 - [ ] **Step 9: HALT 1 — surface to reviewer**
@@ -1016,23 +1093,26 @@ Expected: 8 PASS covering:
 - L2 row: highway + building primary pairs, F_min, vocab_size.
 - L3 row: deferred per spec §12 #10 — reason note included.
 
-**Proposed elbow:**
-- Granularity level (1 by default).
-- F value.
-- Exception list (empty by default; reviewer adds sub-floor must-appears to drop if any).
-- Rationale (cite Δvocab_size / Δmust-appears between L1 and L2).
+**Reviewer F-elbow lock (X-threshold still pending):**
+- Granularity: `L1+L2-mixed`.
+- F value: `F_l2 = 9.95794913319044e-08`.
+- Slot count before X exceptions: `84` (`28` L1 semantic categories + `56` L2 highway/building primary pairs).
+- Exception list for F-elbow: `[]`.
+- Rationale: discretionary L1 keys admitted at `F_l1` are metadata-heavy and not admitted by default.
 
 **Proposed X-threshold (cascade #4 scope: highway + building only):**
-- Candidate A: Singapore-elbow-derived value + concrete number.
-- Candidate B: median Singapore must-appear frequency + concrete number.
+- Candidate A': Singapore-elbow-derived value + concrete number after cascade #7 sentinel filtering.
+- Candidate B': median Singapore must-appear frequency + concrete number after cascade #7 sentinel filtering.
 - Scope note: POI + base deferred per spec §12 #11.
+- Sentinel-filter note: sub-C `unknown`, `__UNK__`, and `B_*` normalization sentinels excluded before X derivation.
 - Paired structural check framing (per §2 + Gate 6).
 
 **Cascade documentation (mandatory at Halt 1 per spec §13.5):**
 - Cascade #4 outcome: Singapore X scope = highway + building. POI/base deferred to sub-F-v2.
 - Cascade #5 outcome: L1 corrected to 28 keys; L3 deferred entirely.
 - Cascade #6 outcome: taginfo values use `rp=999`; `building` paginated per cascade #4 scope; non-scope L1 value rows capped at first 999 results where applicable per spec §12 #12.
-- §13.5 protocol-v2 candidates surfaced: (i) transitive-documentation citing, (ii) hand-enumeration with complete-count assertion, (iii) reviewer-supplied lists as untrusted input, (iv) prompt audits reuse implementation call/code path, (v) exact-parameter diagnostic calls, (vi) reviewer-supplied parameter values as untrusted input.
+- Cascade #7 outcome: Singapore X pass-lists filter sub-C unknown sentinels before threshold derivation; BP4 maps those sentinels to `<unknown_*>`, not BP1 semantic slots.
+- §13.5 protocol-v2 candidates surfaced: (i) transitive-documentation citing, (ii) hand-enumeration with complete-count assertion, (iii) reviewer-supplied lists as untrusted input, (iv) prompt audits reuse implementation call/code path, (v) exact-parameter diagnostic calls, (vi) reviewer-supplied parameter values as untrusted input, (vii) Singapore-frequency pass-lists filter upstream normalization sentinels.
 
 **§10.5 telemetry:**
 - Implementer-time-to-data-surface: wall-clock from dispatch start to this halt report commit.

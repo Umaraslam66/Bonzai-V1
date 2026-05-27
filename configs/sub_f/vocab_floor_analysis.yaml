@@ -25,21 +25,38 @@ f_denominator: fraction-of-feature-bearing-elements within dominant ET per key (
   fix 2; value rows inherit parent's dominant ET as documented approximation)
 proposed_elbow:
   exception_list: []
-  f_value: 0.0005953467798612618
-  level: 1
-  rationale: "Default L1 (28 keys, full primary feature set); reviewer redirects to\
-    \ L2 at halt if \u0394vocab_size / \u0394must-appears between L1 and L2 favors\
-    \ L2."
+  f_value: 9.95794913319044e-08
+  granularity: L1+L2-mixed
+  rationale: 'Mixed-B lock: 28 L1 semantic categories + 56 L2 highway/building primary
+    pairs. Discretionary L1 keys at F_l1 are metadata-heavy and are not admitted by
+    default.'
+  slot_count_before_x_exceptions: 84
+  status: LOCKED_BY_REVIEWER_FOR_F_ELBOW; X-threshold pending
 proposed_x_threshold:
-  candidate_a_singapore_elbow: 1.4337986487881535e-06
-  candidate_b_median_must_appear_freq: 0.004748741124786364
+  candidate_a_singapore_elbow: 2.5887822885870944e-06
+  candidate_b_median_must_appear_freq: 0.008574046939800456
   n_must_appears_present_in_singapore: 35
   n_must_appears_total: 56
   paired_structural_check: "For each Singapore-frequency-\u2265X (highway, value)\
     \ and (building, value) pair: must appear above F in semantic_vocab.yaml. POI\
     \ + base scope deferred per spec \xA712 #11."
-  scope_note: "highway + building only per cascade #4; POI + base deferred per spec\
-    \ \xA712 #11."
+  scope_note: "highway + building only per cascade #4; sub-C unknown sentinels filtered\
+    \ per cascade #7; POI + base deferred per spec \xA712 #11."
+  sentinel_filter:
+    excluded_feature_count: 311166
+    excluded_pair_count: 2
+    excluded_pairs:
+    - count: 301418
+      key: building
+      value: B__UNK__
+    - count: 9748
+      key: highway
+      value: unknown
+    patterns:
+    - value == 'unknown'
+    - '''__UNK__'' in value'
+    - value startswith 'B_'
+    status: 'applied before X derivation per cascade #7'
 release: 2026-04-15.0
 wiki_l1_must_appears:
 - aerialway
