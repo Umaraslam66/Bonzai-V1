@@ -74,7 +74,7 @@ Seven revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch au
 
 **Halt 1 review found:** Singapore pass-lists admitted `building=B__UNK__` and `highway=unknown`. These are sub-C normalization sentinels, not OSM values. Cascade #4 correctly narrowed X scope to highway + building, but still assumed scoped `class_raw` values were raw OSM values. That assumption is false for unknown/sub-floor values emitted by sub-C.
 
-**Plan applies:** `floor_analysis.py` filters sub-C unknown sentinels (`value == "unknown"`, values containing `__UNK__`, and `B_*` values) before `derive_x_threshold()` runs. BP4 owns these cases: the encoder maps sub-C unknown sentinels to the `<unknown_*>` family, not to dedicated BP1 semantic slots. The Halt 1 X lock remains deferred until the filtered A'/B' candidates are reviewed.
+**Plan applies:** `floor_analysis.py` filters sub-C unknown sentinels (`value == "unknown"`, values containing `__UNK__`, and `B_*` values) before `derive_x_threshold()` runs. BP4 owns these cases: the encoder maps sub-C unknown sentinels to the `<unknown_*>` family, not to dedicated BP1 semantic slots. Halt 1 post-review locked X to filtered Candidate A' (`2.5887822885870944e-06`).
 
 ### Task 1 plan code bug fixes (5 substantive bugs surfaced at prompt-derivation review)
 
@@ -1119,9 +1119,11 @@ Expected: 9 PASS covering:
 
 DO NOT lock `semantic_vocab.yaml` autonomously. Reviewer approves elbow + exception list + X-threshold at Halt 1 per spec §10.3.
 
-- [ ] **Step 10: After Halt 1 approval — write semantic_vocab.yaml**
+- [x] **Step 10: After Halt 1 approval — write semantic_vocab.yaml**
 
 (Halt 1 acknowledgment from reviewer required before this step.)
+
+Post-Halt-1 lock applied: `semantic_vocab.yaml` is `_status: LOCKED` with `127` first-class semantic slots (`28` L1 must-appear keys + `56` wiki-L2 highway/building pairs + `43` non-wiki Singapore-empirical Candidate A' pairs), granularity `L1+L2-mixed`, `F = 9.95794913319044e-08`, `X = 2.5887822885870944e-06`, and F-elbow exception list `[]`.
 
 `semantic_vocab.yaml` structure:
 ```yaml
@@ -1142,7 +1144,10 @@ slots:
 
 ID range `[0, K1)` per §2.4 per-family reserved blocks. K1 locked at Halt 1; remaining blocks (K1..K4, N) locked at subsequent halts.
 
-- [ ] **Step 11: Lint + commit**
+- [x] **Step 11: Lint + commit**
+
+Post-Halt-1 commit message:
+`feat(sub_f): T1 BP1 vocab floor LOCKED — semantic_vocab.yaml, F + X (Halt 1 approved)`
 
 Run:
 ```bash

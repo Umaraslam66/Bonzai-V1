@@ -1,6 +1,6 @@
 **Halt 1: BP1 vocab floor elbow**
 
-Status: `DONE_WITH_CONCERNS` with F-elbow locked by reviewer; X-threshold still deferred pending filtered A'/B' review.
+Status: `DONE` with F-elbow and X-threshold locked by reviewer; `semantic_vocab.yaml` locked in post-Halt-1 Steps 10-11.
 
 Pre-dispatch audits:
 - Audit step 1 passed: `https://taginfo.openstreetmap.org/api/4/key/values?key=highway&page=1&rp=999&sortname=count&sortorder=desc` returned JSON with a `data` array and `value` / `count` fields in the first row. No taginfo API shape drift.
@@ -52,13 +52,13 @@ L2 pairs admitted in the L1+L2-mixed `F_l1` row (`21`):
 - Discretionary L1 key rows admitted at `F_l1` are not admitted by default; future additions are scoped expansions at Task 4 or later.
 
 **X-threshold status (cascade #4 + #7 scope: highway + building real OSM values only):**
-- X lock: `DEFERRED`.
+- X lock: `LOCKED_BY_REVIEWER` to Candidate A' at `2.5887822885870944e-06`.
 - Sentinel filter applied before X derivation: `building=B__UNK__` count `301418` and `highway=unknown` count `9748` removed (`311166` features total).
 - Filtered Singapore denominator: `386282`.
-- Candidate A': Singapore-elbow-derived `2.5887822885870944e-06`.
+- Candidate A': Singapore-elbow-derived `2.5887822885870944e-06` (`LOCKED`).
 - Candidate B': median must-appear frequency `0.008574046939800456`.
 - Scope note: POI + base deferred per spec `§12 #11`; sub-C unknown sentinels map to BP4 `<unknown_*>`, not BP1 semantic slots.
-- Paired structural check framing: any real `(highway, value)` / `(building, value)` pair with filtered Singapore frequency `>= X` must appear above `F` in the future `semantic_vocab.yaml` lock; this dispatch intentionally stops before writing that lock.
+- Paired structural check framing: any real `(highway, value)` / `(building, value)` pair with filtered Singapore frequency `>= X` must appear above `F` in the locked `semantic_vocab.yaml`; the post-Halt-1 lock admits the 35 wiki-L2 pass-list pairs through the 56 L2 must-appears and the 43 non-wiki Singapore-empirical pairs as first-class slots.
 - Building pagination confirmation: `8,767` building value rows present in the taginfo CSV (`>= 8000` safeguard satisfied).
 
 Filtered Singapore X candidate B' pass-list (`20` pairs; `18` wiki-L2, `2` non-wiki exceptions):
@@ -164,10 +164,19 @@ Filtered Singapore X candidate A' pass-list has `78` total pairs (`35` wiki-L2, 
 - `wiki_l2_building_count = 33`
 - `wiki_l3_status = "deferred per spec §12 #10"`
 - `curve` has `3` rows
-- `proposed_elbow.status = "LOCKED_BY_REVIEWER_FOR_F_ELBOW; X-threshold pending"`
+- `proposed_elbow.status = "LOCKED_BY_REVIEWER_FOR_F_ELBOW; X-threshold pending"` remains historical in the PROPOSED floor-analysis artifact; the approved X lock is recorded in `locked_semantic_vocab`
 - `proposed_x_threshold.sentinel_filter.status = "applied before X derivation per cascade #7"`
 - [tests/data/sub_f/test_vocab.py](/Users/umaraslam/Projects/Bonzai-OSM/tests/data/sub_f/test_vocab.py) passes `9/9`
-- `configs/sub_f/semantic_vocab.yaml` does not exist
+- [configs/sub_f/semantic_vocab.yaml](/Users/umaraslam/Projects/Bonzai-OSM/configs/sub_f/semantic_vocab.yaml) exists with `_status: LOCKED` and `127` first-class semantic slots
 
 **§10.5 telemetry:**
 - Implementer-time-to-data-surface: approximately `10` wall-clock minutes from dispatch start to Halt 1 report commit.
+
+**Post-Halt-1 lock (Steps 10-11):**
+- Timestamp: `2026-05-27T12:41:19Z`.
+- Reviewer-approved F lock: `9.95794913319044e-08`.
+- Reviewer-approved X lock: `2.5887822885870944e-06` (Candidate A').
+- Granularity level: `L1+L2-mixed`.
+- F-elbow exception list: `[]`.
+- Semantic vocab lock: [configs/sub_f/semantic_vocab.yaml](/Users/umaraslam/Projects/Bonzai-OSM/configs/sub_f/semantic_vocab.yaml) with `127` slots (`28` L1 must-appear keys + `56` wiki-L2 highway/building pairs + `43` non-wiki Singapore-empirical Candidate A' pairs).
+- Task 1 close status: `DONE`.

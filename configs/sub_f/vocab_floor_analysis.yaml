@@ -58,6 +58,15 @@ proposed_x_threshold:
     - value startswith 'B_'
     status: 'applied before X derivation per cascade #7'
 release: 2026-04-15.0
+locked_semantic_vocab:
+  path: configs/sub_f/semantic_vocab.yaml
+  status: LOCKED
+  granularity_level: L1+L2-mixed
+  f_value: 9.95794913319044e-08
+  x_threshold: 2.5887822885870944e-06
+  slot_count: 127
+  slot_inventory: 28 L1 must-appear keys + 56 wiki-L2 highway/building pairs +
+    43 non-wiki Singapore-empirical Candidate A' pairs
 wiki_l1_must_appears:
 - aerialway
 - aeroway

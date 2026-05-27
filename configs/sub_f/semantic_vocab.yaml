@@ -1,0 +1,434 @@
+_status: LOCKED
+release: "2026-04-15.0"
+source_references:
+  floor_analysis:
+    path: configs/sub_f/vocab_floor_analysis.yaml
+    status: "PROPOSED source analysis; semantic vocab locked after Halt 1 approval"
+  taginfo_snapshot:
+    path: configs/sub_f/taginfo/2026-04-15.0.csv
+    sha256: e4b2659482f5df90261db584414504889903f939b45362284f47bde24ce67184
+  wiki_map_features_snapshot:
+    path: configs/sub_f/wiki_map_features/2026-04-15.0.wikitext
+    revision_id: 2876652
+    sha256: 18c79db75286bb78b4dd93908525600469ea682e1ad435a45f6800859d8cda22
+granularity_level: L1+L2-mixed
+f_value: 9.95794913319044e-08
+x_threshold: 2.5887822885870944e-06
+x_threshold_candidate: candidate_a_prime_singapore_elbow
+f_elbow_exception_list: []
+rationale:
+  f_lock: "Mixed-B lock: 28 L1 semantic categories plus 56 L2 highway/building primary pairs; discretionary L1 keys are not admitted by default."
+  x_lock: "Candidate A prime preserves Singapore reality over wiki idealization: real highway/building pairs at or above Singapore empirical X are first-class even when absent from wiki L2."
+  sentinel_policy: "Sub-C unknown sentinels are filtered before X derivation and owned by the BP4 unknown family, not BP1 semantic slots."
+slot_inventory:
+  total_slots: 127
+  semantic_reserved_block_size: 127
+  l1_must_appear_keys:
+    count: 28
+    source: wiki_l1_must_appear
+  l2_must_appear_pairs:
+    count: 56
+    source: wiki_l2_must_appear
+    highway_count: 23
+    building_count: 33
+  non_wiki_singapore_empirical_pairs:
+    count: 43
+    source: singapore_empirical_candidate_a_prime
+    exclusions:
+      - "wiki-L2 pairs already admitted through wiki_l2_must_appear"
+      - "building=B__UNK__ and highway=unknown filtered to BP4 unknown family"
+  ordering: "L1 WIKI_L1_MUST_APPEARS order, L2 highway then building code order, non-wiki Candidate A prime pass-list order."
+cascade_documentation:
+  cascade_4:
+    outcome: "Singapore X scope is highway + building only."
+    deferral: "POI/base Singapore-prioritized must-appears are deferred to sub-F-v2."
+  cascade_5:
+    outcome: "L1 corrected to 28 wiki primary feature keys; L3 deferred entirely."
+    rationale: "Recursive marginal-cost-of-cut enumerates only where reviewable benefit exists."
+  cascade_6:
+    outcome: "taginfo values use rp=999; building is paginated; non-scope L1 value tails are capped per spec section 12 item 12."
+  cascade_7:
+    outcome: "Sub-C unknown sentinels are filtered before Singapore X derivation."
+    bp4_policy: "Encoder maps sentinels to BP4 <unknown_*> family rather than dedicated BP1 semantic slots."
+slots:
+  - id: 0
+    tag: aerialway=*
+    source: wiki_l1_must_appear
+  - id: 1
+    tag: aeroway=*
+    source: wiki_l1_must_appear
+  - id: 2
+    tag: amenity=*
+    source: wiki_l1_must_appear
+  - id: 3
+    tag: barrier=*
+    source: wiki_l1_must_appear
+  - id: 4
+    tag: boundary=*
+    source: wiki_l1_must_appear
+  - id: 5
+    tag: building=*
+    source: wiki_l1_must_appear
+  - id: 6
+    tag: craft=*
+    source: wiki_l1_must_appear
+  - id: 7
+    tag: emergency=*
+    source: wiki_l1_must_appear
+  - id: 8
+    tag: geological=*
+    source: wiki_l1_must_appear
+  - id: 9
+    tag: healthcare=*
+    source: wiki_l1_must_appear
+  - id: 10
+    tag: highway=*
+    source: wiki_l1_must_appear
+  - id: 11
+    tag: historic=*
+    source: wiki_l1_must_appear
+  - id: 12
+    tag: landuse=*
+    source: wiki_l1_must_appear
+  - id: 13
+    tag: leisure=*
+    source: wiki_l1_must_appear
+  - id: 14
+    tag: man_made=*
+    source: wiki_l1_must_appear
+  - id: 15
+    tag: military=*
+    source: wiki_l1_must_appear
+  - id: 16
+    tag: natural=*
+    source: wiki_l1_must_appear
+  - id: 17
+    tag: office=*
+    source: wiki_l1_must_appear
+  - id: 18
+    tag: place=*
+    source: wiki_l1_must_appear
+  - id: 19
+    tag: power=*
+    source: wiki_l1_must_appear
+  - id: 20
+    tag: public_transport=*
+    source: wiki_l1_must_appear
+  - id: 21
+    tag: railway=*
+    source: wiki_l1_must_appear
+  - id: 22
+    tag: route=*
+    source: wiki_l1_must_appear
+  - id: 23
+    tag: shop=*
+    source: wiki_l1_must_appear
+  - id: 24
+    tag: telecom=*
+    source: wiki_l1_must_appear
+  - id: 25
+    tag: tourism=*
+    source: wiki_l1_must_appear
+  - id: 26
+    tag: water=*
+    source: wiki_l1_must_appear
+  - id: 27
+    tag: waterway=*
+    source: wiki_l1_must_appear
+  - id: 28
+    tag: highway=motorway
+    source: wiki_l2_must_appear
+  - id: 29
+    tag: highway=trunk
+    source: wiki_l2_must_appear
+  - id: 30
+    tag: highway=primary
+    source: wiki_l2_must_appear
+  - id: 31
+    tag: highway=secondary
+    source: wiki_l2_must_appear
+  - id: 32
+    tag: highway=tertiary
+    source: wiki_l2_must_appear
+  - id: 33
+    tag: highway=unclassified
+    source: wiki_l2_must_appear
+  - id: 34
+    tag: highway=residential
+    source: wiki_l2_must_appear
+  - id: 35
+    tag: highway=motorway_link
+    source: wiki_l2_must_appear
+  - id: 36
+    tag: highway=trunk_link
+    source: wiki_l2_must_appear
+  - id: 37
+    tag: highway=primary_link
+    source: wiki_l2_must_appear
+  - id: 38
+    tag: highway=secondary_link
+    source: wiki_l2_must_appear
+  - id: 39
+    tag: highway=tertiary_link
+    source: wiki_l2_must_appear
+  - id: 40
+    tag: highway=living_street
+    source: wiki_l2_must_appear
+  - id: 41
+    tag: highway=service
+    source: wiki_l2_must_appear
+  - id: 42
+    tag: highway=pedestrian
+    source: wiki_l2_must_appear
+  - id: 43
+    tag: highway=busway
+    source: wiki_l2_must_appear
+  - id: 44
+    tag: highway=footway
+    source: wiki_l2_must_appear
+  - id: 45
+    tag: highway=cycleway
+    source: wiki_l2_must_appear
+  - id: 46
+    tag: highway=bridleway
+    source: wiki_l2_must_appear
+  - id: 47
+    tag: highway=path
+    source: wiki_l2_must_appear
+  - id: 48
+    tag: highway=steps
+    source: wiki_l2_must_appear
+  - id: 49
+    tag: highway=track
+    source: wiki_l2_must_appear
+  - id: 50
+    tag: highway=road
+    source: wiki_l2_must_appear
+  - id: 51
+    tag: building=yes
+    source: wiki_l2_must_appear
+  - id: 52
+    tag: building=annexe
+    source: wiki_l2_must_appear
+  - id: 53
+    tag: building=apartments
+    source: wiki_l2_must_appear
+  - id: 54
+    tag: building=barn
+    source: wiki_l2_must_appear
+  - id: 55
+    tag: building=barracks
+    source: wiki_l2_must_appear
+  - id: 56
+    tag: building=bungalow
+    source: wiki_l2_must_appear
+  - id: 57
+    tag: building=cabin
+    source: wiki_l2_must_appear
+  - id: 58
+    tag: building=commercial
+    source: wiki_l2_must_appear
+  - id: 59
+    tag: building=detached
+    source: wiki_l2_must_appear
+  - id: 60
+    tag: building=dormitory
+    source: wiki_l2_must_appear
+  - id: 61
+    tag: building=entrance
+    source: wiki_l2_must_appear
+  - id: 62
+    tag: building=farm
+    source: wiki_l2_must_appear
+  - id: 63
+    tag: building=farm_auxiliary
+    source: wiki_l2_must_appear
+  - id: 64
+    tag: building=gatehouse
+    source: wiki_l2_must_appear
+  - id: 65
+    tag: building=ger
+    source: wiki_l2_must_appear
+  - id: 66
+    tag: building=hangar
+    source: wiki_l2_must_appear
+  - id: 67
+    tag: building=hotel
+    source: wiki_l2_must_appear
+  - id: 68
+    tag: building=house
+    source: wiki_l2_must_appear
+  - id: 69
+    tag: building=houseboat
+    source: wiki_l2_must_appear
+  - id: 70
+    tag: building=library
+    source: wiki_l2_must_appear
+  - id: 71
+    tag: building=office
+    source: wiki_l2_must_appear
+  - id: 72
+    tag: building=public
+    source: wiki_l2_must_appear
+  - id: 73
+    tag: building=residential
+    source: wiki_l2_must_appear
+  - id: 74
+    tag: building=semidetached_house
+    source: wiki_l2_must_appear
+  - id: 75
+    tag: building=service
+    source: wiki_l2_must_appear
+  - id: 76
+    tag: building=shed
+    source: wiki_l2_must_appear
+  - id: 77
+    tag: building=static_caravan
+    source: wiki_l2_must_appear
+  - id: 78
+    tag: building=stilt_house
+    source: wiki_l2_must_appear
+  - id: 79
+    tag: building=supermarket
+    source: wiki_l2_must_appear
+  - id: 80
+    tag: building=terrace
+    source: wiki_l2_must_appear
+  - id: 81
+    tag: building=train_station
+    source: wiki_l2_must_appear
+  - id: 82
+    tag: building=tree_house
+    source: wiki_l2_must_appear
+  - id: 83
+    tag: building=trullo
+    source: wiki_l2_must_appear
+  - id: 84
+    tag: building=industrial
+    source: singapore_empirical_candidate_a_prime
+  - id: 85
+    tag: building=parking
+    source: singapore_empirical_candidate_a_prime
+  - id: 86
+    tag: building=roof
+    source: singapore_empirical_candidate_a_prime
+  - id: 87
+    tag: building=retail
+    source: singapore_empirical_candidate_a_prime
+  - id: 88
+    tag: building=school
+    source: singapore_empirical_candidate_a_prime
+  - id: 89
+    tag: building=storage_tank
+    source: singapore_empirical_candidate_a_prime
+  - id: 90
+    tag: building=warehouse
+    source: singapore_empirical_candidate_a_prime
+  - id: 91
+    tag: building=university
+    source: singapore_empirical_candidate_a_prime
+  - id: 92
+    tag: building=temple
+    source: singapore_empirical_candidate_a_prime
+  - id: 93
+    tag: building=hospital
+    source: singapore_empirical_candidate_a_prime
+  - id: 94
+    tag: building=church
+    source: singapore_empirical_candidate_a_prime
+  - id: 95
+    tag: building=garage
+    source: singapore_empirical_candidate_a_prime
+  - id: 96
+    tag: building=kindergarten
+    source: singapore_empirical_candidate_a_prime
+  - id: 97
+    tag: building=transportation
+    source: singapore_empirical_candidate_a_prime
+  - id: 98
+    tag: building=college
+    source: singapore_empirical_candidate_a_prime
+  - id: 99
+    tag: building=greenhouse
+    source: singapore_empirical_candidate_a_prime
+  - id: 100
+    tag: building=grandstand
+    source: singapore_empirical_candidate_a_prime
+  - id: 101
+    tag: building=mosque
+    source: singapore_empirical_candidate_a_prime
+  - id: 102
+    tag: building=hut
+    source: singapore_empirical_candidate_a_prime
+  - id: 103
+    tag: building=pavilion
+    source: singapore_empirical_candidate_a_prime
+  - id: 104
+    tag: building=sports_centre
+    source: singapore_empirical_candidate_a_prime
+  - id: 105
+    tag: building=government
+    source: singapore_empirical_candidate_a_prime
+  - id: 106
+    tag: building=toilets
+    source: singapore_empirical_candidate_a_prime
+  - id: 107
+    tag: building=stadium
+    source: singapore_empirical_candidate_a_prime
+  - id: 108
+    tag: building=guardhouse
+    source: singapore_empirical_candidate_a_prime
+  - id: 109
+    tag: building=civic
+    source: singapore_empirical_candidate_a_prime
+  - id: 110
+    tag: building=fire_station
+    source: singapore_empirical_candidate_a_prime
+  - id: 111
+    tag: building=religious
+    source: singapore_empirical_candidate_a_prime
+  - id: 112
+    tag: building=stable
+    source: singapore_empirical_candidate_a_prime
+  - id: 113
+    tag: building=garages
+    source: singapore_empirical_candidate_a_prime
+  - id: 114
+    tag: building=sports_hall
+    source: singapore_empirical_candidate_a_prime
+  - id: 115
+    tag: building=bunker
+    source: singapore_empirical_candidate_a_prime
+  - id: 116
+    tag: building=chapel
+    source: singapore_empirical_candidate_a_prime
+  - id: 117
+    tag: building=manufacture
+    source: singapore_empirical_candidate_a_prime
+  - id: 118
+    tag: building=post_office
+    source: singapore_empirical_candidate_a_prime
+  - id: 119
+    tag: building=shrine
+    source: singapore_empirical_candidate_a_prime
+  - id: 120
+    tag: building=boathouse
+    source: singapore_empirical_candidate_a_prime
+  - id: 121
+    tag: building=synagogue
+    source: singapore_empirical_candidate_a_prime
+  - id: 122
+    tag: building=bridge_structure
+    source: singapore_empirical_candidate_a_prime
+  - id: 123
+    tag: building=carport
+    source: singapore_empirical_candidate_a_prime
+  - id: 124
+    tag: building=kiosk
+    source: singapore_empirical_candidate_a_prime
+  - id: 125
+    tag: building=monastery
+    source: singapore_empirical_candidate_a_prime
+  - id: 126
+    tag: highway=subway
+    source: singapore_empirical_candidate_a_prime
