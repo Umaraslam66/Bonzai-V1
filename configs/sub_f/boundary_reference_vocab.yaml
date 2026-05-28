@@ -1,0 +1,71 @@
+_status: PROPOSED - pending Halt 7 reviewer approval
+class_set:
+- MAJOR_ROAD
+- MINOR_ROAD
+direction_order:
+- N
+- E
+- S
+- W
+family: bp7_boundary_ref
+id_block:
+  end_id: 1599
+  reserved_count: 92
+  start_id: 1500
+  status: PROPOSED - locks after Halt 7 approval
+  used_count: 8
+multi_class_collapse_rule: MAJOR_ROAD > MINOR_ROAD > NONE
+non_emitting_classes:
+- NONE
+- BOUNDARY_NOT_APPLICABLE
+release: 2026-04-15.0
+slots:
+- boundary_class: MAJOR_ROAD
+  direction: N
+  id: 1500
+  local_id: 0
+  tag: <bref_N_MAJOR>
+- boundary_class: MAJOR_ROAD
+  direction: E
+  id: 1501
+  local_id: 1
+  tag: <bref_E_MAJOR>
+- boundary_class: MAJOR_ROAD
+  direction: S
+  id: 1502
+  local_id: 2
+  tag: <bref_S_MAJOR>
+- boundary_class: MAJOR_ROAD
+  direction: W
+  id: 1503
+  local_id: 3
+  tag: <bref_W_MAJOR>
+- boundary_class: MINOR_ROAD
+  direction: N
+  id: 1504
+  local_id: 4
+  tag: <bref_N_MINOR>
+- boundary_class: MINOR_ROAD
+  direction: E
+  id: 1505
+  local_id: 5
+  tag: <bref_E_MINOR>
+- boundary_class: MINOR_ROAD
+  direction: S
+  id: 1506
+  local_id: 6
+  tag: <bref_S_MINOR>
+- boundary_class: MINOR_ROAD
+  direction: W
+  id: 1507
+  local_id: 7
+  tag: <bref_W_MINOR>
+source_references:
+- line_note: sub-F-local BP7 drivable-continuity override composes after sub-E grouping; cascade #9
+  path: src/cfm/data/sub_f/rotation.py
+- line_note: 'BoundaryClass enum values and _HIERARCHY: MAJOR_ROAD > MINOR_ROAD > NONE'
+  path: src/cfm/data/sub_e/derivation.py
+- line_note: sub-E load_class_grouping_map() class_grouping_map source for MAJOR_ROAD and MINOR_ROAD raw classes
+  path: configs/macro_plan/v1/boundary_vocab.yaml
+- line_note: CellEdgeIds dataclass and cell_to_edge_ids() field names north, south, west, east; sub-F maps explicitly to N/E/S/W
+  path: src/cfm/data/sub_e/rotation.py
