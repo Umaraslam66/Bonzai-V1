@@ -1,6 +1,6 @@
 # Task 7 implementer dispatch prompt
 
-**Status:** Draft v2; pending reviewer read-through / approval before dispatch.
+**Status:** Draft v3; approved for dispatch.
 **Target:** General-purpose subagent / Codex agent.
 **Suggested model:** Sonnet-class.
 **Branch:** `phase-1-sub-F-micro-tokenizer` (base includes Task 6 close commit `cf32d81`).
@@ -118,6 +118,13 @@ uv run python -c "import yaml; from cfm.data.sub_e.derivation import load_class_
 Expected to surface `motorway` (and possibly link/long-tail highway values) in `NONE_mapped_missing_from_grouping`.
 
 This is a §9.6.1 cascade candidate against sub-E class grouping coverage, not an implementation detail to auto-resolve in Task 7. If any load-bearing highway value in the locked BP1 vocab maps to NONE because it is absent from `load_class_grouping_map()`, keep working only through the Halt 7 surface: list every missing value and classify the coverage gap. Do not extend sub-E grouping, add a sub-F override, or document known-loss without reviewer decision.
+
+For every missing value, also surface Singapore boundary-load evidence:
+- Preferred if cheap: exact count of cached sub-C road features with that `class_raw` whose geometry crosses a 2 km tile boundary.
+- Acceptable proxy: from cached sub-C Singapore parquet, count total `feature_class == 0` rows per missing `class_raw` value and count unique `source_feature_id` values for that class that appear in more than one `tile=*` file. Report both as `singapore_row_count` and `multi_tile_source_feature_count`.
+- If `source_feature_id` is unavailable, report `singapore_row_count` only and state the proxy limitation.
+
+This count surface is required so the reviewer can classify the gap as narrow expressway-family coverage vs wide systematic grouping under-coverage at Halt 7 without a continuation.
 
 ## Implementation scope
 
@@ -283,6 +290,9 @@ Minimum tests:
 - BP1 locked-highway coverage diagnostic:
   - hand-enumerate all locked `highway=*` semantic-vocab values from `configs/sub_f/semantic_vocab.yaml`.
   - report every value absent from `load_class_grouping_map()`.
+  - for each absent value, compute Singapore boundary-load evidence from cached sub-C data:
+    - `singapore_row_count`: number of `feature_class == 0` rows whose `class_raw` is that value.
+    - `multi_tile_source_feature_count`: number of distinct `source_feature_id` values for that class observed in more than one tile file, if `source_feature_id` exists.
   - assert the diagnostic output is present in the Halt 7 report; do not assert an empty missing list unless reviewer has already resolved the grouping gap.
 - Sentinel inventory still has BP7 as PLACEHOLDER; do not lock it in this task.
 - Feature-splitting report exists after script run and has one of the two allowed outcomes.
@@ -312,7 +322,11 @@ Report must include:
 - BP7 class-coverage gap:
   - list every locked BP1 `highway=*` value absent from sub-E `load_class_grouping_map()`.
   - explicitly call out `motorway` / `motorway_link` if present.
+  - include per-value `singapore_row_count` and `multi_tile_source_feature_count` (or exact boundary-crossing count if implemented instead).
   - classify as a §9.6.1 cascade candidate against sub-E class grouping if any load-bearing highway value maps to NONE.
+  - classify the observed shape as narrow vs wide for reviewer decision:
+    - NARROW if missing load-bearing evidence concentrates in motorway/expressway-family values.
+    - WIDE if many missing values have non-trivial Singapore counts or multi-tile evidence across mixed highway families.
   - state that reviewer must choose one of: (a) extend sub-E grouping, (b) add sub-F-local BP7 grouping override, or (c) document known-loss only if data shows the value is not boundary-load-bearing.
 - Feature-splitting outcome:
   - paste `outcome`, counts, and example rows if any.
