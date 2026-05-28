@@ -206,7 +206,8 @@ Carry these forward. Do not re-litigate unless new source evidence contradicts t
 6. **Cascade #6: taginfo `rp=1000` rejected.** Use `rp=999`; paginate `building` only; cap non-scope value tails at first 999 where applicable.
 7. **Cascade #7: sub-C unknown sentinels filtered.** `building=B__UNK__`, `highway=unknown`, and related sentinel patterns are not BP1 semantic slots; they map through BP4 unknown family.
 8. **Cascade #8: BP2 right-angle catastrophic known-loss.** 0.22% catastrophic right-angle cases from anchor/direction-bin alignment accepted as v1 known-loss; sub-F-v2 candidate, no v1 block.
-9. **Cascade #9: sub-E boundary class authority.** sub-F consumes sub-E `boundary_contract.parquet` verbatim. sub-E MINOR-default can under-tier `motorway` and over-emit non-vehicular/ambiguous ways as MINOR. Accepted for sub-F-v1 as inherited sub-E limitation; sub-E-v2 candidate.
+9. **Cascade #9: sub-E boundary class authority.** sub-F consumes sub-E `boundary_contract.parquet` verbatim. sub-E MINOR-default can under-tier `motorway` and over-emit non-vehicular/ambiguous ways as MINOR. Accepted for sub-F-v1 as inherited sub-E limitation; sub-E-v2 candidate. Starting evidence for sub-E-v2 tiering is in `reports/2026-05-23-phase-1-sub-F-task-7-halt.md`, BP7 Class-Coverage Gap section: per-value Singapore row / multi-tile counts include `motorway=4929/337`, `subway=4314/188`, `path=3491/204`, `track=3444/234`, and related values.
+10. **Cascade B: sub-C feature-splitting / same-edge MultiLineString rows.** Task 7 surfaced 5206 same-edge multi-part road cases. Under architecture (b), sub-F sees only sub-E's per-edge `BoundaryClass`, so these collapse to sub-E's one-class-per-edge contract. Resolved as no sub-F multi-outbound grammar change in v1; any richer multi-crossing representation is a sub-E-v2 candidate.
 
 Related non-cascade defects worth remembering:
 
