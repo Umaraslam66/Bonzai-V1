@@ -1,6 +1,6 @@
 # Task 6 implementer dispatch prompt
 
-**Status:** Draft v1; pending reviewer read-through / approval before dispatch.
+**Status:** Draft v2; pending reviewer read-through / approval before dispatch.
 **Target:** General-purpose subagent / Codex agent.
 **Suggested model:** Sonnet-class.
 **Branch:** `phase-1-sub-F-micro-tokenizer` (base includes Task 2 close commit `5428704`).
@@ -107,6 +107,24 @@ Expected:
 
 If the ID namespace drifted: STOP, report BLOCKED.
 
+### Audit step 6: confirm sub-C output version/hash surface for SOURCE decision
+
+Run:
+
+```bash
+uv run python -c "import yaml; from pathlib import Path; p=Path('data/processed/sub_c/2026-04-15.0/singapore/manifest.yaml'); d=yaml.safe_load(p.read_text()); print('manifest_exists', p.exists()); print('sub_c_schema_version', d.get('sub_c_schema_version')); print('release', d.get('release')); print('commit_sha', d.get('initial_extraction', {}).get('commit_sha')); print('tile_count', len(d.get('tiles', []))); print('first_tile_keys', sorted(d.get('tiles', [{}])[0].keys()))"
+grep -n "class RegionManifest\|sub_c_schema_version\|aggregate_tile_inventory\|compute_sha256_excluding" src/cfm/data/sub_c/manifest.py
+```
+
+Expected:
+- Cached sub-C Singapore has `manifest.yaml`.
+- Manifest exposes `sub_c_schema_version`, `release`, `initial_extraction.commit_sha`, and per-tile `provenance_sha256`.
+- `src/cfm/data/sub_c/manifest.py` shows the manifest schema and tile provenance hash aggregation path.
+
+This audit does not lock SOURCE semantics. It supplies evidence for the Halt 6 reviewer question: whether SOURCE should mean only the Overture release pin, or Overture release pin plus a direct sub-C output version/hash reference.
+
+If cached sub-C has no region manifest or no stable tile provenance chain: STOP, report BLOCKED. If it lacks only an explicit top-level `manifest_sha256`, continue and surface that limitation.
+
 ## Implementation scope
 
 Modify:
@@ -202,6 +220,8 @@ Provide:
 - `build_region_manifest(region: str, release: str, tile_entries: list[dict], vocab_sources: dict[str, Any]) -> dict`
 - `manifest_sha256(data: dict) -> str`
 
+Task 6's manifest API is provisional because BP7 boundary-reference vocab locks later at Task 7. The six version axes can lock structurally at Task 6, but `vocab_sources` content is not complete until BP7 exists.
+
 Required manifest fields:
 - `region`
 - `release`
@@ -211,12 +231,20 @@ Required manifest fields:
 - `sub_f_derivation_version`
 - `sub_f_validator_version`
 - `sub_f_source_version`
+- `vocab_sources_status`
 - `vocab_sources`
 - `tiles`
 - `manifest_sha256`
 
 Rules:
 - `vocab_sources` is region-scope shared metadata, not per-tile provenance.
+- At Task 6, `vocab_sources` must include exactly the three already-locked vocab/config sources:
+  - BP1 semantic vocab: `configs/sub_f/semantic_vocab.yaml`
+  - BP4 unknown family: `configs/sub_f/unknown_family.yaml`
+  - BP2 encoding primitives: `configs/sub_f/encoding_primitives.yaml`
+- Do not include BP7 boundary-reference vocab at Task 6; it does not exist yet.
+- Add `vocab_sources_status: "partial_pending_bp7"` to every Task 6 manifest.
+- Treat the Task 6 `manifest_sha256` as provisional over the partial manifest. Final assembly with complete `vocab_sources` and final `manifest_sha256` is deferred to sub-F close after Task 7 locks BP7.
 - `sub_f_source_version` must equal the Overture release pin.
 - `tiles` should be sorted deterministically if tile coordinates are present; otherwise preserve stable caller-supplied order only if there is no sortable key. State the behavior in docstrings/tests.
 - `manifest_sha256` computes self-integrity over canonical YAML with `SUB_F_EXCLUDED_FROM_SHA` exclusions.
@@ -236,6 +264,9 @@ Minimum test coverage:
 - `provenance_sha256` changes on real semantic content changes.
 - Region manifest has all six version fields.
 - Region manifest includes `vocab_sources` at region scope and does not require `vocab_sources` inside tile entries.
+- Task 6 `vocab_sources` includes exactly the three locked sources: semantic vocab, unknown family, and encoding primitives.
+- Task 6 `vocab_sources` does not include boundary-reference vocab.
+- Task 6 manifest carries `vocab_sources_status == "partial_pending_bp7"`.
 - Region `manifest_sha256` excludes live-clock fields and final-segment `*_sha256` fields.
 - Region `manifest_sha256` changes on real semantic content changes.
 - Cross-axis coupling sanity:
@@ -249,17 +280,23 @@ Create `reports/2026-05-23-phase-1-sub-F-task-6-halt.md`.
 
 Report must include:
 - Status: `DONE_WITH_CONCERNS` pending Halt 6 reviewer approval, or `BLOCKED` with classification.
-- Audit step outcomes 1-5.
+- Audit step outcomes 1-6.
 - File:line citations for:
   - sub-D `VersionNamespace`
   - sub-D `compare_version`
   - Overture release pin
   - pinning policy SOURCE semantic
   - sub-E `SUB_E_EXCLUDED_FROM_SHA` / hashing precedent
+  - sub-C manifest/version/hash surface
 - Plan Revision 1+2 evidence: sub-D had five axes; sub-F adds SOURCE for six total axes.
 - SOURCE semantic verification branch:
   - expected branch (a): source-data-pinning identifier.
   - If ambiguous, stop and classify before proceeding.
+- SOURCE semantic reviewer question, with both readings surfaced:
+  - (a) SOURCE = Overture release pin only; sub-F reads sub-C output, but sub-C lineage is tracked indirectly through cache/config/vocab hashes rather than a dedicated sub-C field.
+  - (b) SOURCE = Overture release pin plus explicit sub-C output version/hash field in the sub-F manifest.
+  - Audit and cite whether sub-C exposes a stable artifact to reference: region `manifest.yaml`, `sub_c_schema_version`, `initial_extraction.commit_sha`, per-tile `provenance_sha256`, explicit `manifest_sha256` if present, or a derived manifest content hash if no explicit hash exists.
+  - Do not choose (a) or (b) unilaterally. Halt 6 reviewer locks this.
 - `compare_version` extensibility outcome:
   - expected: enum-add, no signature change.
   - If not enum-add, classify as cascade before proceeding.
@@ -268,6 +305,14 @@ Report must include:
   - explicitly defer `VALIDATOR_INLINE` / `VALIDATOR_CROSS_TILE` split to sub-F-v2 unless reviewer chooses otherwise.
 - Region-vs-tile provenance scope:
   - `vocab_sources` lives in region manifest, not per-tile provenance.
+- Manifest completeness:
+  - Task 6 manifest is provisional and carries `vocab_sources_status: partial_pending_bp7`.
+  - Task 6 `vocab_sources` covers BP1/BP2/BP4 only.
+  - BP7 boundary-ref vocab source is intentionally absent until Task 7.
+- Deferred-to-sub-F-close obligations:
+  - Add BP7 boundary-ref vocab source to region manifest after Task 7 BP7 lock.
+  - Recompute final complete `manifest_sha256` at sub-F close / Task 15 after the BP7 source is present.
+  - Remove or update `vocab_sources_status` from `partial_pending_bp7` only when the manifest is content-complete.
 - ID namespace confirmation:
   - BP1 `0..199` LOCKED.
   - BP4 `200..255` LOCKED.
