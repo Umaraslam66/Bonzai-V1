@@ -359,9 +359,16 @@ def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
     assert bp2["start_id"] == 300
     assert bp2["end_id"] == 1499
     assert bp2["placeholder"] is False
-    assert bp2["status"] == "LOCKED at Halt 2 approval"
-    assert bp2["used_count"] == 209
-    assert bp2["reserved_count"] == 991
+    # Post `fix(sub_f): sentinel_inventory consume 509, 510 for <feature>/<feature_end>`
+    # (commit 4c4f880, 2026-05-28): BP2 status carries the consumption note;
+    # used_count/reserved_count reflect the 2 consumed slots;
+    # reserved_v2_headroom shrank from the front (509-1499 -> 511-1499).
+    assert bp2["status"] == (
+        "LOCKED at Halt 2 approval; "
+        "structural_sentinels consumed at T8 plan-write 2026-05-28"
+    )
+    assert bp2["used_count"] == 211
+    assert bp2["reserved_count"] == 989
     assert bp2["sub_blocks"]["anchor"] == {
         "start_id": 300,
         "end_id": 395,
@@ -378,10 +385,17 @@ def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
         "slot_count": 65,
     }
     assert bp2["sub_blocks"]["reserved_v2_headroom"] == {
-        "start_id": 509,
+        "start_id": 511,
         "end_id": 1499,
-        "slot_count": 991,
+        "slot_count": 989,
     }
+    # Structural sentinels consumed from reserved_v2_headroom front. Locked
+    # record lives under bp2["consumed_from_reserved_v2_headroom"]["slots"].
+    consumed = bp2["consumed_from_reserved_v2_headroom"]["slots"]
+    assert [s["id"] for s in consumed] == [509, 510]
+    assert [s["token"] for s in consumed] == ["<feature>", "<feature_end>"]
+    assert all(s["on_disk"] is True for s in consumed)
+    assert all(s["family_tag"] == "structural" for s in consumed)
     assert bp7["start_id"] == 1500
     assert bp7["end_id"] == 1599
     assert bp7["placeholder"] is False

@@ -222,21 +222,26 @@ def test_encoding_primitives_lock_metadata_preserves_methodology(
 
 
 def test_sentinel_inventory_locks_bp2_subranges(sentinel_inventory):
+    # Post commit 4c4f880 (2026-05-28 sentinel-inventory fix):
+    # structural_sentinels at 509+510 consumed from reserved_v2_headroom front.
     bp2 = sentinel_inventory["bp2_encoding_primitives"]
     assert bp2["start_id"] == 300
     assert bp2["end_id"] == 1499
-    assert bp2["status"] == "LOCKED at Halt 2 approval"
+    assert bp2["status"] == (
+        "LOCKED at Halt 2 approval; "
+        "structural_sentinels consumed at T8 plan-write 2026-05-28"
+    )
     assert bp2["placeholder"] is False
-    assert bp2["used_count"] == 209
-    assert bp2["reserved_count"] == 991
+    assert bp2["used_count"] == 211
+    assert bp2["reserved_count"] == 989
     assert bp2["sub_blocks"] == {
         "anchor": {"start_id": 300, "end_id": 395, "slot_count": 96},
         "direction": {"start_id": 396, "end_id": 443, "slot_count": 48},
         "magnitude": {"start_id": 444, "end_id": 508, "slot_count": 65},
         "reserved_v2_headroom": {
-            "start_id": 509,
+            "start_id": 511,
             "end_id": 1499,
-            "slot_count": 991,
+            "slot_count": 989,
         },
     }
     assert "bp2_encoding_primitives_placeholder" not in sentinel_inventory

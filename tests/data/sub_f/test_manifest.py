@@ -209,7 +209,12 @@ def test_source_and_derivation_axes_are_independent(tmp_path: Path):
 def test_sentinel_inventory_keeps_bp2_and_bp7_locked():
     data = yaml.safe_load(SENTINEL_INVENTORY_PATH.read_text(encoding="utf-8"))
 
-    assert data["bp2_encoding_primitives"]["status"] == "LOCKED at Halt 2 approval"
+    # Post commit 4c4f880 (2026-05-28 sentinel-inventory fix): BP2 status
+    # carries the structural_sentinels-consumed note.
+    assert data["bp2_encoding_primitives"]["status"] == (
+        "LOCKED at Halt 2 approval; "
+        "structural_sentinels consumed at T8 plan-write 2026-05-28"
+    )
     assert data["bp2_encoding_primitives"]["start_id"] == 300
     assert data["bp2_encoding_primitives"]["end_id"] == 1499
     assert "bp7_boundary_ref_placeholder" not in data
