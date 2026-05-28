@@ -1448,7 +1448,17 @@ git commit -m "feat(sub_f): T8.4 encoder 4-case grammar (A/B/C/D per §3.2)"
 - Create: `src/cfm/data/sub_f/boundary_contract.py`
 - Create: `tests/data/sub_f/test_boundary_contract.py`
 
-**Pre-flight Assertion 3 applies here.** Sub-E cache is absent; this reader is built against the documented sub-E parquet schema and tested with SYNTHETIC fixtures. Every BP7 token emission site carries the unverified-debt comment.
+**Pre-flight Assertion 3 applies here, hardened.** Sub-E cache is absent; this reader is built against the documented sub-E parquet schema and tested with SYNTHETIC fixtures. Beyond the UNVERIFIED comments at every BP7 emission site, T8.5 ships two additional defenses:
+
+**(A) Provisional-fixture tagging discipline.** Synthetic fixtures are circular by construction — they encode the implementer's INFERENCE of sub-E's contract shape, then test the reader against that inference. They prove READER self-consistency, NOT that the inference matches real sub-E output. Each fixture in `test_boundary_contract.py` MUST be tagged with:
+1. The specific contract assumptions it encodes (e.g., "MAJOR_ROAD enum value is 2", "slot 0 surfaces in some cell").
+2. A specific re-validation action for when sub-E regenerates (e.g., "re-run with the real slot-0 cell; verify the surfaced cell matches sub-E rotation").
+
+A central `FIXTURE_INFERENCE_ASSUMPTIONS` dict at the top of `test_boundary_contract.py` indexes every fixture with its assumption list + revalidation action — the close-checklist points at this dict so the future re-validator knows fixture-by-fixture what to test against real data (not just "re-run T8.5 tests"; those will pass against the same inference whether or not sub-E matches).
+
+**(B) Fail-loud-at-parse-boundary defensive assertions.** The reader validates every sub-E parquet's schema and row values against an `_EXPECTED_SCHEMA` + `_VALID_*` constant set. If real sub-E ever violates the inferred contract (unexpected column types, slot_kind out of range, BOUNDARY_NOT_APPLICABLE appearing on-disk, etc.), the reader raises `SubEContractViolation` with a clear message pointing at `_INFERRED_CONTRACT` + close-checklist. **Cheap-to-keep at the assumption layer:** a wrong inference that fails loud on first real-data contact is recoverable; one that silently mis-parses corrupts training data irrecoverably (the failure surfaces as subtly-wrong boundary-ref tokens three encoder steps downstream, after training has already absorbed them).
+
+Both defenses encoded in code below.
 
 ### Implementation steps
 
@@ -1459,10 +1469,25 @@ Create `tests/data/sub_f/test_boundary_contract.py`:
 ```python
 """Sub-F BP7 boundary-contract reader tests.
 
-SYNTHETIC sub-E parquet fixtures only. Real sub-E cache is absent
-(project_sub_e_cache_absent_t3c_code_inferred memory); integration tests
-against real sub-E are in T8.8's test_pipeline_writer.py under the
-`@pytest.mark.skip(reason="awaiting sub-E cache regeneration")` mark.
+SYNTHETIC sub-E parquet fixtures only — real sub-E cache is absent
+(project_sub_e_cache_absent_t3c_code_inferred memory). Integration
+tests against real sub-E are in T8.8's test_pipeline_writer.py
+under `@pytest.mark.skip(reason="awaiting sub-E cache regeneration")`.
+
+PROVISIONAL FIXTURES (verification debt; close-checklist re-validation
+required):
+
+The fixtures below encode the implementer's INFERENCE of sub-E's
+contract shape (from src/cfm/data/sub_e/writer.py + sub-E spec). They
+prove READER self-consistency, NOT that the inference matches real
+sub-E output. When sub-E regenerates, each fixture must be re-validated
+against actual parquet emission per the close-checklist obligation.
+
+The FIXTURE_INFERENCE_ASSUMPTIONS dict below is the canonical
+fixture-by-fixture re-validation index — re-validators consult this
+to know what each fixture is actually testing, beyond just re-running
+the same tests (which would pass against the same inference whether
+or not sub-E matches).
 """
 
 from __future__ import annotations
@@ -1485,6 +1510,72 @@ _SUB_E_SCHEMA = pa.schema(
         pa.field("boundary_class_enum", pa.int8(), nullable=False),
     ]
 )
+
+
+# Per-fixture inference index. Each entry must include `encodes` (what
+# the fixture data physically is), `assumes` (which inferred contract
+# claims the fixture is taking as given), and `revalidate_when_sub_e_lands`
+# (the SPECIFIC re-validation action against real sub-E output — not
+# "re-run the same test").
+FIXTURE_INFERENCE_ASSUMPTIONS: dict[str, dict] = {
+    "minimal_major_internal": {
+        "encodes": (
+            "Single INTERNAL_EDGE row (slot_kind=1) with slot_index=0 and "
+            "boundary_class_enum=2 (MAJOR_ROAD)."
+        ),
+        "assumes": [
+            "MAJOR_ROAD BoundaryClass enum value is 2 (per sub-E IntEnum).",
+            "INTERNAL_EDGE SlotKind enum value is 1.",
+            "Sub-E rotation maps slot_index=0 (INTERNAL_EDGE) to SOME (cell_i, "
+            "cell_j, edge) tuple — test asserts the MAJOR class surfaces in "
+            "some cell, rotation-agnostic.",
+        ],
+        "revalidate_when_sub_e_lands": (
+            "Pick a real sub-E tile; find the cell whose rotation maps to "
+            "slot_kind=1, slot_index=0; assert load_boundary_contract returns "
+            "MAJOR_ROAD for that specific (cell_i, cell_j, edge), not just "
+            "'some cell'. If the actual class differs, real sub-E semantics "
+            "diverge from the inference."
+        ),
+    },
+    "minor_external_with_tile_dir_path": {
+        "encodes": (
+            "Single INTERNAL_EDGE row (slot_kind=1, slot_index=5, "
+            "boundary_class_enum=3 (MINOR_ROAD)); fixture file lives at "
+            "tile=EPSG3414_i0_j0/boundary_contract.parquet to exercise "
+            "the pyarrow-hive-partition-inference defense."
+        ),
+        "assumes": [
+            "MINOR_ROAD BoundaryClass enum value is 3.",
+            "Reader uses pq.ParquetFile(path).read(); never bare "
+            "pq.read_table() on the parent directory (would inject "
+            "spurious 'tile' column per feedback_pyarrow_hive_partition_inference).",
+        ],
+        "revalidate_when_sub_e_lands": (
+            "Read a real sub-E tile=EPSG3414_iN_jM/boundary_contract.parquet "
+            "via load_boundary_contract; confirm no 'tile' column appears in "
+            "the loaded table shape; confirm MINOR rows surface as expected "
+            "per sub-E rotation."
+        ),
+    },
+    "resolve_bref_tag_pure_function": {
+        "encodes": (
+            "No parquet — pure function test of resolve_bref_tag(direction, "
+            "class_label). 8 active token tags + 2 non-emitting class returns "
+            "None."
+        ),
+        "assumes": [
+            "Spec §3.7 BP7 lock: 8 active tokens {N,E,S,W} × {MAJOR,MINOR}.",
+            "NONE and BOUNDARY_NOT_APPLICABLE are non-emitting per spec §3.7 "
+            "(NONE = no road on edge; NOT_APPLICABLE never on-disk).",
+        ],
+        "revalidate_when_sub_e_lands": (
+            "Pure function — no sub-E parquet dependency. Re-validation NOT "
+            "required when sub-E lands. Listed here for completeness so the "
+            "re-validation pass knows to SKIP this fixture, not re-run blindly."
+        ),
+    },
+}
 
 
 def _write_synthetic_sub_e_parquet(path: Path, rows: list[dict]) -> None:
@@ -1540,7 +1631,7 @@ def test_resolve_bref_token_returns_correct_8_token_form(tmp_path: Path):
 def test_load_boundary_contract_uses_pq_parquetfile_not_read_table(tmp_path: Path):
     """Per `feedback_pyarrow_hive_partition_inference`: must use pq.ParquetFile(path).read(),
     NOT bare pq.read_table() on a parent dir (would inject spurious 'tile' column).
-    This test indirectly verifies via column inspection.
+    Fixture: minor_external_with_tile_dir_path.
     """
     from cfm.data.sub_f.boundary_contract import load_boundary_contract
 
@@ -1554,6 +1645,142 @@ def test_load_boundary_contract_uses_pq_parquetfile_not_read_table(tmp_path: Pat
     # 'tile' column; the resolver would crash on the unexpected schema. The
     # fact that this returns without error confirms ParquetFile path is used.
     assert isinstance(contract, dict)
+
+
+# ---- Provisional-fixture tagging discipline ------------------------------
+
+
+def test_every_fixture_appears_in_inference_assumptions_index():
+    """Every synthetic fixture used in this file must have a corresponding
+    entry in FIXTURE_INFERENCE_ASSUMPTIONS. Future re-validators read this
+    dict to know which assumptions each fixture encodes and what specific
+    re-validation action to take against real sub-E output. A fixture used
+    without an entry is a silent verification-debt leak.
+    """
+    # Each test function above is implicitly tied to a fixture; the dict
+    # below maps test->fixture_key. Adding a new test that uses a new
+    # fixture WITHOUT updating FIXTURE_INFERENCE_ASSUMPTIONS is the
+    # discipline failure this test guards against.
+    expected_fixture_keys = {
+        "minimal_major_internal",
+        "minor_external_with_tile_dir_path",
+        "resolve_bref_tag_pure_function",
+    }
+    actual_fixture_keys = set(FIXTURE_INFERENCE_ASSUMPTIONS.keys())
+    missing_from_index = expected_fixture_keys - actual_fixture_keys
+    assert not missing_from_index, (
+        f"fixtures used in tests but not indexed in "
+        f"FIXTURE_INFERENCE_ASSUMPTIONS: {missing_from_index}. "
+        f"Add an entry per the discipline at the top of this file: "
+        f"encodes / assumes / revalidate_when_sub_e_lands."
+    )
+
+
+def test_every_fixture_assumption_carries_revalidation_action():
+    """Each FIXTURE_INFERENCE_ASSUMPTIONS entry must specify a SPECIFIC
+    re-validation action against real sub-E (not 'rerun the same test',
+    which would pass against the same inference). Empty or vague
+    revalidation actions are the failure mode this guards against.
+    """
+    for fixture_key, info in FIXTURE_INFERENCE_ASSUMPTIONS.items():
+        action = info.get("revalidate_when_sub_e_lands", "")
+        assert action, f"fixture {fixture_key!r} missing revalidate_when_sub_e_lands"
+        # Reject obvious anti-patterns: "rerun", "re-run", "same test".
+        lowered = action.lower()
+        assert "rerun" not in lowered and "re-run" not in lowered, (
+            f"fixture {fixture_key!r} has tautological revalidation action "
+            f"({action!r}); re-running the same test against the same "
+            f"inference proves nothing about real sub-E behavior."
+        )
+
+
+# ---- Fail-loud-at-parse-boundary defensive assertions --------------------
+
+
+def test_load_boundary_contract_raises_on_invalid_slot_kind(tmp_path: Path):
+    """Real sub-E violating slot_kind ∈ {1, 2} (per SlotKind enum) must
+    surface as SubEContractViolation, not silently produce wrong tokens.
+    """
+    from cfm.data.sub_f.boundary_contract import (
+        SubEContractViolation,
+        load_boundary_contract,
+    )
+
+    path = tmp_path / "boundary_contract.parquet"
+    _write_synthetic_sub_e_parquet(
+        path,
+        [{"slot_kind": 99, "slot_index": 0, "boundary_class_enum": 2}],
+    )
+    with pytest.raises(SubEContractViolation, match=r"slot_kind"):
+        load_boundary_contract(path)
+
+
+def test_load_boundary_contract_raises_on_not_applicable_enum(tmp_path: Path):
+    """BoundaryClass.BOUNDARY_NOT_APPLICABLE (enum=0) is forbidden on-disk
+    per sub-E sentinel discipline. If real sub-E emits it, the reader must
+    raise rather than silently mapping to a token (there is no such token).
+    """
+    from cfm.data.sub_f.boundary_contract import (
+        SubEContractViolation,
+        load_boundary_contract,
+    )
+
+    path = tmp_path / "boundary_contract.parquet"
+    _write_synthetic_sub_e_parquet(
+        path,
+        [{"slot_kind": 1, "slot_index": 0, "boundary_class_enum": 0}],
+    )
+    with pytest.raises(SubEContractViolation, match=r"BOUNDARY_NOT_APPLICABLE|boundary_class_enum"):
+        load_boundary_contract(path)
+
+
+def test_load_boundary_contract_raises_on_unknown_class_enum(tmp_path: Path):
+    """Unknown boundary_class_enum value (not in {0,1,2,3}) must surface
+    rather than KeyError-ing or silently dropping the row.
+    """
+    from cfm.data.sub_f.boundary_contract import (
+        SubEContractViolation,
+        load_boundary_contract,
+    )
+
+    path = tmp_path / "boundary_contract.parquet"
+    _write_synthetic_sub_e_parquet(
+        path,
+        [{"slot_kind": 1, "slot_index": 0, "boundary_class_enum": 7}],
+    )
+    with pytest.raises(SubEContractViolation, match=r"boundary_class_enum"):
+        load_boundary_contract(path)
+
+
+def test_load_boundary_contract_raises_on_schema_mismatch(tmp_path: Path):
+    """If sub-E ever changes the parquet schema (e.g., adds a column,
+    changes a dtype), the reader must surface SubEContractViolation
+    rather than silently consuming the wrong shape.
+    """
+    from cfm.data.sub_f.boundary_contract import (
+        SubEContractViolation,
+        load_boundary_contract,
+    )
+
+    # Deliberately wrong schema: extra 'tile_id' column the reader doesn't expect.
+    wrong_schema = pa.schema(
+        [
+            pa.field("slot_kind", pa.int8(), nullable=False),
+            pa.field("slot_index", pa.int16(), nullable=False),
+            pa.field("boundary_class_enum", pa.int8(), nullable=False),
+            pa.field("tile_id", pa.string(), nullable=False),
+        ]
+    )
+    table = pa.Table.from_pylist(
+        [{"slot_kind": 1, "slot_index": 0, "boundary_class_enum": 2, "tile_id": "x"}],
+        schema=wrong_schema,
+    )
+    path = tmp_path / "boundary_contract.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table, path)
+
+    with pytest.raises(SubEContractViolation, match=r"schema"):
+        load_boundary_contract(path)
 ```
 
 - [ ] **Step 2: Run tests, expect FAIL**
@@ -1574,12 +1801,25 @@ correct <bref_DIR_CLASS> token.
 
 VERIFICATION DEBT NOTICE (spec §3.7 + Halt 7 close-checklist):
 Sub-E cache is absent locally as of 2026-05-28. This reader is built
-against sub-E's DOCUMENTED parquet schema (from src/cfm/data/sub_e/writer.py
-+ sub-E spec) but has not been integration-tested against real sub-E
-output. Spot-check obligations live on
-`reports/2026-05-23-phase-1-sub-F-close-checklist.md`. When sub-E
-regenerates, un-skip T8.8 integration tests + verify reader output
-matches real parquet on grammar cases B/C/D edge scenarios.
+against sub-E's INFERRED parquet contract (from src/cfm/data/sub_e/writer.py
++ sub-E spec) but has NOT been integration-tested against real sub-E
+output. See `_INFERRED_CONTRACT` constant below for the full assumption
+list; see `reports/2026-05-23-phase-1-sub-F-close-checklist.md` for the
+fixture-by-fixture re-validation obligation. When sub-E regenerates,
+un-skip T8.8 integration tests + walk every entry in
+`tests/data/sub_f/test_boundary_contract.py::FIXTURE_INFERENCE_ASSUMPTIONS`
+performing the per-fixture `revalidate_when_sub_e_lands` action.
+
+CHEAP-TO-KEEP AT THE ASSUMPTION LAYER:
+A wrong inference that fails LOUD on first real-data contact is
+recoverable; one that silently mis-parses corrupts training data
+irrecoverably (subtly-wrong boundary-ref tokens surface three encoder
+steps downstream, after training has already absorbed them). Therefore
+this reader validates every sub-E parquet against `_EXPECTED_SCHEMA`
++ `_VALID_SLOT_KINDS` + `_VALID_BOUNDARY_CLASS_ENUMS` at the parse
+boundary and raises `SubEContractViolation` with a specific message
+on ANY mismatch. The exception class is the named, importable signal
+that real sub-E has diverged from the v1 inference.
 """
 
 from __future__ import annotations
@@ -1587,6 +1827,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Final
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from cfm.data.sub_e.derivation import BoundaryClass
@@ -1603,6 +1844,78 @@ _CLASS_LABEL_BY_ENUM: Final[dict[int, str]] = {
 
 # Only these two classes emit a <bref> token (per spec §3.7 BP7 lock).
 _EMITTING_CLASSES: Final[frozenset[str]] = frozenset({"MAJOR_ROAD", "MINOR_ROAD"})
+
+
+# ---- INFERRED CONTRACT (verification debt) ------------------------------
+
+_INFERRED_CONTRACT: Final[str] = """
+INFERRED sub-E boundary_contract.parquet contract (T8 plan-write 2026-05-28).
+
+These assumptions encode what sub-F-v1 PRESUMES about sub-E output,
+derived from src/cfm/data/sub_e/writer.py + sub-E spec. NOT validated
+against real sub-E parquet (cache absent as of 2026-05-28).
+
+If real sub-E violates any of these, the reader raises
+SubEContractViolation at the parse boundary, NOT silent mis-parse.
+
+  1. Schema: exactly 3 columns — slot_kind (int8), slot_index (int16),
+     boundary_class_enum (int8). All nullable=False. Matched bit-for-bit
+     against _EXPECTED_SCHEMA.
+  2. slot_kind ∈ {1=INTERNAL_EDGE, 2=EXTERNAL_EDGE} per SlotKind IntEnum.
+     Any other value → SubEContractViolation.
+  3. slot_index ≥ 0; per sub-E spec, INTERNAL_EDGE indices in [0, 112);
+     EXTERNAL_EDGE indices in [0, 32). Reader checks ≥ 0 strictly; upper
+     bound enforced via the cell_edge_directions rotation lookup
+     (out-of-range slots have no rotation entry).
+  4. boundary_class_enum ∈ {1=NONE, 2=MAJOR_ROAD, 3=MINOR_ROAD}.
+     BOUNDARY_NOT_APPLICABLE (enum=0) is FORBIDDEN on-disk per sub-E
+     sentinel discipline (`src/cfm/data/sub_e/derivation.py`). If it
+     appears, SubEContractViolation.
+  5. Sub-E rotation (`cell_edge_directions`) maps every (cell_i, cell_j,
+     edge) to a unique (slot_kind, slot_index) tuple; the inverse mapping
+     is single-valued. Reader trusts this mapping.
+
+When sub-E regenerates, re-validate each fixture per its
+FIXTURE_INFERENCE_ASSUMPTIONS entry in
+tests/data/sub_f/test_boundary_contract.py.
+"""
+
+
+# ---- Expected-shape constants (parse-boundary defense) ------------------
+
+_EXPECTED_SCHEMA: Final[pa.Schema] = pa.schema(
+    [
+        pa.field("slot_kind", pa.int8(), nullable=False),
+        pa.field("slot_index", pa.int16(), nullable=False),
+        pa.field("boundary_class_enum", pa.int8(), nullable=False),
+    ]
+)
+
+_VALID_SLOT_KINDS: Final[frozenset[int]] = frozenset(
+    {int(SlotKind.INTERNAL_EDGE), int(SlotKind.EXTERNAL_EDGE)}
+)
+
+# BOUNDARY_NOT_APPLICABLE (enum=0) is forbidden on-disk; valid on-disk
+# enums are {NONE, MAJOR_ROAD, MINOR_ROAD}.
+_VALID_BOUNDARY_CLASS_ENUMS: Final[frozenset[int]] = frozenset(
+    {int(BoundaryClass.NONE), int(BoundaryClass.MAJOR_ROAD), int(BoundaryClass.MINOR_ROAD)}
+)
+
+
+class SubEContractViolation(ValueError):
+    """Raised when real sub-E parquet violates the inferred contract.
+
+    Sub-F-v1's BP7 consumer was built against an INFERENCE of sub-E's
+    parquet shape (sub-E cache absent at build time); this exception is
+    the named signal that real sub-E has diverged. Cheap-to-keep at the
+    assumption layer: a wrong inference that fails loud on first
+    real-data contact is recoverable; one that silently mis-parses
+    corrupts training data irrecoverably.
+
+    See _INFERRED_CONTRACT module constant for the full assumption list;
+    see reports/2026-05-23-phase-1-sub-F-close-checklist.md for the
+    fixture-by-fixture re-validation obligation when sub-E regenerates.
+    """
 
 
 def resolve_bref_tag(direction: str, class_label: str) -> str | None:
@@ -1639,16 +1952,62 @@ def load_boundary_contract(
 
     BP7 emission — UNVERIFIED against real sub-E parquet; see module
     docstring + close-checklist.
+
+    Defensive parse-boundary assertions: schema match against
+    _EXPECTED_SCHEMA; slot_kind ∈ _VALID_SLOT_KINDS; boundary_class_enum
+    ∈ _VALID_BOUNDARY_CLASS_ENUMS (BOUNDARY_NOT_APPLICABLE forbidden);
+    slot_index ≥ 0. Any violation → SubEContractViolation with a message
+    that names the offending row and points at _INFERRED_CONTRACT +
+    close-checklist.
     """
     table = pq.ParquetFile(parquet_path).read()
+
+    # Parse-boundary defense (1): exact schema match.
+    if table.schema != _EXPECTED_SCHEMA:
+        raise SubEContractViolation(
+            f"sub-E parquet schema mismatch at {parquet_path}.\n"
+            f"  expected: {_EXPECTED_SCHEMA}\n"
+            f"  got:      {table.schema}\n"
+            f"See _INFERRED_CONTRACT (module docstring) + "
+            f"reports/2026-05-23-phase-1-sub-F-close-checklist.md."
+        )
+
     rows = table.to_pylist()
 
     # Build a slot-id → class_label map first (sub-E's primary index).
     slot_to_class: dict[tuple[int, int], str] = {}
-    for r in rows:
+    for row_idx, r in enumerate(rows):
         sk = int(r["slot_kind"])
         si = int(r["slot_index"])
-        cls = _CLASS_LABEL_BY_ENUM[int(r["boundary_class_enum"])]
+        cls_enum = int(r["boundary_class_enum"])
+
+        # Parse-boundary defense (2): slot_kind ∈ valid set.
+        if sk not in _VALID_SLOT_KINDS:
+            raise SubEContractViolation(
+                f"sub-E parquet row {row_idx} at {parquet_path}: slot_kind={sk} "
+                f"not in {sorted(_VALID_SLOT_KINDS)} (INTERNAL_EDGE=1, EXTERNAL_EDGE=2). "
+                f"See _INFERRED_CONTRACT."
+            )
+        # Parse-boundary defense (3): slot_index non-negative.
+        if si < 0:
+            raise SubEContractViolation(
+                f"sub-E parquet row {row_idx} at {parquet_path}: slot_index={si} "
+                f"negative. See _INFERRED_CONTRACT."
+            )
+        # Parse-boundary defense (4): boundary_class_enum ∈ on-disk valid set.
+        # BOUNDARY_NOT_APPLICABLE (0) forbidden on-disk per sub-E sentinel discipline.
+        if cls_enum not in _VALID_BOUNDARY_CLASS_ENUMS:
+            label = _CLASS_LABEL_BY_ENUM.get(cls_enum, f"<unknown enum={cls_enum}>")
+            raise SubEContractViolation(
+                f"sub-E parquet row {row_idx} at {parquet_path}: "
+                f"boundary_class_enum={cls_enum} ({label}) not in "
+                f"{sorted(_VALID_BOUNDARY_CLASS_ENUMS)} "
+                f"(NONE=1, MAJOR_ROAD=2, MINOR_ROAD=3). "
+                f"BOUNDARY_NOT_APPLICABLE (enum=0) is forbidden on-disk per "
+                f"sub-E sentinel discipline. See _INFERRED_CONTRACT."
+            )
+
+        cls = _CLASS_LABEL_BY_ENUM[cls_enum]
         slot_to_class[(sk, si)] = cls
 
     # Walk every cell × direction; look up slot via rotation; resolve class.
@@ -1669,7 +2028,7 @@ def load_boundary_contract(
 - [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/data/sub_f/test_boundary_contract.py -v`
-Expected: 3 PASS.
+Expected: **9 PASS** (3 reader basic tests + 2 fixture-discipline tests + 4 parse-boundary defensive-assertion tests).
 
 - [ ] **Step 5: Lint + commit**
 
@@ -1677,7 +2036,7 @@ Expected: 3 PASS.
 uv run ruff format src/cfm/data/sub_f/boundary_contract.py tests/data/sub_f/test_boundary_contract.py
 uv run ruff check src/cfm/data/sub_f/boundary_contract.py tests/data/sub_f/test_boundary_contract.py
 git add src/cfm/data/sub_f/boundary_contract.py tests/data/sub_f/test_boundary_contract.py
-git commit -m "feat(sub_f): T8.5 BP7 sub-E boundary-contract reader (UNVERIFIED against real sub-E; see close-checklist)"
+git commit -m "feat(sub_f): T8.5 BP7 sub-E boundary-contract reader (UNVERIFIED against real sub-E; fail-loud + fixture-tagged)"
 ```
 
 ---
