@@ -1,4 +1,4 @@
-_status: PROPOSED - pending Halt 7 reviewer approval
+_status: LOCKED
 class_set:
 - MAJOR_ROAD
 - MINOR_ROAD
@@ -12,8 +12,14 @@ id_block:
   end_id: 1599
   reserved_count: 92
   start_id: 1500
-  status: PROPOSED - locks after Halt 7 approval
+  status: LOCKED at Halt 7 approval
   used_count: 8
+lock_decision:
+  architecture: sub-F tokenizes sub-E boundary_contract.parquet BoundaryClass values verbatim
+  caveat: sub-E output was absent at Halt 7 close; motorway and same-edge MultiLineString emission behavior is code-inferred, not parquet-observed
+  cascade_9_disposition: sub-E MINOR-default under-tiers motorway and emits MINOR for non-vehicular or ambiguous ways; accepted for sub-F-v1 as inherited sub-E limitation and tracked as sub-E-v2 candidate
+  cascade_b_disposition: same-edge MultiLineString parts collapse to sub-E's single per-edge BoundaryClass; no sub-F multi-outbound grammar change in v1, tracked as sub-E-v2 candidate
+  status: Halt 7 approved
 multi_class_collapse_rule: MAJOR_ROAD > MINOR_ROAD > NONE
 non_emitting_classes:
 - NONE

@@ -175,16 +175,16 @@ def test_cell_edge_directions_maps_sub_e_fields_explicitly():
     }
 
 
-def test_boundary_reference_vocab_proposes_expected_block_and_slots(
+def test_boundary_reference_vocab_locks_expected_block_and_slots(
     boundary_reference_vocab: dict,
 ):
-    assert boundary_reference_vocab["_status"] == "PROPOSED - pending Halt 7 reviewer approval"
+    assert boundary_reference_vocab["_status"] == "LOCKED"
     assert boundary_reference_vocab["id_block"] == {
         "start_id": 1500,
         "end_id": 1599,
         "used_count": 8,
         "reserved_count": 92,
-        "status": "PROPOSED - locks after Halt 7 approval",
+        "status": "LOCKED at Halt 7 approval",
     }
 
     slots = boundary_reference_vocab["slots"]
@@ -351,20 +351,24 @@ def test_multiline_part_edge_bucket_detects_mergeable_artifact():
     assert result["repeated_edges"] == []
 
 
-def test_sentinel_inventory_keeps_bp7_placeholder():
+def test_sentinel_inventory_locks_bp7_block():
     data = _load_yaml(CONFIG_ROOT / "sentinel_inventory.yaml")
+    bp7 = data["bp7_boundary_ref"]
 
     assert data["_status"] == "LOCKED"
-    assert data["bp7_boundary_ref_placeholder"]["start_id"] == 1500
-    assert data["bp7_boundary_ref_placeholder"]["end_id"] == 1599
-    assert data["bp7_boundary_ref_placeholder"]["placeholder"] is True
-    assert data["bp7_boundary_ref_placeholder"]["status"].startswith("PLACEHOLDER")
+    assert "bp7_boundary_ref_placeholder" not in data
+    assert bp7["start_id"] == 1500
+    assert bp7["end_id"] == 1599
+    assert bp7["placeholder"] is False
+    assert bp7["used_count"] == 8
+    assert bp7["reserved_count"] == 92
+    assert bp7["status"] == "LOCKED at Halt 7 approval"
 
 
 def test_feature_splitting_report_has_allowed_halt_outcome():
     data = _load_yaml(FEATURE_SPLITTING_REPORT_PATH)
 
-    assert data["_status"] == "PROPOSED - pending Halt 7 reviewer approval"
+    assert data["_status"] == "LOCKED - Halt 7 approved"
     assert data["tile_count"] > 1
     assert data["row_count"] > 0
     assert data["outcome"] in {"single_row_per_branch", "branched_multi_row_present"}

@@ -39,14 +39,14 @@ bp4_unknown_family:
   status: LOCKED at Halt 3 continuation
   used_count: 28
   used_range: 200..227
-bp7_boundary_ref_placeholder:
+bp7_boundary_ref:
   end_id: 1599
-  expected_used: 8
-  placeholder: true
+  placeholder: false
   reserved_count: 92
-  slide_condition: If Task 7 boundary-ref count lands above 100, this block slides.
   start_id: 1500
-  status: PLACEHOLDER; final size locks at Task 7 halt
+  status: LOCKED at Halt 7 approval
+  used_count: 8
+  used_range: 1500..1507
 dataloader_sentinels:
   block:
     end_id: 299
@@ -70,4 +70,4 @@ dataloader_sentinels:
     token: <cell_end>
 halt: Halt 3
 release: 2026-04-15.0
-scope_note: BP1 + BP4 + dataloader sentinel IDs are LOCKED by Halt 3 approval. BP2 is LOCKED by Halt 2 approval with sub-block ordering fixed for Task 8 writer. BP7 remains PLACEHOLDER pending Task 7 halt.
+scope_note: BP1 + BP4 + dataloader sentinel IDs are LOCKED by Halt 3 approval. BP2 is LOCKED by Halt 2 approval with sub-block ordering fixed for Task 8 writer. BP7 is LOCKED by Halt 7 approval.

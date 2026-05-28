@@ -76,11 +76,11 @@ Eight revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch au
 
 **Plan applies:** `floor_analysis.py` filters sub-C unknown sentinels (`value == "unknown"`, values containing `__UNK__`, and `B_*` values) before `derive_x_threshold()` runs. BP4 owns these cases: the encoder maps sub-C unknown sentinels to the `<unknown_*>` family, not to dedicated BP1 semantic slots. Halt 1 post-review locked X to filtered Candidate A' (`2.5887822885870944e-06`).
 
-### Revision 8: BP7 class mapping composition gap (cascade #9, BLOCKED)
+### Revision 8: BP7 class mapping composition gap (cascade #9, accepted v1 limitation)
 
 **Halt 7 review found:** sub-E's grouping omits 15 locked BP1 `highway=*` values. Follow-up architecture check reset the cascade: sub-F consumes sub-E `boundary_contract.parquet` as authoritative, and sub-E defaults omitted-but-present values to `MINOR_ROAD`, not NONE.
 
-**Plan applies:** the earlier sub-F-local override is discarded. The real cascade #9 is upstream: sub-E's MINOR-default under-tiers `motorway` and over-emits non-vehicular or ambiguous values as MINOR. BP7 class lock is pending reviewer decision: accept this known sub-E limitation for v1, or block on sub-E grouping/contract revision. sub-F must emit sub-E's class verbatim unless §3.7 architecture is explicitly revised.
+**Plan applies:** the earlier sub-F-local override is discarded. The real cascade #9 is upstream: sub-E's MINOR-default under-tiers `motorway` and over-emits non-vehicular or ambiguous values as MINOR. Halt 7 accepts this as a sub-E-inherited v1 limitation. sub-F must emit sub-E's class verbatim unless §3.7 architecture is explicitly revised.
 
 ### Task 1 plan code bug fixes (5 substantive bugs surfaced at prompt-derivation review)
 
@@ -3032,7 +3032,7 @@ EOF
 
 **Halt 7 gate.** Boundary-ref 8-token vocab (verified against sub-E enums by file:line); sub-C feature-splitting verification outcome (single-row-per-branch vs branched-multi-row).
 
-**Cascade #9 blocked.** BP7 class mapping is blocked pending Halt 7 decision on sub-E's MINOR-default behavior. Architecture (b) applies: sub-F consumes sub-E `boundary_contract.parquet` as authoritative and does not own a local `highway=*` → BoundaryClass override. Do not implement or lock a sub-F-local class map unless §3.7 architecture is explicitly revised.
+**Cascade #9 accepted for v1.** Architecture (b) applies: sub-F consumes sub-E `boundary_contract.parquet` as authoritative and does not own a local `highway=*` → BoundaryClass override. Halt 7 locks BP7 as faithful passthrough. sub-E's MINOR-default tiering/over-emission and per-edge MultiLineString collapse are tracked as sub-E-v2 candidates, not sub-F-v1 blockers.
 
 **Files:**
 - Create: `src/cfm/data/sub_f/rotation.py` (per-cell rotation wrapper around sub-E's `cell_to_edge_ids`)

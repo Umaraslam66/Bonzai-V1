@@ -242,11 +242,12 @@ def test_sentinel_inventory_locks_bp2_subranges(sentinel_inventory):
     assert "bp2_encoding_primitives_placeholder" not in sentinel_inventory
 
 
-def test_sentinel_inventory_keeps_bp7_placeholder(sentinel_inventory):
-    bp7 = sentinel_inventory["bp7_boundary_ref_placeholder"]
+def test_sentinel_inventory_locks_bp7_block(sentinel_inventory):
+    bp7 = sentinel_inventory["bp7_boundary_ref"]
     assert bp7["start_id"] == 1500
     assert bp7["end_id"] == 1599
-    assert bp7["placeholder"] is True
+    assert bp7["placeholder"] is False
+    assert bp7["status"] == "LOCKED at Halt 7 approval"
 
 
 def test_linf_decomposition_reports_top_50_and_driver_summary(

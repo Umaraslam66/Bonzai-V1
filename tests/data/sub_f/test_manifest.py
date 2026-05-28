@@ -206,12 +206,13 @@ def test_source_and_derivation_axes_are_independent(tmp_path: Path):
     assert manifest["sub_f_source_version"] == load_sub_f_source_version()
 
 
-def test_sentinel_inventory_keeps_bp2_locked_and_bp7_placeholder():
+def test_sentinel_inventory_keeps_bp2_and_bp7_locked():
     data = yaml.safe_load(SENTINEL_INVENTORY_PATH.read_text(encoding="utf-8"))
 
     assert data["bp2_encoding_primitives"]["status"] == "LOCKED at Halt 2 approval"
     assert data["bp2_encoding_primitives"]["start_id"] == 300
     assert data["bp2_encoding_primitives"]["end_id"] == 1499
-    assert data["bp7_boundary_ref_placeholder"]["status"].startswith("PLACEHOLDER")
-    assert data["bp7_boundary_ref_placeholder"]["start_id"] == 1500
-    assert data["bp7_boundary_ref_placeholder"]["end_id"] == 1599
+    assert "bp7_boundary_ref_placeholder" not in data
+    assert data["bp7_boundary_ref"]["status"] == "LOCKED at Halt 7 approval"
+    assert data["bp7_boundary_ref"]["start_id"] == 1500
+    assert data["bp7_boundary_ref"]["end_id"] == 1599

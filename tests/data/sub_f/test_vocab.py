@@ -345,14 +345,14 @@ def test_sentinel_inventory_reserves_dataloader_only_ids(sentinel_inventory):
     assert all(slot["on_disk"] is False for slot in dataloader["slots"])
 
 
-def test_sentinel_inventory_has_locked_bp2_and_bp7_placeholder_blocks(sentinel_inventory):
+def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
     assert sentinel_inventory["bp1_semantic"]["status"] == "LOCKED at Halt 3 continuation"
     assert (
         sentinel_inventory["bp4_unknown_family"]["status"]
         == "LOCKED at Halt 3 continuation"
     )
     bp2 = sentinel_inventory["bp2_encoding_primitives"]
-    bp7 = sentinel_inventory["bp7_boundary_ref_placeholder"]
+    bp7 = sentinel_inventory["bp7_boundary_ref"]
     assert bp2["start_id"] == 300
     assert bp2["end_id"] == 1499
     assert bp2["placeholder"] is False
@@ -381,4 +381,7 @@ def test_sentinel_inventory_has_locked_bp2_and_bp7_placeholder_blocks(sentinel_i
     }
     assert bp7["start_id"] == 1500
     assert bp7["end_id"] == 1599
-    assert bp7["placeholder"] is True
+    assert bp7["placeholder"] is False
+    assert bp7["status"] == "LOCKED at Halt 7 approval"
+    assert bp7["used_count"] == 8
+    assert bp7["reserved_count"] == 92

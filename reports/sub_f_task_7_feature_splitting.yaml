@@ -1,4 +1,4 @@
-_status: PROPOSED - pending Halt 7 reviewer approval
+_status: LOCKED - Halt 7 approved
 encoded_geometry_type_counts:
   '0': 149666
   '1': 303302
@@ -12,7 +12,7 @@ geometry_type_counts:
   Point: 149666
   Polygon: 399695
 outcome: branched_multi_row_present
-recommendation: §9.6.1 cascade candidate; do not add multi-outbound grammar in Task 7
+recommendation: Accepted v1 as sub-E-inherited per-edge collapse; no sub-F multi-outbound grammar change
 road_geometry_type_4_count: 5605
 road_multiline_count: 5605
 road_multiline_decoded_count: 5605

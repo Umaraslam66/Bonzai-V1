@@ -1,26 +1,28 @@
 # Phase 1 Sub-F Task 7 Halt 7 Report
 
-Status: BLOCKED.
+Status: DONE.
 
 Branch: `phase-1-sub-F-micro-tokenizer`
 
-WIP commit: pending at report creation time.
+Close commit: Task 7 close continuation commit.
 
 ## Scope
 
-Implemented the Halt 7 surface only:
+Implemented the Halt 7 surface and close continuation:
 
 - Added proposed BP7 boundary-reference vocab at `configs/sub_f/boundary_reference_vocab.yaml`.
 - Added sub-F rotation wrapper at `src/cfm/data/sub_f/rotation.py`.
 - Added sub-C feature-splitting verification script at `scripts/sub_f/verify_sub_c_feature_splitting.py`.
 - Added Task 7 tests at `tests/data/sub_f/test_rotation.py`.
 - Added feature-splitting report at `reports/sub_f_task_7_feature_splitting.yaml`.
+- Locked `configs/sub_f/boundary_reference_vocab.yaml` at 8 BP7 tokens, IDs 1500..1507.
+- Locked `configs/sub_f/sentinel_inventory.yaml` BP7 block at 1500..1599 with 8 used and 92 reserved.
 
-No change was made to `configs/sub_f/sentinel_inventory.yaml`. BP7 remains PLACEHOLDER. No writer/orchestrator work was added. No push or PR was performed.
+No writer/orchestrator work was added. No push or PR was performed.
 
-Blocker classification: sub-C Singapore feature-splitting verification surfaced branched/multi-part road rows (`road_multiline_count=5605`, outcome `branched_multi_row_present`). Per Task 7 dispatch stop condition, this is a §9.6.1 cascade candidate against the Task 7 assumption; do not silently add a multi-outbound grammar case in this task.
+Halt 7 approval classification: sub-C Singapore feature-splitting verification surfaced branched/multi-part road rows (`road_multiline_count=5605`, outcome `branched_multi_row_present`), but under architecture (b), sub-F never sees parts; it tokenizes sub-E's per-edge `BoundaryClass` result. No sub-F §3.7 multi-outbound grammar change ships in v1.
 
-Cascade A (sub-E grouping under-covering locked BP1 highway vocab) was initially explored with a sub-F-local BP7 override. That resolution is now DISCARDED, not revised: the architecture check confirms sub-F consumes sub-E `boundary_contract.parquet` as authoritative and has no local class-override authority. The real cascade #9 is sub-E's MINOR-default behavior: omitted-but-present values such as `motorway`, `path`, `pedestrian`, `track`, and `subway` emit as MINOR_ROAD under sub-E, not NONE. Cascade B (MultiLineString part-edge relationship) remains BLOCKED pending evidence on how sub-E represents same-edge multi-part crossings.
+Cascade A (sub-E grouping under-covering locked BP1 highway vocab) was initially explored with a sub-F-local BP7 override. That resolution is now DISCARDED, not revised: the architecture check confirms sub-F consumes sub-E `boundary_contract.parquet` as authoritative and has no local class-override authority. The real cascade #9 is sub-E's MINOR-default behavior: omitted-but-present values such as `motorway`, `path`, `pedestrian`, `track`, and `subway` emit as MINOR_ROAD under sub-E, not NONE. This is accepted for sub-F-v1 as an inherited sub-E limitation and tracked as a sub-E-v2 candidate.
 
 ## Audit Step Outcomes
 
@@ -35,8 +37,8 @@ Cascade A (sub-E grouping under-covering locked BP1 highway vocab) was initially
    major set `['primary', 'secondary', 'trunk']`;
    minor set `['cycleway', 'footway', 'residential', 'service', 'steps', 'tertiary', 'unclassified']`.
 
-4. BP7 ID namespace placeholder remains available:
-   sentinel inventory status `LOCKED`; BP7 range `1500..1599`; `placeholder=True`; status `PLACEHOLDER; final size locks at Task 7 halt`.
+4. BP7 ID namespace is locked:
+   sentinel inventory status `LOCKED`; BP7 range `1500..1599`; `placeholder=False`; `used_count=8`; `reserved_count=92`; status `LOCKED at Halt 7 approval`.
 
 5. Cached sub-C Singapore data exists:
    `tile_count=494`, first observed file `data/processed/sub_c/2026-04-15.0/singapore/tile=EPSG3414_i10_j10/features.parquet`.
@@ -137,7 +139,7 @@ The following locked BP1 `highway=*` values are absent from sub-E `load_class_gr
 | `track` | singapore_row_count=3444 | multi_tile_source_feature_count=234 |
 | `trunk_link` | singapore_row_count=0 | multi_tile_source_feature_count=0 |
 
-Classification: REAL §9.6.1 cascade #9 against upstream composition, but the earlier sub-F-local override resolution is DISCARDED. Architecture (b) applies: sub-F consumes sub-E `boundary_contract.parquet` BoundaryClass values verbatim. sub-F must not re-derive or override boundary class from `highway=*`.
+Classification: REAL §9.6.1 cascade #9 against upstream composition, but the earlier sub-F-local override resolution is DISCARDED. Architecture (b) applies: sub-F consumes sub-E `boundary_contract.parquet` BoundaryClass values verbatim. sub-F must not re-derive or override boundary class from `highway=*`. Halt 7 decision: ACCEPT sub-E contract for sub-F-v1; BP7 locks.
 
 Values already covered by sub-E grouping:
 
@@ -155,7 +157,7 @@ For values absent from sub-E grouping, sub-E's derivation does not fall to NONE.
 | `subway`, `path`, `track`, `pedestrian` | MINOR_ROAD default | Non-vehicular or ambiguous ways over-emit as MINOR under sub-E's road-class contract. |
 | `motorway_link`, `primary_link`, `secondary_link`, `tertiary_link`, `trunk_link`, `bridleway`, `busway`, `road`, `*` | MINOR_ROAD default if present | Scope-zero in cached Singapore at Halt 7, so no v1 Singapore emission observed. |
 
-Reviewer decision pending: accept sub-E's MINOR-default for sub-F-v1 as a known upstream limitation, or block BP7 lock on a sub-E grouping refinement. The BP7 vocab shape remains ratified: 8 tokens, IDs 1500..1507, inbound position-carried.
+Final disposition: sub-E's MINOR-default is accepted for sub-F-v1 as a known upstream limitation. `motorway` can be under-tiered as MINOR when crossing alone, and non-vehicular or ambiguous ways can over-emit as MINOR. sub-F remains correct by faithfully tokenizing sub-E's authoritative class. The BP7 vocab shape is locked: 8 tokens, IDs 1500..1507, inbound position-carried.
 
 ## Addendum: BP7 Purpose + Derivation Contract Reclassification Surface
 
@@ -212,7 +214,7 @@ Local cache availability check:
 
 - `data/processed/sub_e` is absent in this workspace.
 - No `boundary_contract.parquet` files were found under the repository at Halt 7 reclassification time.
-- Therefore no real parquet sample for a motorway edge or a same-edge MultiLineString edge can be pasted without first restoring or regenerating sub-E output.
+- Therefore no real parquet sample for a motorway edge or a same-edge MultiLineString edge can be pasted without first restoring or regenerating sub-E output. The emission behavior below is code-inferred, not data-verified.
 
 Schema from code (`src/cfm/data/sub_e/writer.py:34-45`):
 
@@ -238,7 +240,7 @@ Code-inferred emission behavior (`src/cfm/data/sub_e/pipeline.py:304-326`):
 
 ### Cascade B gate
 
-Cascade B remains real as a raw feature-shape mismatch (`same_cell_edge_multi_part=5206`). Under architecture (b), the immediate question is whether sub-E's single boundary row per edge is acceptable for v1 or whether sub-E must learn a multi-part/multi-crossing contract before sub-F BP7 locks. Real parquet sampling is blocked until sub-E output is restored or regenerated.
+Cascade B final disposition: sub-E emits one row per edge, so same-edge MultiLineString parts collapse to the edge's single class in sub-E's contract. sub-F tokenizes one `<bref>` per edge and does not need a §3.7 multi-outbound grammar change in v1. Any multi-part fidelity loss is inherited from sub-E's per-edge contract and is tracked as a sub-E-v2 candidate. Real parquet sampling remains verification debt until sub-E output is restored or regenerated.
 
 ## Feature-Splitting Outcome
 
@@ -246,7 +248,7 @@ Report: `reports/sub_f_task_7_feature_splitting.yaml`.
 
 Summary:
 
-- `_status`: `PROPOSED - pending Halt 7 reviewer approval`.
+- `_status`: `LOCKED - Halt 7 approved`.
 - `tile_count=494`.
 - `row_count=862436`.
 - `geometry_type_counts`: `LineString=303302`, `MultiLineString=5690`, `MultiPolygon=4083`, `Point=149666`, `Polygon=399695`.
@@ -256,7 +258,7 @@ Summary:
 - `road_multiline_count=5605`.
 - `road_multiline_part_edge_buckets`: `same_cell_edge_multi_part=5206`, `different_cell_edges=352`, `no_multi_part_boundary_interaction=47`, `mergeable_artifact=0`.
 - `outcome=branched_multi_row_present`.
-- `recommendation=§9.6.1 cascade candidate; do not add multi-outbound grammar in Task 7`.
+- `recommendation=Accepted v1 as sub-E-inherited per-edge collapse; no sub-F multi-outbound grammar change`.
 
 Example rows:
 
@@ -268,7 +270,7 @@ Example rows:
 | tile=EPSG3414_i10_j11 | e887926c-2035-45a7-9c62-b1c2d4320a45 | MultiLineString | 4 | 2 |
 | tile=EPSG3414_i10_j11 | 47b08875-0726-4a99-b06d-706d8e76c406 | MultiLineString | 4 | 2 |
 
-Because `branched_multi_row_present` contradicts the Task 7 assumption, this report is BLOCKED pending reviewer classification of the §9.6.1 cascade. No multi-outbound grammar case was added in this task.
+Because sub-F consumes sub-E's per-edge contract, `branched_multi_row_present` does not require a sub-F multi-outbound grammar case in v1. No multi-outbound grammar case was added in this task.
 
 Same-cell-edge examples from the decomposition:
 
@@ -285,7 +287,7 @@ Same-cell-edge examples from the decomposition:
 | tile=EPSG3414_i10_j14 | (7,5) | service | 6cf613eb-2926-40a0-b054-18b3c61647a6 | 2 | N | `[['N'], ['N']]` |
 | tile=EPSG3414_i10_j14 | (7,6) | footway | dd6d65ba-2aef-4dfc-a100-950c19a3512f | 2 | N | `[['E', 'N'], ['N']]` |
 
-Cascade B classification surface: bucket (i) is large (`same_cell_edge_multi_part=5206`), so the single-row-per-branch assumption is materially false for cached Singapore. Reviewer classification is required before BP7 can lock.
+Cascade B classification surface: bucket (i) is large (`same_cell_edge_multi_part=5206`), so the single-row-per-branch assumption is materially false for cached Singapore. Halt 7 accepts this as sub-E-inherited per-edge collapse; no sub-F grammar revision blocks BP7.
 
 ## Manifest Obligation Note
 
@@ -314,7 +316,13 @@ uv run pytest tests/data/sub_f/test_manifest.py tests/data/sub_f/test_provenance
 Result: `14 passed` before and after the override-removal surface.
 
 ```text
-./.venv/bin/ruff check src/cfm/data/sub_f/rotation.py scripts/sub_f/verify_sub_c_feature_splitting.py tests/data/sub_f/test_rotation.py
+./.venv/bin/python -m pytest tests/data/sub_f/test_vocab.py tests/data/sub_f/test_encoder.py -q
+```
+
+Result: `63 passed` after BP7 lock status updates.
+
+```text
+./.venv/bin/ruff check src/cfm/data/sub_f/rotation.py scripts/sub_f/verify_sub_c_feature_splitting.py tests/data/sub_f/test_rotation.py tests/data/sub_f/test_manifest.py tests/data/sub_f/test_vocab.py tests/data/sub_f/test_encoder.py
 ```
 
 Result: passed with `All checks passed!`.
@@ -331,27 +339,27 @@ Verification therefore requires approved access to the external uv cache.
 
 ## Reviewer Ratification Checklist
 
-- Approve or reject BP7 vocab slot list and ID range.
-- Ratify architecture (b): sub-F consumes sub-E `boundary_contract.parquet` authoritative class verbatim.
-- Decide whether sub-E's MINOR-default behavior is acceptable for sub-F-v1 or blocks on sub-E revision.
-- Decide whether absent local sub-E cache is acceptable for this halt surface, or require regenerating/restoring sub-E output to inspect real motorway and same-edge MultiLineString parquet rows.
-- Classify whether sub-E's single boundary row per edge is acceptable for the 5206 same-edge MultiLineString cases, or requires sub-E contract revision before BP7 lock.
-- Decide whether BP7 placeholder can transition to LOCKED in a continuation.
+- BP7 vocab slot list and ID range: APPROVED, 8 tokens at 1500..1507.
+- Architecture (b): RATIFIED; sub-F consumes sub-E `boundary_contract.parquet` authoritative class verbatim.
+- sub-E MINOR-default behavior: ACCEPTED for sub-F-v1; documented as sub-E-v2 candidate.
+- Absent local sub-E cache: ACCEPTED for this halt surface; code-inferred caveat documented.
+- Same-edge MultiLineString per-edge collapse: ACCEPTED for sub-F-v1 as sub-E-inherited; documented as sub-E-v2 candidate.
+- BP7 block transition: LOCKED in `configs/sub_f/sentinel_inventory.yaml`.
 
 ## Section 10.5 Telemetry
 
 - implementer-time-to-data-surface: same-session implementation and verification on 2026-05-28; no separate wall-clock timer was instrumented.
-- reviewer-time-to-approval: pending.
-- reviewer-time-to-rejection-or-cascade: pending.
+- reviewer-time-to-approval: approved after reclassification surface on 2026-05-28.
+- reviewer-time-to-rejection-or-cascade: Halt 7 surfaced cascade #9 + cascade B; both accepted as sub-E-inherited v1 limitations.
 
 ## Halt Decision
 
-Status: BLOCKED.
+Status: DONE.
 
-Blocking issues:
+Final decisions:
 
-- Feature-splitting verification surfaced `branched_multi_row_present` with `road_multiline_count=5605` and `same_cell_edge_multi_part=5206`. Under architecture (b), this is a sub-E boundary-contract sufficiency question: accept current single-row-per-edge contract for v1 or block on sub-E revision.
-- BP7 class coverage cascade #9 is a sub-E MINOR-default/tiering limitation, not sub-F-resolvable. Reviewer must choose accept-for-v1 with documentation or block on sub-E revision.
-- Local sub-E `boundary_contract.parquet` cache is absent, so real parquet samples for motorway and same-edge MultiLineString edges could not be surfaced without regenerating/restoring sub-E output.
+- Feature-splitting verification surfaced `branched_multi_row_present` with `road_multiline_count=5605` and `same_cell_edge_multi_part=5206`; accepted for sub-F-v1 as sub-E-inherited per-edge collapse. No sub-F multi-outbound grammar change.
+- BP7 class coverage cascade #9 is a sub-E MINOR-default/tiering limitation, not sub-F-resolvable under architecture (b); accepted for sub-F-v1 with sub-E-v2 follow-up.
+- Local sub-E `boundary_contract.parquet` cache is absent; real parquet samples for motorway and same-edge MultiLineString edges remain verification debt when sub-E output is regenerated/restored.
 
-Do not proceed past Halt 7 until reviewer approval and cascade resolution.
+Task 7 is closed. Downstream manifest completion at sub-F close must add BP7 vocab source and recompute final manifest SHA.
