@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
 
 CONFIG_ROOT = Path(__file__).resolve().parents[3] / "configs" / "sub_f"
 ENCODING_PRIMITIVES_PATH = CONFIG_ROOT / "encoding_primitives.yaml"
@@ -33,10 +34,7 @@ def test_encoding_primitives_status_is_locked(encoding_primitives):
 
 def test_joint_surface_contains_exact_candidate_grid(encoding_primitives):
     rows = encoding_primitives["joint_surface"]
-    actual = {
-        (row["direction_count"], row["magnitude_quantum_m"])
-        for row in rows
-    }
+    actual = {(row["direction_count"], row["magnitude_quantum_m"]) for row in rows}
     expected = {
         (direction_count, magnitude_quantum_m)
         for direction_count in (8, 16, 24)
@@ -61,9 +59,7 @@ def test_joint_surface_contains_exact_candidate_grid(encoding_primitives):
         "roundtrip_skip_counts",
     ],
 )
-def test_joint_surface_rows_include_analytical_and_linf_fields(
-    encoding_primitives, field
-):
+def test_joint_surface_rows_include_analytical_and_linf_fields(encoding_primitives, field):
     for row in encoding_primitives["joint_surface"]:
         assert field in row
 
@@ -96,8 +92,9 @@ def test_input_characterization_reports_all_tile_inventory(encoding_primitives):
     assert source_scope["tile_count"] > 1
     assert source_scope["feature_count"] > 0
     assert characterization["geometry_type_feature_counts"]
-    assert sum(characterization["geometry_type_feature_counts"].values()) == (
-        source_scope["feature_count"]
+    assert (
+        sum(characterization["geometry_type_feature_counts"].values())
+        == (source_scope["feature_count"])
     )
     assert characterization["measured_geometry_sample_counts"]["polylines"] > 0
     assert characterization["measured_geometry_sample_counts"]["polygon_exterior_rings"] > 0
@@ -121,8 +118,9 @@ def test_collinearity_derivation_reports_distribution_and_method(
     assert collinearity["weak_empirical_p95_basis"] == (
         collinearity["collinear_candidate_triples"] < 500
     )
-    assert collinearity["distribution_perpendicular_m"]["count"] == (
-        collinearity["collinear_candidate_triples"]
+    assert (
+        collinearity["distribution_perpendicular_m"]["count"]
+        == (collinearity["collinear_candidate_triples"])
     )
     assert "proposed_threshold_method" in collinearity
     assert "proposed_threshold_m" in collinearity
@@ -144,18 +142,11 @@ def test_anchor_comparison_includes_flat_and_hierarchical(encoding_primitives):
 
 def test_anchor_vocab_derivation_is_spec_locked(encoding_primitives):
     quantum = encoding_primitives["proposed_lock"]["magnitude_quantum_m"]
-    comparison = {
-        row["scheme"]: row
-        for row in encoding_primitives["anchor_scheme_comparison"]
-    }
+    comparison = {row["scheme"]: row for row in encoding_primitives["anchor_scheme_comparison"]}
     assert comparison["flat"]["anchor_vocab_size"] == 2 * math.ceil(250 / quantum)
-    assert comparison["flat"]["vocab_derivation"] == (
-        "2 * ceil(250 / magnitude_quantum_m)"
-    )
+    assert comparison["flat"]["vocab_derivation"] == ("2 * ceil(250 / magnitude_quantum_m)")
     assert comparison["hierarchical"]["anchor_vocab_size"] == 96
-    assert comparison["hierarchical"]["vocab_derivation"] == (
-        "(16 coarse + 32 fine) * 2 axes"
-    )
+    assert comparison["hierarchical"]["vocab_derivation"] == ("(16 coarse + 32 fine) * 2 axes")
 
 
 def test_proposed_lock_uses_approved_halt2_values(
@@ -167,13 +158,9 @@ def test_proposed_lock_uses_approved_halt2_values(
     assert proposed["anchor_scheme"] == "hierarchical"
     assert proposed["chunk_threshold_m"] == 32
     assert proposed["round_trip_l_inf_threshold_m"] == 4.8
-    assert proposed["round_trip_l_inf_threshold_status"] == (
-        "LOCKED_HALT_2_APPROVED"
-    )
+    assert proposed["round_trip_l_inf_threshold_status"] == ("LOCKED_HALT_2_APPROVED")
     assert proposed["round_trip_angle_threshold_deg"] == 7.5
-    assert proposed["round_trip_angle_threshold_status"] == (
-        "LOCKED_HALT_2_APPROVED"
-    )
+    assert proposed["round_trip_angle_threshold_status"] == ("LOCKED_HALT_2_APPROVED")
     assert proposed["collinearity_admission_perpendicular_m"] == 0.928048
 
 
@@ -184,8 +171,9 @@ def test_bp2_placeholder_fit_references_reserved_block(encoding_primitives):
     assert fit["placeholder_range"] == "300..1499"
     assert fit["fits_placeholder"] is True
     assert fit["components"]["anchor_vocab_size"] == 96
-    assert fit["components"]["direction_vocab_size"] == (
-        encoding_primitives["proposed_lock"]["direction_count"]
+    assert (
+        fit["components"]["direction_vocab_size"]
+        == (encoding_primitives["proposed_lock"]["direction_count"])
     )
     assert fit["components"]["magnitude_vocab_size"] == 65
 
@@ -204,16 +192,10 @@ def test_encoding_primitives_lock_metadata_preserves_methodology(
     assert lock["measurement_methodology"]["catastrophic_angle_exclusion"] == (
         "post_roundtrip_abs_deviation_from_90_deg > 45"
     )
-    assert lock["cascade_8_candidate"]["candidate"] == (
-        "BP2 anchor + direction-bin alignment"
-    )
+    assert lock["cascade_8_candidate"]["candidate"] == ("BP2 anchor + direction-bin alignment")
     assert "cascade #8" in lock["cascade_8_candidate"]["note"]
-    assert lock["chunking_classification"]["classification"] == (
-        "chunking_is_no_op_on_test_sample"
-    )
-    assert lock["chunking_classification"]["reference"] == (
-        "Continuation #2 Item A"
-    )
+    assert lock["chunking_classification"]["classification"] == ("chunking_is_no_op_on_test_sample")
+    assert lock["chunking_classification"]["reference"] == ("Continuation #2 Item A")
     assert lock["source_config_cross_references"] == [
         "configs/sub_f/semantic_vocab.yaml",
         "configs/sub_f/unknown_family.yaml",
@@ -228,8 +210,7 @@ def test_sentinel_inventory_locks_bp2_subranges(sentinel_inventory):
     assert bp2["start_id"] == 300
     assert bp2["end_id"] == 1499
     assert bp2["status"] == (
-        "LOCKED at Halt 2 approval; "
-        "structural_sentinels consumed at T8 plan-write 2026-05-28"
+        "LOCKED at Halt 2 approval; structural_sentinels consumed at T8 plan-write 2026-05-28"
     )
     assert bp2["placeholder"] is False
     assert bp2["used_count"] == 211
@@ -292,9 +273,7 @@ def test_linf_decomposition_reports_top_50_and_driver_summary(
 def test_right_angle_decomposition_reports_catastrophic_buckets(
     encoding_primitives,
 ):
-    decomposition = encoding_primitives[
-        "right_angle_catastrophic_decomposition_proposed_24_0_5"
-    ]
+    decomposition = encoding_primitives["right_angle_catastrophic_decomposition_proposed_24_0_5"]
     assert decomposition["candidate"] == {
         "direction_count": 24,
         "magnitude_quantum_m": 0.5,
@@ -347,9 +326,7 @@ def test_proposed_lock_carries_chunk_threshold_metadata(encoding_primitives):
     assert proposed["chunk_threshold_m"] == sweep["proposed_chunk_threshold_m"]
     direction_sweep = encoding_primitives["l_inf_direction_count_sweep_0_5_hierarchical"]
     assert proposed["direction_count"] == direction_sweep["proposed_direction_count"]
-    assert proposed["round_trip_l_inf_threshold_status"] == (
-        "LOCKED_HALT_2_APPROVED"
-    )
+    assert proposed["round_trip_l_inf_threshold_status"] == ("LOCKED_HALT_2_APPROVED")
 
 
 def test_right_angle_root_cause_reports_hypothesis_buckets(encoding_primitives):
@@ -380,8 +357,8 @@ def test_right_angle_root_cause_reports_hypothesis_buckets(encoding_primitives):
         "input_deviation_buckets",
         "perimeter_buckets",
     ):
-        assert sum(row["count"] for row in root[bucket_family]) == (
-            root["catastrophic_corner_count"]
+        assert (
+            sum(row["count"] for row in root[bucket_family]) == (root["catastrophic_corner_count"])
         )
     assert "root_cause_classification" in root
     assert "classification" in root["root_cause_classification"]
@@ -451,3 +428,152 @@ def test_protocol_v2_candidate_9_capture_is_documented(encoding_primitives):
     assert note["candidate"] == 9
     assert note["classification"] == "hypothesis_falsified_capture"
     assert "chunk-as-lever hypothesis was falsified" in note["note"]
+
+
+# ============================================================================
+# T8.3 — encoder helpers + canonicalize_geometry (BP5 §5.6 contract)
+# ============================================================================
+
+
+# ---- helpers ---------------------------------------------------------------
+
+
+def test_quantize_coord_m_integer_only_banker_tiebreak():
+    """Per BP5 §5.2 lock: int(round(coord_m / quantum)) Python banker's tie-break."""
+    from cfm.data.sub_f.encoder import quantize_coord_m
+
+    # 0.25 / 0.5 = 0.5 -> banker's round-to-even: 0
+    assert quantize_coord_m(0.25, quantum_m=0.5) == 0
+    # 0.75 / 0.5 = 1.5 -> banker: 2
+    assert quantize_coord_m(0.75, quantum_m=0.5) == 2
+    # 1.0 / 0.5 = 2.0 -> 2
+    assert quantize_coord_m(1.0, quantum_m=0.5) == 2
+
+
+def test_direction_bin_lower_at_boundary_48_directions():
+    """Per BP5 §5.2: tie-break to LOWER bin index. 48 directions = 7.5 deg each.
+    3.75 deg is exactly half-bin between dir_0 and dir_1 -> dir_0.
+    """
+    from cfm.data.sub_f.encoder import direction_bin
+
+    assert direction_bin(0.0, direction_count=48) == 0
+    assert direction_bin(3.75, direction_count=48) == 0  # exact half-bin -> lower
+    assert direction_bin(7.5, direction_count=48) == 1
+    assert direction_bin(359.999, direction_count=48) == 47
+
+
+# ---- canonicalize_geometry: pre-flight Assertion 2 (routing fidelity) ------
+
+
+def test_canonicalize_open_linestring_preserves_direction():
+    """Per §5.6: LineString direction is PRESERVED (no canonicalization)."""
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    forward = LineString([(5, 5), (1, 1)])
+    reverse = LineString([(1, 1), (5, 5)])
+    assert list(canonicalize_geometry(forward).coords) == [(5, 5), (1, 1)]
+    assert list(canonicalize_geometry(reverse).coords) == [(1, 1), (5, 5)]
+
+
+def test_canonicalize_closed_linestring_preserves_direction():
+    """Per §5.6: closed LineString (roundabout) routes to LineString-preserve,
+    NOT to ring canonicalization. Anti-pattern this guards: dispatch on
+    geom.is_ring (True for closed LineStrings) instead of geom.geom_type.
+    """
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    roundabout_cw_non_lex_min_start = LineString([(2, 0), (2, 2), (0, 2), (0, 0), (2, 0)])
+    expected = [(2, 0), (2, 2), (0, 2), (0, 0), (2, 0)]
+    assert list(canonicalize_geometry(roundabout_cw_non_lex_min_start).coords) == expected
+
+
+def test_canonicalize_polygon_rotates_to_lex_min_start():
+    """Per §5.6 rule (i): Polygon ring rotated to start at lex-min vertex."""
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    # [(5,5),(1,1),(3,1)] signed area = 8 > 0 -> CCW (RFC 7946 exterior OK)
+    poly = Polygon([(5, 5), (1, 1), (3, 1), (5, 5)])
+    canon = canonicalize_geometry(poly)
+    coords = list(canon.exterior.coords)
+    assert coords[0] == (1, 1), f"expected lex-min start (1,1); got {coords[0]}"
+    assert coords[0] == coords[-1], "ring must remain closed"
+
+
+def test_canonicalize_polygon_reverses_cw_winding_to_ccw():
+    """Per §5.6 rule (ii): Polygon exterior must be CCW (RFC 7946)."""
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    # [(1,1),(5,5),(3,1)] signed area = -8 < 0 -> CW; lex-min (1,1) is first
+    poly = Polygon([(1, 1), (5, 5), (3, 1), (1, 1)])
+    canon = canonicalize_geometry(poly)
+    coords = list(canon.exterior.coords)
+    # CCW reverse: (1,1) -> (3,1) -> (5,5) -> (1,1)
+    assert coords == [(1, 1), (3, 1), (5, 5), (1, 1)]
+
+
+def test_canonicalize_multilinestring_sorts_parts_by_first_vertex():
+    """Per §5.6 rule (iv): multi-part order = sort by first vertex (= lex-min
+    for internally-canonical parts)."""
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    part_high = LineString([(3, 3), (7, 7)])
+    part_low = LineString([(1, 1), (5, 5)])
+    multi_in = MultiLineString([part_high, part_low])
+    canon = list(canonicalize_geometry(multi_in).geoms)
+    assert next(iter(canon[0].coords)) == (1, 1)
+    assert next(iter(canon[1].coords)) == (3, 3)
+
+
+def test_canonicalize_idempotent_all_geom_types():
+    """Per §5.6: canonicalize(canonicalize(g)) == canonicalize(g) for every supported type."""
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    inputs = [
+        LineString([(5, 5), (1, 1)]),
+        Polygon([(5, 5), (1, 1), (3, 1), (5, 5)]),
+        MultiLineString([LineString([(3, 3), (7, 7)]), LineString([(1, 1), (5, 5)])]),
+        MultiPolygon(
+            [
+                Polygon([(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)]),
+                Polygon([(10, 10), (12, 10), (12, 12), (10, 12), (10, 10)]),
+            ]
+        ),
+    ]
+    for g in inputs:
+        once = canonicalize_geometry(g)
+        twice = canonicalize_geometry(once)
+        assert once.wkb == twice.wkb, (
+            f"canonicalize not idempotent for {g.geom_type}: once != twice"
+        )
+
+
+# ---- pre-flight Assertion 1: token-count invariance ------------------------
+
+
+def test_canonicalize_preserves_vertex_count():
+    """BP5 <-> BP3 invariance: canonicalization reorders but must not change V.
+
+    The BP3 budget at P99.9 (5,888 padded) was measured on sub-C source-order
+    features; T8 emits canonical-order features. The budget remains valid iff
+    V(canonical) == V(source) per feature. If canonicalization ever adds /
+    removes a closure vertex or normalizes a degenerate ring differently, the
+    budget was measured against the wrong number.
+    """
+    from cfm.data.sub_f.encoder import _vertex_count, canonicalize_geometry
+
+    cases = [
+        # (label, source_geom)
+        ("polygon_lex_min_rotation", Polygon([(5, 5), (1, 1), (3, 1), (5, 5)])),
+        ("polygon_winding_flip", Polygon([(1, 1), (5, 5), (3, 1), (1, 1)])),
+        (
+            "multilinestring_part_sort",
+            MultiLineString([LineString([(3, 3), (7, 7)]), LineString([(1, 1), (5, 5)])]),
+        ),
+        ("open_linestring_preserve", LineString([(5, 5), (1, 1)])),
+        ("closed_linestring_preserve", LineString([(2, 0), (2, 2), (0, 2), (0, 0), (2, 0)])),
+    ]
+    for label, src in cases:
+        canon = canonicalize_geometry(src)
+        v_src = _vertex_count(src)
+        v_canon = _vertex_count(canon)
+        assert v_src == v_canon, f"vertex count drift on {label}: source={v_src} canon={v_canon}"
