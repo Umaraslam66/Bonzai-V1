@@ -57,11 +57,7 @@ def _load_yaml(path: Path) -> dict:
 
 
 def _is_sub_c_unknown_sentinel(value: str) -> bool:
-    return (
-        value in SENTINEL_VALUES
-        or "__UNK__" in value
-        or value.startswith(SENTINEL_PREFIXES)
-    )
+    return value in SENTINEL_VALUES or "__UNK__" in value or value.startswith(SENTINEL_PREFIXES)
 
 
 @pytest.fixture(scope="module")
@@ -98,16 +94,38 @@ def test_vocab_floor_analysis_has_28_l1_must_appears():
     data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
     # Hand-pinned (assertion does NOT read sub-F's own enumeration into expected).
     expected_l1 = {
-        "aerialway", "aeroway", "amenity", "barrier", "boundary", "building",
-        "craft", "emergency", "geological", "healthcare", "highway", "historic",
-        "landuse", "leisure", "man_made", "military", "natural", "office",
-        "place", "power", "public_transport", "railway", "route", "shop",
-        "telecom", "tourism", "water", "waterway",
+        "aerialway",
+        "aeroway",
+        "amenity",
+        "barrier",
+        "boundary",
+        "building",
+        "craft",
+        "emergency",
+        "geological",
+        "healthcare",
+        "highway",
+        "historic",
+        "landuse",
+        "leisure",
+        "man_made",
+        "military",
+        "natural",
+        "office",
+        "place",
+        "power",
+        "public_transport",
+        "railway",
+        "route",
+        "shop",
+        "telecom",
+        "tourism",
+        "water",
+        "waterway",
     }
     actual_l1 = set(data["wiki_l1_must_appears"])
     assert actual_l1 == expected_l1, (
-        f"L1 set drift: missing={expected_l1 - actual_l1}, "
-        f"extra={actual_l1 - expected_l1}"
+        f"L1 set drift: missing={expected_l1 - actual_l1}, extra={actual_l1 - expected_l1}"
     )
 
 
@@ -176,10 +194,7 @@ def test_vocab_floor_analysis_filters_sub_c_unknown_sentinels():
     """Cascade #7: X-threshold excludes sub-C normalization sentinels."""
     data = _load_yaml(CONFIG_ROOT / "vocab_floor_analysis.yaml")
     sentinel_filter = data["proposed_x_threshold"]["sentinel_filter"]
-    excluded_pairs = {
-        (p["key"], p["value"]): p["count"]
-        for p in sentinel_filter["excluded_pairs"]
-    }
+    excluded_pairs = {(p["key"], p["value"]): p["count"] for p in sentinel_filter["excluded_pairs"]}
     assert sentinel_filter["status"] == "applied before X derivation per cascade #7"
     assert excluded_pairs[("building", "B__UNK__")] > 0
     assert excluded_pairs[("highway", "unknown")] > 0
@@ -191,8 +206,7 @@ def test_taginfo_snapshot_paginates_building_values():
     with csv_path.open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     building_values = [
-        r for r in rows
-        if r["row_type"] == "value" and r["parent_key"] == "building"
+        r for r in rows if r["row_type"] == "value" and r["parent_key"] == "building"
     ]
     assert len(building_values) >= 8000, (
         "Expected building value rows to include paginated taginfo results. "
@@ -214,17 +228,13 @@ def test_unknown_family_zero_firing_slots_keep_policy_is_locked(unknown_family):
     assert "multi-region unknown expansion" in policy["note"]
 
 
-def test_unknown_family_slot_order_follows_semantic_vocab_l1_order(
-    semantic_vocab, unknown_family
-):
+def test_unknown_family_slot_order_follows_semantic_vocab_l1_order(semantic_vocab, unknown_family):
     expected_keys = [
         slot["tag"].split("=", 1)[0]
         for slot in semantic_vocab["slots"]
         if slot["tag"].endswith("=*")
     ]
-    assert expected_keys == [
-        slot["key"] for slot in unknown_family["slots"]
-    ]
+    assert expected_keys == [slot["key"] for slot in unknown_family["slots"]]
 
 
 def test_unknown_family_uses_bp4_reserved_block(unknown_family):
@@ -261,13 +271,9 @@ def test_unknown_family_real_osm_counts_exclude_all_locked_semantic_tags(
         slots_by_key["building"]["singapore_count_real_osm_below_F"]
         == expected_real_unknown["building"]
     )
+    assert slots_by_key["highway"]["singapore_count_subc_sentinels"] == expected_sentinel["highway"]
     assert (
-        slots_by_key["highway"]["singapore_count_subc_sentinels"]
-        == expected_sentinel["highway"]
-    )
-    assert (
-        slots_by_key["building"]["singapore_count_subc_sentinels"]
-        == expected_sentinel["building"]
+        slots_by_key["building"]["singapore_count_subc_sentinels"] == expected_sentinel["building"]
     )
 
 
@@ -347,10 +353,7 @@ def test_sentinel_inventory_reserves_dataloader_only_ids(sentinel_inventory):
 
 def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
     assert sentinel_inventory["bp1_semantic"]["status"] == "LOCKED at Halt 3 continuation"
-    assert (
-        sentinel_inventory["bp4_unknown_family"]["status"]
-        == "LOCKED at Halt 3 continuation"
-    )
+    assert sentinel_inventory["bp4_unknown_family"]["status"] == "LOCKED at Halt 3 continuation"
     bp2 = sentinel_inventory["bp2_encoding_primitives"]
     bp7 = sentinel_inventory["bp7_boundary_ref"]
     assert bp2["start_id"] == 300
@@ -385,3 +388,72 @@ def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
     assert bp7["status"] == "LOCKED at Halt 7 approval"
     assert bp7["used_count"] == 8
     assert bp7["reserved_count"] == 92
+
+
+def test_load_sub_f_vocab_returns_all_on_disk_families_in_id_order():
+    """Vocab loader returns every on-disk slot in ascending token_id order.
+
+    Families: BP1 semantic + BP4 unknown + BP2 encoding_primitive + structural + BP7.
+    On-disk excludes dataloader sentinels (256-260 per sentinel_inventory.yaml
+    dataloader_sentinels block, on_disk=false). Total on-disk count is the sum
+    of BP1 used (127) + BP4 used (28) + BP2 encoding_primitive used (209) +
+    structural sentinels (2 - <feature>/<feature_end> at 509/510, consumed
+    from BP2 reserved_v2_headroom front per pre-flight Assertion 4) +
+    BP7 used (8) = 374 slots.
+    """
+    from cfm.data.sub_f.vocab import load_sub_f_vocab
+
+    slots = load_sub_f_vocab()
+    assert len(slots) == 374, f"expected 374 on-disk slots; got {len(slots)}"
+
+    # Strictly ascending token_id (per `feedback_pythonhashseed_dict_iteration_test`
+    # the loader must produce deterministic order, not hash-order).
+    ids = [s.token_id for s in slots]
+    assert ids == sorted(ids), "token_ids must be in strictly ascending order"
+    assert len(set(ids)) == len(ids), "token_ids must be unique"
+
+    # Family boundaries per sentinel_inventory.yaml.
+    bp1 = [s for s in slots if s.family == "semantic"]
+    bp4 = [s for s in slots if s.family == "unknown"]
+    bp2 = [s for s in slots if s.family == "encoding_primitive"]
+    structural = [s for s in slots if s.family == "structural"]
+    bp7 = [s for s in slots if s.family == "boundary_reference"]
+    assert len(bp1) == 127
+    assert len(bp4) == 28
+    assert len(bp2) == 209  # anchor 96 + direction 48 + magnitude 65
+    assert len(structural) == 2  # <feature> + <feature_end>
+    assert len(bp7) == 8
+
+    # ID-range invariants from sentinel_inventory.yaml.
+    assert all(0 <= s.token_id <= 126 for s in bp1)
+    assert all(200 <= s.token_id <= 227 for s in bp4)
+    assert all(300 <= s.token_id <= 508 for s in bp2)
+    assert {s.token_id for s in structural} == {509, 510}
+    assert all(1500 <= s.token_id <= 1507 for s in bp7)
+
+    # Structural family carries the named tags exactly.
+    structural_tags = {s.tag: s.token_id for s in structural}
+    assert structural_tags == {"<feature>": 509, "<feature_end>": 510}
+
+
+def test_load_sub_f_vocab_no_dataloader_sentinels_on_disk():
+    """Per sentinel_inventory.yaml: <pad>=256, <eos>=257, <bos>=258, <cell_start>=259,
+    <cell_end>=260 are on_disk=false. They must NOT appear in load_sub_f_vocab()."""
+    from cfm.data.sub_f.vocab import load_sub_f_vocab
+
+    on_disk_ids = {s.token_id for s in load_sub_f_vocab()}
+    for sentinel_id in (256, 257, 258, 259, 260):
+        assert sentinel_id not in on_disk_ids, (
+            f"dataloader sentinel id={sentinel_id} must NOT be in on-disk vocab"
+        )
+
+
+def test_load_sub_f_vocab_tag_lookup_round_trips():
+    """Every slot has a unique tag; tag -> token_id lookup matches token_id -> tag."""
+    from cfm.data.sub_f.vocab import load_sub_f_vocab, vocab_tag_to_id
+
+    slots = load_sub_f_vocab()
+    tag_to_id = vocab_tag_to_id()
+    for s in slots:
+        assert tag_to_id[s.tag] == s.token_id
+    assert len(tag_to_id) == len(slots), "tags must be unique across all families"
