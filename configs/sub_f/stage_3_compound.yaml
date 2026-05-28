@@ -1,0 +1,36 @@
+_status: "INTERMEDIATE \u2014 feeds Task 3c."
+anchor_scheme_used: hierarchical
+case_used: "A (uncrossed) \u2014 stage-4 cross-cell overhead added at Task 3c"
+direction_count: 48
+encoder_primitives_source: configs/sub_f/encoding_primitives.yaml (Halt 2 LOCKED)
+magnitude_quantum_m: 0.5
+n_anchor: 4
+note: "Per-observation tokens, Case A only. Per-cell aggregation deferred to Task\
+  \ 3c; that's where the full 4D joint is composed with stage-4 overhead per spec\
+  \ \xA77.2/\xA77.4."
+per_observation_tokens_mean_weighted: 15.551305836027254
+per_observation_tokens_per_type:
+  0:
+    case_a_tokens_at_v_max: 333
+    case_a_tokens_at_v_mean: 15
+    case_a_tokens_at_v_p95: 29
+    case_a_tokens_at_v_p99: 45
+    n_observations: 302271
+  1:
+    case_a_tokens_at_v_max: 569
+    case_a_tokens_at_v_mean: 19
+    case_a_tokens_at_v_p95: 39
+    case_a_tokens_at_v_p99: 119
+    n_observations: 395177
+  2:
+    case_a_tokens_at_v_max: 7
+    case_a_tokens_at_v_mean: 7
+    case_a_tokens_at_v_p95: 7
+    case_a_tokens_at_v_p99: 7
+    n_observations: 149655
+  3:
+    case_a_tokens_at_v_max: 461
+    case_a_tokens_at_v_mean: 21
+    case_a_tokens_at_v_p95: 51
+    case_a_tokens_at_v_p99: 103
+    n_observations: 15333
