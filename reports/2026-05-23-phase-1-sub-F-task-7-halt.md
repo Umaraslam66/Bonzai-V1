@@ -20,7 +20,7 @@ No change was made to `configs/sub_f/sentinel_inventory.yaml`. BP7 remains PLACE
 
 Blocker classification: sub-C Singapore feature-splitting verification surfaced branched/multi-part road rows (`road_multiline_count=5605`, outcome `branched_multi_row_present`). Per Task 7 dispatch stop condition, this is a §9.6.1 cascade candidate against the Task 7 assumption; do not silently add a multi-outbound grammar case in this task.
 
-Cascade A (sub-E grouping under-covering locked BP1 highway vocab) was provisionally explored with a sub-F-local BP7 override, but that resolution is NOT ratified. A later reviewer correction pulled back the unverified drivable-only premise. The BP7 purpose and derivation architecture must be classified before any class map locks. Cascade B (MultiLineString part-edge relationship) remains BLOCKED pending reviewer classification after the class-purpose decision.
+Cascade A (sub-E grouping under-covering locked BP1 highway vocab) was initially explored with a sub-F-local BP7 override. That resolution is now DISCARDED, not revised: the architecture check confirms sub-F consumes sub-E `boundary_contract.parquet` as authoritative and has no local class-override authority. The real cascade #9 is sub-E's MINOR-default behavior: omitted-but-present values such as `motorway`, `path`, `pedestrian`, `track`, and `subway` emit as MINOR_ROAD under sub-E, not NONE. Cascade B (MultiLineString part-edge relationship) remains BLOCKED pending evidence on how sub-E represents same-edge multi-part crossings.
 
 ## Audit Step Outcomes
 
@@ -137,32 +137,29 @@ The following locked BP1 `highway=*` values are absent from sub-E `load_class_gr
 | `track` | singapore_row_count=3444 | multi_tile_source_feature_count=234 |
 | `trunk_link` | singapore_row_count=0 | multi_tile_source_feature_count=0 |
 
-Classification: REAL §9.6.1 cascade #9 against upstream composition. The gap was WIDE as a raw absence list. The sub-F-local drivable-network override below is PROVISIONAL ONLY and not ratified; it depends on the unresolved BP7 purpose question.
+Classification: REAL §9.6.1 cascade #9 against upstream composition, but the earlier sub-F-local override resolution is DISCARDED. Architecture (b) applies: sub-F consumes sub-E `boundary_contract.parquet` BoundaryClass values verbatim. sub-F must not re-derive or override boundary class from `highway=*`.
 
-Resolution mechanism: sub-F-local BP7 override composed after sub-E grouping. Values already covered by sub-E continue to defer to sub-E:
+Values already covered by sub-E grouping:
 
 | source | highway values | BP7 class |
 |---|---|---|
 | sub-E grouping | `primary`, `secondary`, `trunk` | MAJOR_ROAD |
 | sub-E grouping | `cycleway`, `footway`, `residential`, `service`, `steps`, `tertiary`, `unclassified` | MINOR_ROAD |
 
-For values absent from sub-E grouping, sub-F now resolves all locked BP1 `highway=*` values explicitly:
+For values absent from sub-E grouping, sub-E's derivation does not fall to NONE. `src/cfm/data/sub_e/derivation.py:81-85` maps any present but unmapped `class_raw` to `BoundaryClass.MINOR_ROAD`; NONE is returned only when the edge has no road crossings.
 
-| highway value | BP7 class | rationale |
+| highway value group | sub-E v1 behavior | consequence for sub-F-v1 |
 |---|---|---|
-| `motorway` | MAJOR_ROAD | Expressway / core drivable arterial; stitch across cells. |
-| `living_street` | MINOR_ROAD | Vehicular but local. |
-| `subway` | NONE | Deliberately non-emitting; not drivable-road continuity for AV routing. |
-| `path` | NONE | Deliberately non-emitting; non-vehicular. |
-| `track` | NONE | Deliberately non-emitting; non-vehicular for v1 AV routing. |
-| `pedestrian` | NONE | Deliberately non-emitting; non-vehicular. |
-| `motorway_link`, `primary_link`, `secondary_link`, `tertiary_link`, `trunk_link`, `bridleway`, `busway`, `road`, `*` | NONE | Scope-of-coverage-zero in Singapore cached data at Halt 7; retained as explicit NONE rather than omission. |
+| `motorway` | MINOR_ROAD default | Expressway connectivity is emitted but under-tiered as MINOR, not lost. |
+| `living_street` | MINOR_ROAD default | Emits as MINOR; likely harmless if accepted for v1. |
+| `subway`, `path`, `track`, `pedestrian` | MINOR_ROAD default | Non-vehicular or ambiguous ways over-emit as MINOR under sub-E's road-class contract. |
+| `motorway_link`, `primary_link`, `secondary_link`, `tertiary_link`, `trunk_link`, `bridleway`, `busway`, `road`, `*` | MINOR_ROAD default if present | Scope-zero in cached Singapore at Halt 7, so no v1 Singapore emission observed. |
 
-Test coverage currently includes `test_sub_f_bp7_override_resolves_every_locked_highway_value_explicitly`, but that test is provisional with the override. If BP7 purpose or derivation architecture changes, this test must be revised before BP7 lock.
+Reviewer decision pending: accept sub-E's MINOR-default for sub-F-v1 as a known upstream limitation, or block BP7 lock on a sub-E grouping refinement. The BP7 vocab shape remains ratified: 8 tokens, IDs 1500..1507, inbound position-carried.
 
 ## Addendum: BP7 Purpose + Derivation Contract Reclassification Surface
 
-Reviewer correction: the prior drivable-only classification was reviewer-supplied input and was not grounded in the pre-existing §3.7 text before implementation. Cascade #9 is therefore provisional pending BP7 purpose classification.
+Reviewer correction: the prior drivable-only classification was reviewer-supplied input and was not grounded in the pre-existing §3.7 text before implementation. A second correction found the prior NONE-default premise was false: sub-E defaults omitted but present values to MINOR_ROAD. Cascade #9 is therefore a sub-E authority/derivation cascade, not a sub-F local-map cascade.
 
 ### Purpose text from spec
 
@@ -186,12 +183,12 @@ Current upstream code path:
 
 - `src/cfm/data/sub_e/pipeline.py:304-326` filters sub-C features to `feature_class == road`, groups crossing `class_raw` values per edge, and calls `derive_boundary_class(class_raws)`.
 - `src/cfm/data/sub_e/derivation.py:81-85` loads sub-E grouping and maps any class_raw absent from the grouping to `BoundaryClass.MINOR_ROAD`, not NONE.
-- `src/cfm/data/sub_f/rotation.py:12-57` currently contains the provisional sub-F-local override from cascade #9, but no Task 8 writer exists yet, and no emitted `<bref>` code path currently calls it.
+- `src/cfm/data/sub_f/rotation.py` now contains only the N/E/S/W wrapper over sub-E edge ids. The discarded sub-F-local override was removed.
 
 Architecture implication:
 
 - The existing spec points to architecture (b): sub-F consumes sub-E's per-edge `BoundaryClass` from `boundary_contract.parquet` and tokenizes that class. Under architecture (b), a sub-F local `motorway -> MAJOR` override is incoherent unless sub-E also derives the corresponding edge as MAJOR; otherwise the Task 10 cross-reference check would fail.
-- If reviewer chooses architecture (a), sub-F's map must become the authoritative complete map over all locked highway values, and §8.1 cross-reference semantics must be revised accordingly.
+- Architecture (a) is discarded for v1 unless the spec is deliberately revised to make sub-F own boundary class derivation. No such revision is currently authorized.
 
 Important correction to earlier premise: missing values in sub-E grouping do NOT fall to NONE in sub-E. They fall to MINOR_ROAD by default when they appear in crossing `class_raws`. NONE is returned only when there are no road crossings on the edge.
 
@@ -209,9 +206,39 @@ Five cached Singapore rows with `feature_class=0` and `class_raw="subway"`:
 
 These rows are transportation `class_raw="subway"` with no subtype/category refinement in cached sub-C output. The cache alone does not prove pedestrian underpass versus rail/road tunnel; it only proves they are linear transportation features split across cells.
 
+### Sub-E boundary_contract surface
+
+Local cache availability check:
+
+- `data/processed/sub_e` is absent in this workspace.
+- No `boundary_contract.parquet` files were found under the repository at Halt 7 reclassification time.
+- Therefore no real parquet sample for a motorway edge or a same-edge MultiLineString edge can be pasted without first restoring or regenerating sub-E output.
+
+Schema from code (`src/cfm/data/sub_e/writer.py:34-45`):
+
+| column | type | nullable |
+|---|---|---|
+| `slot_kind` | int8 | no |
+| `slot_index` | int16 | no |
+| `lower_cell_i` | int8 | no |
+| `lower_cell_j` | int8 | no |
+| `axis` | int8 | no |
+| `scope_marker` | int8 | no |
+| `boundary_class_enum` | int16 | yes |
+
+Writer invariant: exactly 144 rows per tile, 112 internal + 32 external, sorted by `(slot_kind, slot_index)`.
+
+Code-inferred emission behavior (`src/cfm/data/sub_e/pipeline.py:304-326`):
+
+- sub-E filters cached sub-C rows to `feature_class == road`.
+- sub-E groups all crossing `class_raw` values by edge.
+- each active internal edge gets one `boundary_class_enum`, derived by `derive_boundary_class(class_raws)`.
+- a motorway-only edge therefore emits `MINOR_ROAD` under the current sub-E default, unless the same edge also has a grouped MAJOR value (`primary`, `secondary`, `trunk`).
+- same-edge MultiLineString parts collapse into the edge's single class derivation surface; the code does not emit one boundary row per crossing part.
+
 ### Cascade B gate
 
-Cascade B remains real as a raw feature-shape mismatch (`same_cell_edge_multi_part=5206`), but its v1 severity depends on the corrected BP7 class architecture/purpose. BoundaryClass breakdown of those 5206 rows is intentionally deferred until the purpose and class-source decision is ratified.
+Cascade B remains real as a raw feature-shape mismatch (`same_cell_edge_multi_part=5206`). Under architecture (b), the immediate question is whether sub-E's single boundary row per edge is acceptable for v1 or whether sub-E must learn a multi-part/multi-crossing contract before sub-F BP7 locks. Real parquet sampling is blocked until sub-E output is restored or regenerated.
 
 ## Feature-Splitting Outcome
 
@@ -278,13 +305,19 @@ Result: passed, rewrote `reports/sub_f_task_7_feature_splitting.yaml`.
 uv run pytest tests/data/sub_f/test_rotation.py -v
 ```
 
-Result: `11 passed` before amendment; `16 passed` after adding cascade A override and cascade B bucket tests.
+Result: `11 passed` before amendment; `16 passed` after adding the discarded cascade A override and cascade B bucket tests; current override-removed surface: `16 passed`.
 
 ```text
 uv run pytest tests/data/sub_f/test_manifest.py tests/data/sub_f/test_provenance.py -v
 ```
 
-Result: `14 passed`.
+Result: `14 passed` before and after the override-removal surface.
+
+```text
+./.venv/bin/ruff check src/cfm/data/sub_f/rotation.py scripts/sub_f/verify_sub_c_feature_splitting.py tests/data/sub_f/test_rotation.py
+```
+
+Result: passed with `All checks passed!`.
 
 ```text
 git diff --check
@@ -299,11 +332,10 @@ Verification therefore requires approved access to the external uv cache.
 ## Reviewer Ratification Checklist
 
 - Approve or reject BP7 vocab slot list and ID range.
-- Classify BP7 purpose: drivable-routing continuity vs geometric continuity for all road-class rows.
-- Ratify derivation architecture: sub-F-local class map vs sub-E `boundary_contract.parquet` authoritative class.
-- Decide subway after the attribute dump.
-- Then ratify or replace the provisional cascade #9 override.
-- Classify whether sub-C `branched_multi_row_present` requires a §3.7 multi-outbound grammar cascade.
+- Ratify architecture (b): sub-F consumes sub-E `boundary_contract.parquet` authoritative class verbatim.
+- Decide whether sub-E's MINOR-default behavior is acceptable for sub-F-v1 or blocks on sub-E revision.
+- Decide whether absent local sub-E cache is acceptable for this halt surface, or require regenerating/restoring sub-E output to inspect real motorway and same-edge MultiLineString parquet rows.
+- Classify whether sub-E's single boundary row per edge is acceptable for the 5206 same-edge MultiLineString cases, or requires sub-E contract revision before BP7 lock.
 - Decide whether BP7 placeholder can transition to LOCKED in a continuation.
 
 ## Section 10.5 Telemetry
@@ -318,7 +350,8 @@ Status: BLOCKED.
 
 Blocking issues:
 
-- Feature-splitting verification surfaced `branched_multi_row_present` with `road_multiline_count=5605` and `same_cell_edge_multi_part=5206`, which is a §9.6.1 cascade candidate against the Task 7 single-row-per-branch assumption and must be reviewer-classified before BP7 lock continuation.
-- BP7 class coverage cascade #9 is provisional. Purpose, derivation architecture, and subway semantics must be classified before any class map locks.
+- Feature-splitting verification surfaced `branched_multi_row_present` with `road_multiline_count=5605` and `same_cell_edge_multi_part=5206`. Under architecture (b), this is a sub-E boundary-contract sufficiency question: accept current single-row-per-edge contract for v1 or block on sub-E revision.
+- BP7 class coverage cascade #9 is a sub-E MINOR-default/tiering limitation, not sub-F-resolvable. Reviewer must choose accept-for-v1 with documentation or block on sub-E revision.
+- Local sub-E `boundary_contract.parquet` cache is absent, so real parquet samples for motorway and same-edge MultiLineString edges could not be surfaced without regenerating/restoring sub-E output.
 
 Do not proceed past Halt 7 until reviewer approval and cascade resolution.

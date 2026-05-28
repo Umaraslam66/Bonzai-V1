@@ -61,8 +61,8 @@ slots:
   local_id: 7
   tag: <bref_W_MINOR>
 source_references:
-- line_note: sub-F-local BP7 drivable-continuity override composes after sub-E grouping; cascade #9
-  path: src/cfm/data/sub_f/rotation.py
+- line_note: sub-F consumes sub-E boundary_contract.parquet BoundaryClass values verbatim; no local BP7 class override
+  path: src/cfm/data/sub_e/pipeline.py
 - line_note: 'BoundaryClass enum values and _HIERARCHY: MAJOR_ROAD > MINOR_ROAD > NONE'
   path: src/cfm/data/sub_e/derivation.py
 - line_note: sub-E load_class_grouping_map() class_grouping_map source for MAJOR_ROAD and MINOR_ROAD raw classes

@@ -16,7 +16,7 @@
 
 ## Plan revisions from pre-dispatch audit and halt review (§9.6.1 cascade outcomes)
 
-Eight revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch audit. Revisions 4+5 surfaced at prompt-derivation review (third-layer audit) along with five Task 1 code bugs (corrected inline in Task 1 code blocks below). Revision 6 surfaced at reviewer-side check before Task 1 redispatch. Revision 7 surfaced during Halt 1 reviewer read-through. Revision 8 surfaced during Halt 7 integration review. All cascades resolve per §9.6.1 discipline (canonical source wins; local semantic owner owns local override; lock value updates; §2 paired check re-validates; §13 revision ledger entries committed at sub-F-close + spec sync updates applied).
+Eight revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch audit. Revisions 4+5 surfaced at prompt-derivation review (third-layer audit) along with five Task 1 code bugs (corrected inline in Task 1 code blocks below). Revision 6 surfaced at reviewer-side check before Task 1 redispatch. Revision 7 surfaced during Halt 1 reviewer read-through. Revision 8 surfaced during Halt 7 integration review. All cascades resolve per §9.6.1 discipline (canonical source wins; derivation ownership is verified before assigning local behavior; lock value updates; §2 paired check re-validates; §13 revision ledger entries committed at sub-F-close + spec sync updates applied).
 
 ### Revision 1: `compare_version` mechanism — enum-extension, not kwarg-extension
 
@@ -76,11 +76,11 @@ Eight revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch au
 
 **Plan applies:** `floor_analysis.py` filters sub-C unknown sentinels (`value == "unknown"`, values containing `__UNK__`, and `B_*` values) before `derive_x_threshold()` runs. BP4 owns these cases: the encoder maps sub-C unknown sentinels to the `<unknown_*>` family, not to dedicated BP1 semantic slots. Halt 1 post-review locked X to filtered Candidate A' (`2.5887822885870944e-06`).
 
-### Revision 8: BP7 class mapping composition gap (cascade #9, PROVISIONAL)
+### Revision 8: BP7 class mapping composition gap (cascade #9, BLOCKED)
 
-**Halt 7 review found:** sub-E's grouping omits 15 locked BP1 `highway=*` values. The gap is WIDE as a raw absence list, but sub-F BP7's semantic is drivable-network continuity for AV routing, not "every OSM highway value emits a boundary token." The missing values split by semantic outcome: `motorway` → MAJOR, `living_street` → MINOR, `subway/path/track/pedestrian` → deliberate NONE, and nine Singapore scope-zero values (`*_link`, `bridleway`, `busway`, `road`, `*`) → explicit NONE.
+**Halt 7 review found:** sub-E's grouping omits 15 locked BP1 `highway=*` values. Follow-up architecture check reset the cascade: sub-F consumes sub-E `boundary_contract.parquet` as authoritative, and sub-E defaults omitted-but-present values to `MINOR_ROAD`, not NONE.
 
-**Plan applies:** PROVISIONAL pending Halt 7 reclassification. The BP7 purpose question (drivable-routing continuity vs geometric continuity) and derivation architecture (sub-F class map vs authoritative sub-E `boundary_contract.parquet`) must be resolved before any class map locks. The earlier sub-F-local override remains an explored candidate, not a ratified lock.
+**Plan applies:** the earlier sub-F-local override is discarded. The real cascade #9 is upstream: sub-E's MINOR-default under-tiers `motorway` and over-emits non-vehicular or ambiguous values as MINOR. BP7 class lock is pending reviewer decision: accept this known sub-E limitation for v1, or block on sub-E grouping/contract revision. sub-F must emit sub-E's class verbatim unless §3.7 architecture is explicitly revised.
 
 ### Task 1 plan code bug fixes (5 substantive bugs surfaced at prompt-derivation review)
 
@@ -3032,7 +3032,7 @@ EOF
 
 **Halt 7 gate.** Boundary-ref 8-token vocab (verified against sub-E enums by file:line); sub-C feature-splitting verification outcome (single-row-per-branch vs branched-multi-row).
 
-**Cascade #9 provisional.** BP7 class mapping is blocked pending Halt 7 reclassification of BP7 purpose and derivation architecture. Do not lock a sub-F-local class map or sub-E grouping extension until that decision lands.
+**Cascade #9 blocked.** BP7 class mapping is blocked pending Halt 7 decision on sub-E's MINOR-default behavior. Architecture (b) applies: sub-F consumes sub-E `boundary_contract.parquet` as authoritative and does not own a local `highway=*` → BoundaryClass override. Do not implement or lock a sub-F-local class map unless §3.7 architecture is explicitly revised.
 
 **Files:**
 - Create: `src/cfm/data/sub_f/rotation.py` (per-cell rotation wrapper around sub-E's `cell_to_edge_ids`)

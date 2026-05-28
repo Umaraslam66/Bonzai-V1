@@ -12,7 +12,12 @@ import pytest
 import yaml
 from shapely.geometry import LineString, MultiLineString
 
-from cfm.data.sub_e.derivation import _HIERARCHY, BoundaryClass, load_class_grouping_map
+from cfm.data.sub_e.derivation import (
+    _HIERARCHY,
+    BoundaryClass,
+    derive_boundary_class,
+    load_class_grouping_map,
+)
 from cfm.data.sub_e.rotation import cell_to_edge_ids
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -90,24 +95,6 @@ EXPECTED_MISSING_FROM_SUB_E_GROUPING: Final[tuple[str, ...]] = (
     "track",
     "trunk_link",
 )
-EXPECTED_SUB_F_BP7_OVERRIDE: Final[dict[str, str]] = {
-    "*": "NONE",
-    "bridleway": "NONE",
-    "busway": "NONE",
-    "living_street": "MINOR_ROAD",
-    "motorway": "MAJOR_ROAD",
-    "motorway_link": "NONE",
-    "path": "NONE",
-    "pedestrian": "NONE",
-    "primary_link": "NONE",
-    "road": "NONE",
-    "secondary_link": "NONE",
-    "subway": "NONE",
-    "tertiary_link": "NONE",
-    "track": "NONE",
-    "trunk_link": "NONE",
-}
-
 
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -249,9 +236,7 @@ def test_bp1_to_sub_e_class_mapping_matches_hand_expected_sets():
     } == EXPECTED_MINOR_VALUES
 
 
-def test_sub_f_bp7_override_resolves_every_locked_highway_value_explicitly():
-    from cfm.data.sub_f.rotation import resolve_highway_boundary_class
-
+def test_sub_f_consumes_sub_e_boundary_class_without_local_override():
     semantic_vocab = _load_yaml(CONFIG_ROOT / "semantic_vocab.yaml")
     actual_highways = tuple(
         sorted(
@@ -260,17 +245,20 @@ def test_sub_f_bp7_override_resolves_every_locked_highway_value_explicitly():
             if slot["tag"].startswith("highway=")
         )
     )
-
-    resolved = {value: resolve_highway_boundary_class(value).name for value in actual_highways}
+    grouping = load_class_grouping_map()
+    missing_from_grouping = tuple(
+        value for value in actual_highways if value not in grouping
+    )
 
     assert actual_highways == EXPECTED_HIGHWAY_VALUES
-    assert {
-        value: resolved[value] for value in EXPECTED_MISSING_FROM_SUB_E_GROUPING
-    } == EXPECTED_SUB_F_BP7_OVERRIDE
-    assert all(
-        isinstance(resolve_highway_boundary_class(value), BoundaryClass)
-        for value in actual_highways
-    )
+    assert missing_from_grouping == EXPECTED_MISSING_FROM_SUB_E_GROUPING
+
+    # Architecture (b): sub-F tokenizes sub-E's boundary_contract parquet.
+    # Present-but-unmapped class_raw values fall to sub-E's MINOR_ROAD default;
+    # NONE is reserved for edges with no road crossings.
+    for value in EXPECTED_MISSING_FROM_SUB_E_GROUPING:
+        assert derive_boundary_class([value]) is BoundaryClass.MINOR_ROAD
+    assert derive_boundary_class([]) is BoundaryClass.NONE
 
 
 def test_locked_highway_coverage_diagnostic_is_surfaced_in_halt_report(
