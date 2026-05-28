@@ -97,6 +97,25 @@ Reviewer also surfaced that the plan's "lex-min polygon-ring rotation" framing w
 - **Rounding axis** locks to `int(round(coord_m / quantum))` with Python `round()` banker's. Rationale: (a) determinism requires one rule pinned, (b) banker's is bias-free for coordinate snapping. NOT load-bearing on the `frequency_analysis.py:721` / `evidence.py:359` precedent — those are percentile-index quantization (different operation); sub-D usage is house-style consistency only.
 - **Sub-C sort-key cite drift** amended in spec §5.2: `src/cfm/data/sub_c/io.py:218-220` → `:219-221`. Forward preference adopted (`feedback_content_anchored_cites`): prefer content-anchored cites over line numbers for new locks; §9.1–§9.5 sweep deferred as separate atomic commit.
 
+### Revision 9 follow-up (same-day, 2026-05-28): open-polyline direction DOF dropped
+
+After the Halt 5 lock landed, reviewer pre-stated a cheap-to-keep gate: the 4-DOF canonical form was correct for pure-redundancy DOFs (closed-ring start, closed-ring winding, multi-part order), but the open-polyline direction DOF (lex-smaller of forward/reverse) is ONLY redundant if BP1 vocab captures direction via semantic tokens. If BP1 does NOT capture direction, canonicalizing direction silently destroys OSM-conventional vertex-traversal semantics (oneway roads, coastline land-side, waterway flow, oneway cycleways) — irrecoverable after training, because sub-F output IS the training input.
+
+**BP1 grep (2026-05-28):** `configs/sub_f/semantic_vocab.yaml` (127 LOCKED slots; 28 L1 wildcard keys + 99 L2 highway/building pairs + Singapore X pass-list) — NO direction-encoding tokens. No `oneway=*`, no `direction=*`, no `bridge=yes`, no `cycleway:left|right`, no `waterway` flow. Sole direction-adjacent match is `building=bridge_structure` (categorical, not traversal).
+
+**Conclusion:** BP1 does NOT capture vertex-traversal direction. The cheap-to-keep cut applies. Open-polyline direction DOF is DROPPED from canonicalization.
+
+**Spec amendments (same commit as the grep-finding edit):**
+- §5.2 row "Vertex iteration within feature" amended: 3 pure-redundancy DOFs (closed-ring start, closed-ring winding, multi-part order with tiebreak); open-polyline direction PRESERVED.
+- §5.6 canonical-form table updated: `LineString` (open or closed) rule = "PRESERVE source direction (no canonicalization)"; added "Open-polyline direction preservation" evidence note; closed `LineString` (e.g., roundabouts) treated as LineString, not as polygon ring.
+- §13.1 new row records the Halt 5 follow-up.
+
+**Plan amendments (this revision):**
+- Task 5b Test 5 split now has 5 tests, but Test 5a is swapped from "picks lex-smaller of forward/reverse" to **"preserves source direction (NOT canonicalized)"** — asserts that forward and reverse inputs round-trip unchanged. Added Test 5f covering closed LineString (roundabout) also preserves direction.
+- Task 8 `canonicalize_geometry` contract section updated: rule 1 (open-polyline direction) deleted; closed `LineString` (start == end) explicitly routed to the LineString-preserve path, not to the ring canonicalizer.
+
+**Why this matters for §13.5 protocol-bump candidates:** the cheap-to-keep gate should be checked any time a brainstorm proposes a lossy/canonicalizing step on data, not just on schema. Sub-F's brainstorm had `feedback_schema_vs_data_cost_asymmetry` in scope, but framed the asymmetry as schema-cheap-vs-data-expensive at SUB-PROJECT boundaries (i.e., re-tokenizing later is expensive). The training boundary is the same trap one level down: once trained, the model's distributional knowledge IS the dataset, and data-layer canonicalization decisions cannot be un-done. Sub-F's near-miss here is evidence for promoting cheap-to-keep at the data-encoding layer to an explicit pre-lock gate.
+
 ### Task 1 plan code bug fixes (5 substantive bugs surfaced at prompt-derivation review)
 
 The original Task 1 code blocks (snapshot_taginfo.py + floor_analysis.py) shipped with five code-level defects independent of the cascade revisions above. All five corrected inline in the Task 1 code blocks below:
@@ -2606,18 +2625,48 @@ _PENDING_T8 = pytest.mark.skip(
 
 
 @_PENDING_T8
-def test_canonicalize_open_polyline_picks_lex_smaller_of_forward_reverse():
-    """DOF: LineString direction.
+def test_canonicalize_open_polyline_preserves_source_direction():
+    """Open LineString direction is PRESERVED, not canonicalized.
 
-    Input: LineString whose forward traversal is lex-greater than its
-    reverse. Expected: encoder reverses to the lex-smaller traversal.
-    Other DOFs not applicable (single open polyline; no winding, no parts).
+    Rationale (spec §5.6 "Open-polyline direction preservation"):
+    BP1 vocab does not capture vertex-traversal-direction semantics
+    (no oneway, waterway flow, coastline land-side, cycleway:left/right
+    tokens — verified via grep of configs/sub_f/semantic_vocab.yaml on
+    2026-05-28). OSM convention encodes oneway / coastline-land-side /
+    river-flow in vertex traversal order. Canonicalizing direction
+    would silently destroy this — irrecoverable after training because
+    sub-F output IS the training input. Cheap-to-keep applies.
+
+    Test: forward and reverse inputs must both round-trip unchanged
+    through canonicalize_geometry. The function must be a no-op on
+    LineString direction.
     """
     from cfm.data.sub_f.encoder import canonicalize_geometry
 
-    forward = LineString([(5, 5), (1, 1)])          # lex-greater traversal
-    expected = LineString([(1, 1), (5, 5)])          # lex-smaller traversal
-    assert list(canonicalize_geometry(forward).coords) == list(expected.coords)
+    forward = LineString([(5, 5), (1, 1)])
+    reverse = LineString([(1, 1), (5, 5)])
+    assert list(canonicalize_geometry(forward).coords) == [(5, 5), (1, 1)]
+    assert list(canonicalize_geometry(reverse).coords) == [(1, 1), (5, 5)]
+
+
+@_PENDING_T8
+def test_canonicalize_closed_linestring_preserves_source_direction():
+    """Closed LineString (start == end) preserves direction.
+
+    Closed LineStrings often represent oneway roundabouts in OSM;
+    canonicalizing as a ring (lex-min rotation + winding) would
+    destroy oneway semantics. Treat as LineString per §5.6: preserve.
+
+    Test: a CW-traversed closed LineString must NOT be reversed to
+    CCW, and its start vertex must NOT be rotated to the lex-min.
+    """
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    roundabout_cw_non_lex_min_start = LineString(
+        [(2, 0), (2, 2), (0, 2), (0, 0), (2, 0)]
+    )
+    expected = [(2, 0), (2, 2), (0, 2), (0, 0), (2, 0)]
+    assert list(canonicalize_geometry(roundabout_cw_non_lex_min_start).coords) == expected
 
 
 @_PENDING_T8
@@ -3432,20 +3481,22 @@ git commit -m "feat(sub_f): T7 BP7 boundary-ref vocab + sub-C verify (Halt 7 app
 - Create: `src/cfm/data/sub_f/io.py` (cells.parquet schema + writer)
 - Test: `tests/data/sub_f/test_io.py`, append to `tests/data/sub_f/test_encoder.py`, `tests/data/sub_f/test_decoder.py`
 
-### BP5 canonicalize_geometry contract (per spec §5.6, Halt 5 lock)
+### BP5 canonicalize_geometry contract (per spec §5.6, Halt 5 lock + same-day follow-up)
 
-Before tokenization, the encoder applies `canonicalize_geometry(geom) -> geom` to every feature. This is a primary pre-tokenization step (not optional, not a backstop) because spec §5.6's upstream-winding fact-find confirmed neither sub-A nor sub-C enforces RFC 7946 winding, and Overture parquet partition-scan ordering through DuckDB httpfs is not documented as vertex-order-preserving.
+Before tokenization, the encoder applies `canonicalize_geometry(geom) -> geom` to every feature. This is a primary pre-tokenization step (not optional, not a backstop) because spec §5.6's upstream-winding fact-find confirmed neither sub-A nor sub-C enforces RFC 7946 winding.
 
-The helper enforces all four canonical-form DOFs from spec §5.6:
+The helper enforces canonicalization on **three pure-redundancy DOFs only** (Halt 5 same-day follow-up: open-polyline direction DOF dropped per `cheap-to-keep` after BP1 grep confirmed no direction-encoding tokens):
 
-1. **Open polyline (`LineString`):** pick lex-smaller of `tuple(forward_coords)` vs `tuple(reverse_coords)`.
-2. **Closed ring start vertex** (`Polygon` exterior + each interior hole): rotate the ring so it begins at its lex-min vertex (exclude the duplicate closing vertex from the comparison).
-3. **Closed ring winding** (RFC 7946 right-hand rule): exterior CCW, interior holes CW. If a ring's shoelace-signed-area has the wrong sign for its role, reverse it. Apply AFTER rule 2 so the lex-min start is preserved (reversing then re-rotating the closed ring yields the same lex-min start).
-4. **Multi-part order** (`MultiLineString` / `MultiPolygon`): after each part is internally canonicalized via rules 1–3, sort parts by their first vertex (equals the lex-min vertex by construction). Tiebreak: next vertex in rotated order; if still tied, part vertex count (smaller first). `Point` / `MultiPoint` are trivially canonical (no DOFs).
+1. **Open / closed `LineString`:** **PRESERVE source direction.** No-op on direction. (Closed LineString — start == end, e.g., roundabouts — is routed here, NOT to the polygon-ring path; roundabouts often encode oneway semantics that ring-rotation would destroy.)
+2. **Closed ring start vertex** (`Polygon` exterior + each interior hole only — NOT closed `LineString`): rotate the ring so it begins at its lex-min vertex (exclude the duplicate closing vertex from the comparison).
+3. **Closed ring winding** (RFC 7946 right-hand rule): exterior CCW, interior holes CW. If a ring's shoelace-signed-area has the wrong sign for its role, reverse it. Apply AFTER rule 2 so the lex-min start is preserved (reversing a closed ring then re-rotating yields the same lex-min start).
+4. **Multi-part order** (`MultiLineString` / `MultiPolygon`): after each part is internally canonicalized via rules 1–3, sort parts by their first vertex. For MultiPolygon parts this equals the lex-min vertex by construction; for MultiLineString parts (whose direction is preserved) it equals the source's first vertex. Tiebreak: next vertex in source-order (LineString) or rotated order (Polygon); if still tied, part vertex count (smaller first). `Point` / `MultiPoint` are trivially canonical (no DOFs).
 
-**Idempotency invariant:** `canonicalize_geometry(canonicalize_geometry(g)) == canonicalize_geometry(g)` for every supported geometry class. This lets sub-F apply the canonicalizer unconditionally without checking what upstream did — if upstream ever starts enforcing RFC 7946, sub-F's rules are no-ops on already-canonical input.
+**Idempotency invariant:** `canonicalize_geometry(canonicalize_geometry(g)) == canonicalize_geometry(g)` for every supported geometry class. This lets sub-F apply the canonicalizer unconditionally without checking what upstream did.
 
-T5b Tests 5a–5e cover each rule independently with adversarial inputs that hold other DOFs constant by construction. Test bodies live in `tests/data/sub_f/test_per_axis_determinism.py` under the `@_PENDING_T8` skip mark — un-skip on Task 8 close.
+**Why open-polyline direction is preserved (rationale recorded in spec §5.6):** BP1 vocab (127 LOCKED slots) contains no direction-encoding tokens; vertex-traversal direction on LineStrings carries OSM semantics (oneway-by-default for `highway=motorway`, coastline-land-on-right, river-downstream) that are NOT recoverable from sub-F's token sequence. Canonicalizing direction would silently destroy this — irrecoverable after training. Cheap-to-keep applies. Sub-F preserves direction at the encoder; a future `oneway`-aware vocab can be added without re-tokenizing the dataset.
+
+T5b Tests 5a–5f cover each rule independently with adversarial inputs that hold other DOFs constant by construction (5a + 5f preserve-direction asserts for open LineString and closed LineString; 5b–5e cover ring start, winding, multi-part sort, and tiebreak). Test bodies live in `tests/data/sub_f/test_per_axis_determinism.py` under the `@_PENDING_T8` skip mark — un-skip on Task 8 close.
 
 ### Pre-dispatch audit
 
