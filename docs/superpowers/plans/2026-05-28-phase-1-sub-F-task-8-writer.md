@@ -108,7 +108,7 @@ Existing modules touched (read-only, no edits):
 | T8.7 | decoder + canonical GeoJSON | `decoder.py`, `test_decoder.py` | T8.4 (parallel to T8.6 ok) | `feat(sub_f): T8.7` |
 | T8.8 | per-tile orchestrator + 4-case round-trip integration | `pipeline_writer.py`, `test_pipeline_writer.py` | T8.6, T8.7 | `feat(sub_f): T8.8` |
 
-After T8.8 lands, un-skip the `@_PENDING_T8` mark on T5b Tests 5a–5f in `tests/data/sub_f/test_per_axis_determinism.py` (one-line edit, separate commit `feat(sub_f): T5b unskip canonicalize tests now that T8 ships canonicalize_geometry`).
+After T8.8 lands, the next dispatch is **T5b (per-axis determinism suite)** per the master sub-F plan. T5b creates `tests/data/sub_f/test_per_axis_determinism.py` from scratch (the file does not exist at T8.8 close; the original plan incorrectly assumed it pre-existed via a no-op un-skip step). T5b is unblocked by T8.8 (encoder shipped); see T8.8 step 8 for the close-checklist obligation and dispatch handoff. Per spec §5.5 the per-axis determinism suite IS the durable contract artifact for sub-F determinism — required before sub-F-close.
 
 ---
 
@@ -2410,25 +2410,32 @@ git add src/cfm/data/sub_f/pipeline_writer.py tests/data/sub_f/test_pipeline_wri
 git commit -m "feat(sub_f): T8.8 per-tile encode_tile orchestrator + close-checklist BP7 integration obligation"
 ```
 
-- [ ] **Step 8: Unskip T5b canonicalize tests now that T8 ships canonicalize_geometry**
+- [ ] **Step 8: Hand off T5b as the explicit next dispatch (per-axis determinism suite)**
 
-Edit `tests/data/sub_f/test_per_axis_determinism.py`: change `_PENDING_T8 = pytest.mark.skip(...)` to `_PENDING_T8 = pytest.mark.usefixtures()` (or remove the mark entirely; the tests now import successfully from `cfm.data.sub_f.encoder.canonicalize_geometry`).
+`tests/data/sub_f/test_per_axis_determinism.py` does NOT exist in the repo as of T8.8 close. It is T5b's deliverable, gated on T8 (encoder) shipping. T8.8 completes T8; T5b is now unblocked.
 
-Run: `uv run pytest tests/data/sub_f/test_per_axis_determinism.py -v`
-Expected: 5–7 PASS (the BP5 canonicalize tests + the existing per-axis tests).
+The original plan's "unskip T5b canonicalize tests" step assumed T5b had run before T8.8, which was incorrect: T5b's blocker chain (T5a outcome + T8 encoder) puts it AFTER T8.8 in execution order. Smuggling test-file creation into T8.8 would obscure the dependency; the right move is to dispatch T5b explicitly post-T8 as its own sub-task. The per-axis determinism suite IS a sub-F lock artifact (spec §5.5 says "The test suite IS the durable contract artifact") — silently shipping a no-op un-skip would leave the determinism guard not actually verified.
 
-```bash
-git add tests/data/sub_f/test_per_axis_determinism.py
-git commit -m "feat(sub_f): T5b unskip canonicalize tests now that T8 ships canonicalize_geometry"
-```
+T5b's code is fully specified in the master sub-F plan (`docs/superpowers/plans/2026-05-23-phase-1-sub-F-micro-tokenizer.md`, Task 5b section — 8 tests covering each row of spec §5.2 discipline table + the 5 canonicalization adversarial tests for §5.6).
+
+**Action at T8.8 close:**
+
+1. Update `reports/2026-05-23-phase-1-sub-F-close-checklist.md` to add the T5b obligation:
+   ```markdown
+   - [ ] Dispatch T5b (per-axis determinism suite): create `tests/data/sub_f/test_per_axis_determinism.py` per master plan Task 5b. Tests cover each row of spec §5.2 discipline table + the 5 canonicalization adversarial tests for §5.6 (rules per spec §5.6 canonical-form table). T5b unblocked by T8 (encoder shipped at T8.8). Required before sub-F-close per spec §5.5 ("The test suite IS the durable contract artifact"). Run under `PYTHONHASHSEED=random` across cold pytest invocations per `feedback_pythonhashseed_dict_iteration_test`.
+   ```
+
+2. Surface the T5b dispatch as the next sub-task in the T8.8 closing report — explicit follow-up, not a hidden assumption.
+
+No commit in T8.8 for the T5b suite itself; that's T5b's own dispatch.
 
 ---
 
 ## Self-review checklist (run after dispatching, before merging)
 
-After all 8 sub-tasks land + the T5b unskip commit, verify:
+After all 8 sub-tasks land (T5b dispatches separately as its own post-T8 sub-task per the corrected step 8), verify:
 
-- [ ] `git log --oneline -10` shows exactly 9 commits on `phase-1-sub-F-micro-tokenizer` (8 sub-tasks + T5b unskip).
+- [ ] `git log --oneline -10` shows 8 T8 sub-task commits on `phase-1-sub-F-micro-tokenizer` (T8.1 through T8.8). Plus follow-up commits for cascade repairs (e.g., the post-`4c4f880` sentinel-inventory test fix). T5b ships as a separate dispatch with its own commit after T8.8 ratification.
 - [ ] `uv run pytest tests/data/sub_f/ -v` reports 0 failures; only the `@pytest.mark.skip("awaiting sub-E cache regeneration")` integration test should be skipped.
 - [ ] `uv run ruff check src/cfm/data/sub_f/ tests/data/sub_f/ scripts/sub_f/` clean.
 - [ ] Every BP7 emission site in `boundary_contract.py`, `encoder.py`, and `pipeline_writer.py` carries the `UNVERIFIED against real sub-E parquet` comment per Assertion 3.
