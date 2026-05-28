@@ -1,0 +1,51 @@
+_status: "INTERMEDIATE \u2014 feeds Task 3b/3c."
+empty_cell_fraction: 0.5086664979757085
+n_cells_total: 31616
+n_empty_cells: 16082
+n_tiles_total: 494
+per_feature_type:
+  0:
+    feature_count_max: 254
+    feature_count_mean: 43.32478140476592
+    feature_count_p95: 89.0
+    feature_count_p99: 125.0
+    n_cells_with_type: 14180
+    n_observations: 302271
+    vertex_count_max: 164
+    vertex_count_mean: 4.628809908988954
+    vertex_count_p95: 12.0
+    vertex_count_p99: 20.0
+  1:
+    feature_count_max: 393
+    feature_count_mean: 81.9400294045453
+    feature_count_p95: 243.0
+    feature_count_p99: 318.0
+    n_cells_with_type: 12630
+    n_observations: 395177
+    vertex_count_max: 282
+    vertex_count_mean: 7.468906338172515
+    vertex_count_p95: 17.0
+    vertex_count_p99: 57.0
+  2:
+    feature_count_max: 975
+    feature_count_mean: 182.7489292038355
+    feature_count_p95: 648.0
+    feature_count_p99: 963.0
+    n_cells_with_type: 7493
+    n_observations: 149655
+    vertex_count_max: 1
+    vertex_count_mean: 1.0
+    vertex_count_p95: 1.0
+    vertex_count_p99: 1.0
+  3:
+    feature_count_max: 51
+    feature_count_mean: 6.021196112958977
+    feature_count_p95: 19.0
+    feature_count_p99: 42.0
+    n_cells_with_type: 5762
+    n_observations: 15333
+    vertex_count_max: 228
+    vertex_count_mean: 7.87001891345464
+    vertex_count_p95: 23.0
+    vertex_count_p99: 49.0
+sub_c_region_dir: data/processed/sub_c/2026-04-15.0/singapore
