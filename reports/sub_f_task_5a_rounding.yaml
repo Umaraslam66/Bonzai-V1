@@ -1,0 +1,24 @@
+_status: "PROPOSED \u2014 pending Halt 5 reviewer approval per spec \xA710.3."
+python_round_is_banker: true
+recommendation: LOCK Python round() round-half-to-even (PEP 3141 default) for sub-F
+sub_d_io_uses_int_cast: true
+sub_d_io_uses_round: false
+test_cases:
+- expected_banker: 0
+  input: 0.5
+  round_output: 0
+- expected_banker: 2
+  input: 1.5
+  round_output: 2
+- expected_banker: 2
+  input: 2.5
+  round_output: 2
+- expected_banker: 4
+  input: 3.5
+  round_output: 4
+- expected_banker: 0
+  input: -0.5
+  round_output: 0
+- expected_banker: -2
+  input: -1.5
+  round_output: -2

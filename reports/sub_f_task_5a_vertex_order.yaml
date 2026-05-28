@@ -1,0 +1,5 @@
+_status: "PROPOSED \u2014 pending Halt 5 reviewer approval per spec \xA710.3."
+exact_match_count: 20
+outcome_branch: a
+recommendation: INHERIT (no canonicalization)
+sample_size: 20
