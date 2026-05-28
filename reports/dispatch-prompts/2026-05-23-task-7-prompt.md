@@ -1,6 +1,6 @@
 # Task 7 implementer dispatch prompt
 
-**Status:** Draft v1; pending reviewer read-through / approval before dispatch.
+**Status:** Draft v2; pending reviewer read-through / approval before dispatch.
 **Target:** General-purpose subagent / Codex agent.
 **Suggested model:** Sonnet-class.
 **Branch:** `phase-1-sub-F-micro-tokenizer` (base includes Task 6 close commit `cf32d81`).
@@ -106,6 +106,18 @@ uv run python -c "from pathlib import Path; root=Path('data/processed/sub_c/2026
 Expected: `tile_count > 1`.
 
 If cached sub-C data is missing: STOP, report BLOCKED.
+
+### Audit step 6: enumerate BP1 highway values missing from sub-E grouping
+
+Run:
+
+```bash
+uv run python -c "import yaml; from cfm.data.sub_e.derivation import load_class_grouping_map; m=load_class_grouping_map(); sv=yaml.safe_load(open('configs/sub_f/semantic_vocab.yaml')); hw=[s['tag'].split('=')[1] for s in sv['slots'] if s['tag'].startswith('highway=')]; missing=[v for v in hw if v not in m]; print('highway_values_in_vocab', sorted(hw)); print('NONE_mapped_missing_from_grouping', sorted(missing)); print('motorway_present_in_grouping', 'motorway' in m)"
+```
+
+Expected to surface `motorway` (and possibly link/long-tail highway values) in `NONE_mapped_missing_from_grouping`.
+
+This is a §9.6.1 cascade candidate against sub-E class grouping coverage, not an implementation detail to auto-resolve in Task 7. If any load-bearing highway value in the locked BP1 vocab maps to NONE because it is absent from `load_class_grouping_map()`, keep working only through the Halt 7 surface: list every missing value and classify the coverage gap. Do not extend sub-E grouping, add a sub-F override, or document known-loss without reviewer decision.
 
 ## Implementation scope
 
@@ -268,6 +280,10 @@ Minimum tests:
   - expected major set = `{"primary", "trunk", "secondary"}`
   - expected minor set = `{"tertiary", "residential", "service", "unclassified", "footway", "steps", "cycleway"}`
   - assert against `load_class_grouping_map()`.
+- BP1 locked-highway coverage diagnostic:
+  - hand-enumerate all locked `highway=*` semantic-vocab values from `configs/sub_f/semantic_vocab.yaml`.
+  - report every value absent from `load_class_grouping_map()`.
+  - assert the diagnostic output is present in the Halt 7 report; do not assert an empty missing list unless reviewer has already resolved the grouping gap.
 - Sentinel inventory still has BP7 as PLACEHOLDER; do not lock it in this task.
 - Feature-splitting report exists after script run and has one of the two allowed outcomes.
 
@@ -277,12 +293,15 @@ Create `reports/2026-05-23-phase-1-sub-F-task-7-halt.md`.
 
 Report must include:
 - Status: `DONE_WITH_CONCERNS` pending Halt 7 reviewer approval, or `BLOCKED` with classification.
-- Audit outcomes 1-5.
+- Audit outcomes 1-6.
 - Boundary-reference vocab proposal:
   - 8 tokens.
   - IDs `1500..1507`.
   - BP7 reserved headroom `1508..1599`.
   - `NONE` and `BOUNDARY_NOT_APPLICABLE` non-emitting.
+- Inbound/outbound token-count confirmation:
+  - confirm from spec §3.2 and §3.7 that inbound case C/D reuses the same 8 directional `<bref_dir_class>` tokens by prepending position; inbound/outbound distinction is position-carried, not distinct-token-carried.
+  - if the spec text implies distinct inbound tokens are needed, STOP and report BLOCKED because the BP7 vocab count becomes 16, not 8.
 - Rotation wrapper result:
   - sub-E returns `CellEdgeIds`.
   - sub-F maps fields explicitly into vocab order `N/E/S/W`.
@@ -290,6 +309,11 @@ Report must include:
   - BoundaryClass enum values.
   - hierarchy.
   - major/minor class grouping expected sets.
+- BP7 class-coverage gap:
+  - list every locked BP1 `highway=*` value absent from sub-E `load_class_grouping_map()`.
+  - explicitly call out `motorway` / `motorway_link` if present.
+  - classify as a §9.6.1 cascade candidate against sub-E class grouping if any load-bearing highway value maps to NONE.
+  - state that reviewer must choose one of: (a) extend sub-E grouping, (b) add sub-F-local BP7 grouping override, or (c) document known-loss only if data shows the value is not boundary-load-bearing.
 - Feature-splitting outcome:
   - paste `outcome`, counts, and example rows if any.
   - if `branched_multi_row_present`, call it a §9.6.1 cascade candidate against the Task 7 assumption and stop at halt.
@@ -299,6 +323,7 @@ Report must include:
 
 Reviewer approves:
 - BP7 vocab slot list and ID range.
+- BP7 class-coverage resolution for locked highway values missing from sub-E grouping.
 - Whether sub-C feature-splitting validates the v1 grammar or triggers a cascade.
 - Whether BP7 placeholder can transition to LOCKED in continuation.
 
