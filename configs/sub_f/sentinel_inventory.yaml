@@ -9,9 +9,9 @@ bp1_semantic:
 bp2_encoding_primitives:
   end_id: 1499
   placeholder: false
-  reserved_count: 991
+  reserved_count: 989
   start_id: 300
-  status: LOCKED at Halt 2 approval
+  status: LOCKED at Halt 2 approval; structural_sentinels consumed at T8 plan-write 2026-05-28
   sub_block_ordering: anchor, direction, magnitude, reserved_v2_headroom
   sub_blocks:
     anchor:
@@ -28,10 +28,31 @@ bp2_encoding_primitives:
       start_id: 444
     reserved_v2_headroom:
       end_id: 1499
-      slot_count: 991
-      start_id: 509
-  used_count: 209
-  used_range: 300..508
+      slot_count: 989
+      start_id: 511
+  used_count: 211
+  used_range: 300..510
+  consumed_from_reserved_v2_headroom:
+    rationale: |
+      T8 plan-write (2026-05-28) surfaced spec §2.2 / sentinel_inventory.yaml
+      inconsistency — `<feature>` / `<feature_end>` were named in §2.2 as on-disk
+      structural sentinels but had NO allocated ID in any sub-block. Resolved
+      append-safely by consuming the FIRST 2 IDs of reserved_v2_headroom;
+      headroom shrinks from the front (was 509–1499, now 511–1499). Block
+      boundaries are NOT re-anchored — IDs are consumed from the front of
+      reserved space per append-only discipline. Family classification of
+      these tokens is `structural` (grammar primitives), distinct from the
+      `encoding_primitive` family of the anchor/direction/magnitude sub-blocks
+      whose ID neighborhood they share. See spec §13.1 Halt-2-cascade entry.
+    slots:
+    - id: 509
+      token: <feature>
+      on_disk: true
+      family_tag: structural
+    - id: 510
+      token: <feature_end>
+      on_disk: true
+      family_tag: structural
 bp4_unknown_family:
   end_id: 255
   reserved_count: 28
