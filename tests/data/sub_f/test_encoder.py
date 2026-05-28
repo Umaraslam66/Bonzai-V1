@@ -577,3 +577,166 @@ def test_canonicalize_preserves_vertex_count():
         v_src = _vertex_count(src)
         v_canon = _vertex_count(canon)
         assert v_src == v_canon, f"vertex count drift on {label}: source={v_src} canon={v_canon}"
+
+
+# ---- encoder 4-case grammar -----------------------------------------------
+
+
+def _vocab_id(tag: str) -> int:
+    """Test helper - looks up token_id by tag from the loaded vocab."""
+    from cfm.data.sub_f.vocab import vocab_tag_to_id
+
+    return vocab_tag_to_id()[tag]
+
+
+def test_encode_feature_case_a_uncrossed_polyline():
+    """Case A: uncrossed feature fully within cell.
+
+    Per spec section 3.2 token shape:
+      <feature> <semantic_tag>
+        <anchor_x_q> <anchor_y_q>             (2 tokens flat; 4 if hierarchical)
+        <direction_d> <magnitude_q>           x (V-1) pairs
+      <feature_end>
+
+    With BP2 lock (hierarchical anchor, n_anchor=4):
+      tokens = 3 + 4 + 2*(V-1) = 7 + 2V
+
+    Test input: 3-vertex polyline; expect token count = 13.
+    """
+    from cfm.data.sub_f.encoder import encode_feature
+
+    geom = LineString([(10.0, 20.0), (15.0, 25.0), (20.0, 30.0)])
+    encoded = encode_feature(geom, semantic_tag="highway=residential")
+    assert encoded.case == "A"
+    # Per spec §3.2: 1 (<feature>) + 1 (<semantic_tag>) + 4 (hierarchical anchor)
+    # + 2*(V-1) dir/mag pairs + 1 (<feature_end>) = 5 + 2V. For V=3: 11 tokens.
+    # Plan typo (7 + 2V) fixed in plan + test together; see commit message.
+    assert len(encoded.tokens) == 5 + 2 * 3, (
+        f"Case A 3-vertex: expected 11 tokens; got {len(encoded.tokens)}"
+    )
+
+
+def test_encode_feature_case_b_outbound_road():
+    """Case B: road exiting via one cell edge.
+
+    Per spec section 3.2 token shape:
+      <feature> <semantic_tag>
+        <anchor_x_q> <anchor_y_q>             (anchor)
+        <direction_d> <magnitude_q>           x (V-2) inner pairs
+        <bref_dir_class>                       outbound bref (replaces tail
+                                                direction+magnitude; net 0
+                                                vs Case A's final pair, so
+                                                token delta vs A is +1 for
+                                                the feature_end shift)
+
+    Pattern: tokens = 1 + 1 + N_anchor + 2*(V-2) + 1 + 1 = 4 + N_anchor + 2*(V-2)
+    With n_anchor=4: tokens = 8 + 2*(V-2)
+    """
+    from cfm.data.sub_f.encoder import encode_feature
+
+    geom = LineString([(10.0, 20.0), (15.0, 25.0), (250.0, 30.0)])
+    encoded = encode_feature(
+        geom,
+        semantic_tag="highway=primary",
+        outbound_bref="<bref_E_MAJOR>",
+    )
+    assert encoded.case == "B"
+    V = 3
+    assert len(encoded.tokens) == 8 + 2 * (V - 2)
+    # Outbound bref must appear once; last token before <feature_end>.
+    assert encoded.tokens[-2] == _vocab_id("<bref_E_MAJOR>")
+
+
+def test_encode_feature_case_c_inbound_road():
+    """Case C: road entering from one cell edge.
+
+    Per spec section 3.2 token shape:
+      <feature> <semantic_tag>
+        <bref_dir_class>                       inbound bref (prepended)
+        <anchor_x_q> <anchor_y_q>              entry vertex coords (on edge)
+        <direction_d> <magnitude_q>           x (V-1) pairs
+      <feature_end>
+
+    Pattern: tokens = 1 + 1 + 1 + N_anchor + 2*(V-1) + 1 = 4 + N_anchor + 2*(V-1)
+    With n_anchor=4: tokens = 8 + 2*(V-1)
+    """
+    from cfm.data.sub_f.encoder import encode_feature
+
+    geom = LineString([(0.0, 100.0), (50.0, 100.0), (100.0, 100.0)])
+    encoded = encode_feature(
+        geom,
+        semantic_tag="highway=primary",
+        inbound_bref="<bref_W_MAJOR>",
+    )
+    assert encoded.case == "C"
+    V = 3
+    assert len(encoded.tokens) == 8 + 2 * (V - 1)
+    # Inbound bref is the 3rd token (after <feature>, <semantic_tag>).
+    assert encoded.tokens[2] == _vocab_id("<bref_W_MAJOR>")
+
+
+def test_encode_feature_case_d_through_road():
+    """Case D: road inbound AND outbound (through-cell).
+
+    Per spec section 3.2 token shape:
+      <feature> <semantic_tag>
+        <bref_dir_class>                       inbound
+        <anchor_x_q> <anchor_y_q>              entry vertex
+        <direction_d> <magnitude_q>           x (V-2) inner pairs
+        <bref_dir_class>                       outbound
+      <feature_end>
+
+    Pattern: tokens = 5 + N_anchor + 2*(V-2)
+    With n_anchor=4: tokens = 9 + 2*(V-2)
+    """
+    from cfm.data.sub_f.encoder import encode_feature
+
+    geom = LineString([(0.0, 100.0), (125.0, 100.0), (250.0, 100.0)])
+    encoded = encode_feature(
+        geom,
+        semantic_tag="highway=primary",
+        inbound_bref="<bref_W_MAJOR>",
+        outbound_bref="<bref_E_MAJOR>",
+    )
+    assert encoded.case == "D"
+    V = 3
+    assert len(encoded.tokens) == 9 + 2 * (V - 2)
+
+
+def test_encode_feature_starts_with_feature_marker_ends_with_feature_end():
+    """Every encoded feature opens with <feature> and closes with <feature_end>.
+
+    These structural sentinels live at IDs 509 and 510 per the T8 plan-write
+    sentinel-inventory fix (consumed from BP2 reserved_v2_headroom front;
+    family="structural", distinct from "encoding_primitive"). See spec section
+    13.1 "T8 plan-write -> BP2 inventory" row.
+    """
+    from cfm.data.sub_f.encoder import encode_feature
+    from cfm.data.sub_f.vocab import vocab_tag_to_id
+
+    tag_to_id = vocab_tag_to_id()
+    expected_feature = tag_to_id["<feature>"]
+    expected_feature_end = tag_to_id["<feature_end>"]
+    assert expected_feature == 509
+    assert expected_feature_end == 510
+
+    geom = LineString([(1.0, 1.0), (2.0, 2.0)])
+    encoded = encode_feature(geom, semantic_tag="highway=service")
+    assert encoded.tokens[0] == expected_feature
+    assert encoded.tokens[-1] == expected_feature_end
+
+
+def test_encode_feature_uses_bp4_unknown_tag_when_semantic_unmapped():
+    """class_raw sentinels (e.g., B__UNK__, unknown) map to BP4 <unknown_*>
+    family per spec section 3.3 + cascade #7. encode_feature accepts the raw
+    semantic_tag and resolves to BP4 if it's a sub-C sentinel.
+    """
+    from cfm.data.sub_f.encoder import encode_feature
+    from cfm.data.sub_f.vocab import vocab_tag_to_id
+
+    geom = Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])
+    # B__UNK__ is a sub-C sentinel; encoder routes to BP4 <unknown_building>.
+    encoded = encode_feature(geom, semantic_tag="building=B__UNK__")
+    # Expect the BP4 token id for <unknown_building> in the encoded sequence.
+    unknown_building_id = vocab_tag_to_id()["<unknown_building>"]
+    assert unknown_building_id in encoded.tokens

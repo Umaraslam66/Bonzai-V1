@@ -1058,9 +1058,9 @@ def test_encode_feature_case_a_uncrossed_polyline():
       <feature_end>
 
     With BP2 lock (hierarchical anchor, n_anchor=4):
-      tokens = 3 + 4 + 2*(V-1) = 7 + 2V
+      tokens = 3 + 4 + 2*(V-1) = 5 + 2V
 
-    Test input: 3-vertex polyline; expect token count = 13.
+    Test input: 3-vertex polyline; expect token count = 11.
     """
     from cfm.data.sub_f.encoder import encode_feature
     from shapely.geometry import LineString
@@ -1068,8 +1068,8 @@ def test_encode_feature_case_a_uncrossed_polyline():
     geom = LineString([(10.0, 20.0), (15.0, 25.0), (20.0, 30.0)])
     encoded = encode_feature(geom, semantic_tag="highway=residential")
     assert encoded.case == "A"
-    assert len(encoded.tokens) == 7 + 2 * 3, (
-        f"Case A 3-vertex: expected 13 tokens; got {len(encoded.tokens)}"
+    assert len(encoded.tokens) == 5 + 2 * 3, (
+        f"Case A 3-vertex: expected 11 tokens; got {len(encoded.tokens)}"
     )
 
 
