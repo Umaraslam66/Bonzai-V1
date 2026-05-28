@@ -20,7 +20,7 @@ No change was made to `configs/sub_f/sentinel_inventory.yaml`. BP7 remains PLACE
 
 Blocker classification: sub-C Singapore feature-splitting verification surfaced branched/multi-part road rows (`road_multiline_count=5605`, outcome `branched_multi_row_present`). Per Task 7 dispatch stop condition, this is a §9.6.1 cascade candidate against the Task 7 assumption; do not silently add a multi-outbound grammar case in this task.
 
-Cascade A (sub-E grouping under-covering locked BP1 highway vocab) is resolved in this amendment by a sub-F-local BP7 drivable-continuity override. Cascade B (MultiLineString part-edge relationship) remains BLOCKED pending reviewer classification.
+Cascade A (sub-E grouping under-covering locked BP1 highway vocab) was provisionally explored with a sub-F-local BP7 override, but that resolution is NOT ratified. A later reviewer correction pulled back the unverified drivable-only premise. The BP7 purpose and derivation architecture must be classified before any class map locks. Cascade B (MultiLineString part-edge relationship) remains BLOCKED pending reviewer classification after the class-purpose decision.
 
 ## Audit Step Outcomes
 
@@ -137,7 +137,7 @@ The following locked BP1 `highway=*` values are absent from sub-E `load_class_gr
 | `track` | singapore_row_count=3444 | multi_tile_source_feature_count=234 |
 | `trunk_link` | singapore_row_count=0 | multi_tile_source_feature_count=0 |
 
-Classification: REAL §9.6.1 cascade #9 against upstream composition, resolved locally in sub-F. The gap was WIDE as a raw absence list, but the correct resolution is per-value drivable-network semantics rather than blanket sub-E grouping extension.
+Classification: REAL §9.6.1 cascade #9 against upstream composition. The gap was WIDE as a raw absence list. The sub-F-local drivable-network override below is PROVISIONAL ONLY and not ratified; it depends on the unresolved BP7 purpose question.
 
 Resolution mechanism: sub-F-local BP7 override composed after sub-E grouping. Values already covered by sub-E continue to defer to sub-E:
 
@@ -158,7 +158,60 @@ For values absent from sub-E grouping, sub-F now resolves all locked BP1 `highwa
 | `pedestrian` | NONE | Deliberately non-emitting; non-vehicular. |
 | `motorway_link`, `primary_link`, `secondary_link`, `tertiary_link`, `trunk_link`, `bridleway`, `busway`, `road`, `*` | NONE | Scope-of-coverage-zero in Singapore cached data at Halt 7; retained as explicit NONE rather than omission. |
 
-Test coverage: `test_sub_f_bp7_override_resolves_every_locked_highway_value_explicitly` asserts every locked BP1 `highway=*` value resolves to exactly one `BoundaryClass`; NONE is explicit, never a fallback-by-omission.
+Test coverage currently includes `test_sub_f_bp7_override_resolves_every_locked_highway_value_explicitly`, but that test is provisional with the override. If BP7 purpose or derivation architecture changes, this test must be revised before BP7 lock.
+
+## Addendum: BP7 Purpose + Derivation Contract Reclassification Surface
+
+Reviewer correction: the prior drivable-only classification was reviewer-supplied input and was not grounded in the pre-existing §3.7 text before implementation. Cascade #9 is therefore provisional pending BP7 purpose classification.
+
+### Purpose text from spec
+
+Pre-existing spec language before the cascade #9 insertion says:
+
+- §1.1 lines 32-35: cells generate independently and "the boundary contracts ensure they fit together"; cross-cell coherence is via boundary-reference tokens to sub-E pre-derived contracts, not sequence concatenation.
+- §1.2 line 41: sub-E boundary contracts are a locked upstream input.
+- §1.4 lines 57-59: sub-F-v1 consumes sub-E `boundary_contract.parquet` as authoritative; token layer represents roads only for cross-cell references.
+- §3.7 lines 279-298: BP7 defines 8 composite road-crossing tokens and class set `{MAJOR_ROAD, MINOR_ROAD}`; NONE is non-emitting.
+- §8.1 line 786: BP7 structural check requires every emitted `<bref>` to match sub-E parquet for that cell edge.
+
+Interpretation surface:
+
+- The spec does clearly say BP7 is for roads / road-crossing tokens, not buildings or POIs.
+- The spec does NOT, before the cascade #9 insertion, explicitly say "drivable AV route continuity only" versus "geometric continuity for all Overture transportation road-class rows."
+- The spec DOES say sub-E boundary contracts are authoritative and emitted `<bref>` tokens must match sub-E parquet.
+
+### Derivation contract from code
+
+Current upstream code path:
+
+- `src/cfm/data/sub_e/pipeline.py:304-326` filters sub-C features to `feature_class == road`, groups crossing `class_raw` values per edge, and calls `derive_boundary_class(class_raws)`.
+- `src/cfm/data/sub_e/derivation.py:81-85` loads sub-E grouping and maps any class_raw absent from the grouping to `BoundaryClass.MINOR_ROAD`, not NONE.
+- `src/cfm/data/sub_f/rotation.py:12-57` currently contains the provisional sub-F-local override from cascade #9, but no Task 8 writer exists yet, and no emitted `<bref>` code path currently calls it.
+
+Architecture implication:
+
+- The existing spec points to architecture (b): sub-F consumes sub-E's per-edge `BoundaryClass` from `boundary_contract.parquet` and tokenizes that class. Under architecture (b), a sub-F local `motorway -> MAJOR` override is incoherent unless sub-E also derives the corresponding edge as MAJOR; otherwise the Task 10 cross-reference check would fail.
+- If reviewer chooses architecture (a), sub-F's map must become the authoritative complete map over all locked highway values, and §8.1 cross-reference semantics must be revised accordingly.
+
+Important correction to earlier premise: missing values in sub-E grouping do NOT fall to NONE in sub-E. They fall to MINOR_ROAD by default when they appear in crossing `class_raws`. NONE is returned only when there are no road crossings on the edge.
+
+### Subway attribute dump
+
+Five cached Singapore rows with `feature_class=0` and `class_raw="subway"`:
+
+| row | tile | source_feature_id | cell | subtype_raw | categories_primary | geometry_type | length_m | bounds | coords_first_last |
+|---:|---|---|---|---|---|---|---:|---|---|
+| 1 | tile=EPSG3414_i10_j16 | 9c5215ef-3228-4196-9577-783e415b2d95 | (0,5) | `None` | `None` | LineString | 144.296 | (169.107, 130.511, 250.0, 250.0) | [(169.107, 250.0), (250.0, 130.511)] |
+| 2 | tile=EPSG3414_i10_j16 | ea6fbb6a-c591-42ea-8dd8-80f9db194174 | (0,5) | `None` | `None` | LineString | 160.138 | (160.243, 117.38, 250.0, 250.0) | [(250.0, 117.38), (160.243, 250.0)] |
+| 3 | tile=EPSG3414_i10_j16 | 9c5215ef-3228-4196-9577-783e415b2d95 | (0,6) | `None` | `None` | LineString | 300.53 | (2.469, 0.0, 169.107, 250.0) | [(2.469, 250.0), (169.107, 0.0)] |
+| 4 | tile=EPSG3414_i10_j16 | ea6fbb6a-c591-42ea-8dd8-80f9db194174 | (0,6) | `None` | `None` | LineString | 290.249 | (0.0, 0.0, 160.243, 241.946) | [(160.243, 0.0), (0.0, 241.946)] |
+| 5 | tile=EPSG3414_i10_j16 | 9c5215ef-3228-4196-9577-783e415b2d95 | (0,7) | `None` | `None` | LineString | 4.956 | (0.0, 0.0, 2.469, 4.297) | [(0.0, 4.297), (2.469, 0.0)] |
+
+These rows are transportation `class_raw="subway"` with no subtype/category refinement in cached sub-C output. The cache alone does not prove pedestrian underpass versus rail/road tunnel; it only proves they are linear transportation features split across cells.
+
+### Cascade B gate
+
+Cascade B remains real as a raw feature-shape mismatch (`same_cell_edge_multi_part=5206`), but its v1 severity depends on the corrected BP7 class architecture/purpose. BoundaryClass breakdown of those 5206 rows is intentionally deferred until the purpose and class-source decision is ratified.
 
 ## Feature-Splitting Outcome
 
@@ -246,7 +299,10 @@ Verification therefore requires approved access to the external uv cache.
 ## Reviewer Ratification Checklist
 
 - Approve or reject BP7 vocab slot list and ID range.
-- Ratify cascade #9 sub-F-local BP7 override for locked highway values missing from sub-E grouping.
+- Classify BP7 purpose: drivable-routing continuity vs geometric continuity for all road-class rows.
+- Ratify derivation architecture: sub-F-local class map vs sub-E `boundary_contract.parquet` authoritative class.
+- Decide subway after the attribute dump.
+- Then ratify or replace the provisional cascade #9 override.
 - Classify whether sub-C `branched_multi_row_present` requires a §3.7 multi-outbound grammar cascade.
 - Decide whether BP7 placeholder can transition to LOCKED in a continuation.
 
@@ -263,6 +319,6 @@ Status: BLOCKED.
 Blocking issues:
 
 - Feature-splitting verification surfaced `branched_multi_row_present` with `road_multiline_count=5605` and `same_cell_edge_multi_part=5206`, which is a §9.6.1 cascade candidate against the Task 7 single-row-per-branch assumption and must be reviewer-classified before BP7 lock continuation.
-- BP7 class coverage cascade #9 has been resolved locally in sub-F via explicit drivable-continuity override, pending reviewer ratification.
+- BP7 class coverage cascade #9 is provisional. Purpose, derivation architecture, and subway semantics must be classified before any class map locks.
 
 Do not proceed past Halt 7 until reviewer approval and cascade resolution.
