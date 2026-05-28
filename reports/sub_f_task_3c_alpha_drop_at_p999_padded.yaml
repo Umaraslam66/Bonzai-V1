@@ -1,0 +1,41 @@
+_status: PROPOSED - companion to sequence_length_analysis.yaml
+anchor_scheme_used: hierarchical
+budget_padded: 5888
+budget_raw: 5888
+drop_fraction_pct: 0.09488866396761134
+drop_set_by_type:
+  0:
+    fraction_of_type_dropped_pct: 0.663973718947567
+    n_features_dropped: 2007
+    n_features_total: 302271
+  1:
+    fraction_of_type_dropped_pct: 1.171879942405555
+    n_features_dropped: 4631
+    n_features_total: 395177
+  2:
+    fraction_of_type_dropped_pct: 9.822591961511476
+    n_features_dropped: 14700
+    n_features_total: 149655
+  3:
+    fraction_of_type_dropped_pct: 0.0782625709254549
+    n_features_dropped: 12
+    n_features_total: 15333
+dropped_cell_length_head_top10:
+- 8966
+- 8210
+- 8181
+- 7980
+- 7741
+- 7424
+- 7323
+- 7265
+- 7051
+- 7012
+dropped_cell_length_max: 8966
+dropped_cell_length_median: 6719
+dropped_cell_length_min: 5913
+n_anchor: 4
+n_cells_dropped: 30
+n_cells_retained: 31586
+n_cells_total: 31616
+stage_4_provenance: formula_derived_per_spec_7_2_no_sub_e_cache

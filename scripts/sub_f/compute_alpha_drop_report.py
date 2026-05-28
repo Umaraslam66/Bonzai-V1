@@ -1,0 +1,189 @@
+"""Compute alpha (tail-cell rejection) drop report at the chosen budget.
+
+Per Halt 4 reviewer pre-load (2026-05-28): alpha should not silently truncate.
+Emit count of cells dropped at the chosen elbow, their per-type feature
+composition, and the % of total per-type observations the drop set captures.
+This makes the β-upgrade decision data-driven once sub-E lands and stage-4
+is measured.
+
+Recreates the per-cell length computation of `compute_budget_surface.py`
+(same Case-A formula, same stage-4 formula fallback, same anchor scheme
+from the BP2 lock) so the drop report is consistent with the budget surface
+this report is grading.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+import pyarrow.parquet as pq
+import yaml
+from shapely.wkb import loads as wkb_loads
+
+ROOT = Path(__file__).resolve().parents[2]
+
+# Match compute_budget_surface.py defaults.
+STAGE_4_FORMULA_TOKENS_PER_NONEMPTY_CELL = 0.7
+
+
+def _vertex_count(geom) -> int:
+    gt = geom.geom_type
+    if gt == "LineString":
+        return len(geom.coords)
+    if gt == "Polygon":
+        return len(geom.exterior.coords)
+    if gt == "Point":
+        return 1
+    if gt == "MultiPoint":
+        return sum(1 for _ in geom.geoms)
+    if gt == "MultiLineString":
+        return sum(len(part.coords) for part in geom.geoms)
+    if gt == "MultiPolygon":
+        return sum(len(part.exterior.coords) for part in geom.geoms)
+    return 0
+
+
+def case_a_tokens(v: int, n_anchor: int) -> int:
+    return 3 + n_anchor + 2 * (v - 1) if v >= 1 else 2
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sub-c-region-dir", required=True, type=Path)
+    parser.add_argument(
+        "--budget-raw",
+        type=int,
+        required=True,
+        help="Raw budget at chosen quantile (e.g. 5792 for P99.9).",
+    )
+    parser.add_argument(
+        "--budget-padded",
+        type=int,
+        required=True,
+        help="Padded budget at chosen quantile (e.g. 5888 for P99.9 with 128 padding).",
+    )
+    parser.add_argument(
+        "--label",
+        type=str,
+        default="alpha_drop_at_chosen_elbow",
+        help="Label for output file naming.",
+    )
+    args = parser.parse_args()
+
+    primitives = yaml.safe_load(
+        (ROOT / "configs" / "sub_f" / "encoding_primitives.yaml").read_text(encoding="utf-8")
+    )
+    lock = primitives.get("lock_metadata", primitives).get("approved_lock_values", primitives)
+    anchor_scheme = lock.get("anchor_scheme", "hierarchical")
+    n_anchor = 2 if anchor_scheme == "flat" else 4
+
+    # Per-cell: (tile_i, tile_j, cell_i, cell_j) -> {"length": int, "by_type": {fc: count}}
+    per_cell: dict[tuple[int, int, int, int], dict] = defaultdict(
+        lambda: {"length": 0, "by_type": defaultdict(int)}
+    )
+
+    tile_features = sorted(args.sub_c_region_dir.glob("tile=*/features.parquet"))
+    print(f"[alpha drop report] {len(tile_features)} tiles", flush=True)
+    tile_keys: set[tuple[int, int]] = set()
+    total_by_type: dict[int, int] = defaultdict(int)
+
+    for path in tile_features:
+        parts = path.parent.name.replace("tile=", "").split("_")
+        tile_i = int(parts[1].lstrip("i"))
+        tile_j = int(parts[2].lstrip("j"))
+        tile_keys.add((tile_i, tile_j))
+        table = pq.ParquetFile(path).read()
+        for r in table.to_pylist():
+            geom = wkb_loads(r["geometry"])
+            v = _vertex_count(geom)
+            fc = int(r["feature_class"])
+            cell_key = (tile_i, tile_j, int(r["cell_i"]), int(r["cell_j"]))
+            per_cell[cell_key]["length"] += case_a_tokens(v, n_anchor)
+            per_cell[cell_key]["by_type"][fc] += 1
+            total_by_type[fc] += 1
+
+    # Add empty cells per spec §7.8.
+    for ti, tj in tile_keys:
+        for ci in range(8):
+            for cj in range(8):
+                _ = per_cell[(ti, tj, ci, cj)]
+
+    # Stage-4 formula adder: 0.7 tokens per non-empty cell (sub-E absent).
+    for _key, data in per_cell.items():
+        if data["by_type"]:
+            data["length"] += STAGE_4_FORMULA_TOKENS_PER_NONEMPTY_CELL
+
+    # Apply alpha at budget_raw (cells whose length exceeds raw quantile are dropped).
+    n_cells_total = len(per_cell)
+    dropped_cells = [
+        (key, data) for key, data in per_cell.items() if data["length"] > args.budget_raw
+    ]
+    retained_cells = [
+        (key, data) for key, data in per_cell.items() if data["length"] <= args.budget_raw
+    ]
+
+    # Per-type drop composition.
+    dropped_by_type: dict[int, int] = defaultdict(int)
+    for _key, data in dropped_cells:
+        for fc, count in data["by_type"].items():
+            dropped_by_type[fc] += count
+
+    # Dropped-cell length stats (head of the tail).
+    dropped_lengths = sorted([d["length"] for _k, d in dropped_cells], reverse=True)
+
+    output = {
+        "_status": "PROPOSED - companion to sequence_length_analysis.yaml",
+        "anchor_scheme_used": anchor_scheme,
+        "n_anchor": n_anchor,
+        "stage_4_provenance": "formula_derived_per_spec_7_2_no_sub_e_cache",
+        "budget_raw": args.budget_raw,
+        "budget_padded": args.budget_padded,
+        "n_cells_total": n_cells_total,
+        "n_cells_dropped": len(dropped_cells),
+        "n_cells_retained": len(retained_cells),
+        "drop_fraction_pct": float(len(dropped_cells) / n_cells_total * 100.0)
+        if n_cells_total
+        else 0.0,
+        "drop_set_by_type": {
+            int(fc): {
+                "n_features_dropped": int(dropped_by_type.get(fc, 0)),
+                "n_features_total": int(total_by_type[fc]),
+                "fraction_of_type_dropped_pct": (
+                    float(dropped_by_type.get(fc, 0) / total_by_type[fc] * 100.0)
+                    if total_by_type[fc]
+                    else 0.0
+                ),
+            }
+            for fc in sorted(total_by_type)
+        },
+        "dropped_cell_length_head_top10": [int(x) for x in dropped_lengths[:10]],
+        "dropped_cell_length_min": int(dropped_lengths[-1]) if dropped_lengths else 0,
+        "dropped_cell_length_max": int(dropped_lengths[0]) if dropped_lengths else 0,
+        "dropped_cell_length_median": int(
+            sorted([d["length"] for _k, d in dropped_cells])[len(dropped_cells) // 2]
+        )
+        if dropped_cells
+        else 0,
+    }
+
+    out = ROOT / "reports" / f"sub_f_task_3c_{args.label}.yaml"
+    out.write_text(yaml.safe_dump(output, sort_keys=True), encoding="utf-8")
+    print(f"[alpha drop report] wrote {out}")
+    print(
+        f"[alpha drop report] dropped {len(dropped_cells)}/{n_cells_total} cells "
+        f"({output['drop_fraction_pct']:.3f}%); "
+        f"per-type drop: "
+        + ", ".join(
+            f"fc={fc}: {v['n_features_dropped']}/{v['n_features_total']} "
+            f"({v['fraction_of_type_dropped_pct']:.3f}%)"
+            for fc, v in output["drop_set_by_type"].items()
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

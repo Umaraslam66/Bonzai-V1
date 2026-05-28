@@ -1,4 +1,69 @@
-_status: "PROPOSED \u2014 pending Halt 4 reviewer approval per spec \xA710.3."
+_status: LOCKED
+lock:
+  ratified_at: "2026-05-28"
+  ratified_by: human_reviewer
+  halt_report: reports/2026-05-23-phase-1-sub-F-task-3c-halt.md
+  drop_report_raw: reports/sub_f_task_3c_alpha_drop_at_p999.yaml
+  drop_report_padded: reports/sub_f_task_3c_alpha_drop_at_p999_padded.yaml
+  elbow_quantile: 99.9
+  elbow_budget_raw_tokens: 5792
+  elbow_budget_padded_tokens: 5888
+  elbow_rationale: "Marginal-cost-of-cut inflection at P99.9->P99.99 (6.5x jump from 4043 to 26189 tokens/pp). P99.9 is the last point before the cost cliff."
+  truncation_strategy: alpha
+  truncation_strategy_rationale: "Alpha (tail-cell rejection) chosen for v1 NOT on simplicity but on not-reopening-a-lock: beta (within-cell priority tail-drop) would tension with the just-locked spec \xA75.2 feature iteration order (sub-C source-order) and BP5 canonical form (multi-part sort by lex-min vertex) - would require a Halt 5 cascade to redefine the per-feature ordering contract. Alpha drop report (companion YAML) makes the beta-upgrade decision data-driven when training-scaffold needs it."
+  retention_floors_per_type:
+    '0':
+      role: roads
+      floor: 0.9934
+      drop_set_fraction_pct: 0.664
+      vs_spec_7_5_default: -0.560pp_below_99.9_default
+      note: "Below \u00a77.5 default 99.9% by 0.56pp; within plausible stage-4 formula error (3-7 tokens per dense cell). Flag for recheck when sub-E lands."
+    '1':
+      role: buildings
+      floor: 0.9883
+      drop_set_fraction_pct: 1.172
+      vs_spec_7_5_default: -0.170pp_below_99.0_default
+      note: "Below \u00a77.5 default 99.0% by 0.17pp; within formula-error margin. Flag for recheck when sub-E lands."
+    '2':
+      role: pois
+      floor: 0.9018
+      drop_set_fraction_pct: 9.823
+      vs_spec_7_5_default: -8.820pp_below_99.0_default
+      note: "Heavy-tailed point distribution: POIs cluster in dense commercial cells whose total cell length exceeds the budget. The \u00a77.5 uniform 99% floor mis-specifies POIs because per-feature loss profile is fundamentally different from sparse roads/buildings (per-cell loss of dense POI clusters vs per-feature loss). Type-specific calibration locks the floor at observable retention given P99.9 budget choice. NOT 'POIs cost least' - per-type category-error correction."
+    '3':
+      role: base_landuse
+      floor: 0.9992
+      drop_set_fraction_pct: 0.078
+      vs_spec_7_5_default: +0.92pp_above_99.0_default
+      note: "Comfortably clears \u00a77.5 default."
+  long_cell_diagnostic:
+    threshold_tokens: 5632
+    margin_tokens_below_padded_budget: 256
+    margin_padding_blocks_below_padded_budget: 2
+    margin_pct_of_padded_budget: 4.35
+    current_warning_band_cell_count_singapore: 6
+    current_warning_band_fraction_pct: 0.019
+    rationale: "Anchored in token space below the padded budget, NOT in percentile space below the elbow quantile. The percentile-space anchor (\u00a77.7 literal formula chosen_quantile - 0.5pp = P99.4 = 4096 tokens) lands 1792 tokens below the budget for our actual distribution - too far to function as early warning. Re-anchored at 2 padding blocks below the padded budget: 256-token margin >> plausible 3-7 token stage-4 formula error (37x headroom); 6 cells warned per region run is signal, not noise. 2 padding blocks chosen over 1 for more lead-time at zero cost (both are above noise floor)."
+    action_contract:
+      per_run_action: "Pipeline orchestrator logs the count + per-type composition of cells whose length is in (5632, 5888] in the region run report. Implementer: \u03b1 drop-report script (scripts/sub_f/compute_alpha_drop_report.py) called with --budget-raw=5632 --budget-padded=5888 emits the warning-band composition."
+      revisit_triggers:
+        - "warning_band_cell_count > 12 (i.e. >2x the v1 Singapore baseline of 6) in any region/release run"
+        - "warning_band_cell_count > 0.1pct of total cells in any region/release run"
+        - "sub-E measured stage-4 mean > 2 tokens/cell systematically (regardless of warning-band count)"
+        - "any 3 consecutive region/release runs show monotonically increasing warning-band cell count"
+      revisit_actions:
+        - "Re-run T3c against measured stage-4 (post-sub-E) and recompute elbow + per-type floors"
+        - "Consider elbow shift to P99.99 if per-type floors degrade materially"
+        - "Initiate \u03b2-upgrade scoping in the training-scaffold sub-project if drop set composition shows recoverable within-cell tails"
+  formula_error_residual_risk:
+    padding_slack_tokens: 96
+    plausible_per_cell_stage_4_error_tokens_range: [3, 7]
+    cell_count_in_elbow_band_5792_to_5888: 1
+    assessment: "96-token padding slack absorbs plausible per-cell stage-4 formula error (3-7 tokens) by 13-32x margin. Only 1 cell currently lies in the (raw, padded] elbow band, so density at the boundary is sparse. Stage-4 error can shift at most a small handful of cells across the boundary - within retention floor tolerance. P99.9 elbow holds without cutting one notch deeper."
+  recheck_obligations:
+    - "When sub-E cache is regenerated/restored, re-run T3c with measured stage-4 (replacing the 0.7 tokens/non-empty-cell formula). Compare elbow + per-type floors. See close-checklist."
+    - "Regenerate \u03b1 drop report alongside each region/release pipeline run. Log count + per-type composition. Feed into beta-upgrade decision input set."
+    - "Evaluate long-cell-diagnostic warning-band growth across region/release runs. If revisit triggers fire, schedule Halt-4-revisit checkpoint."
 anchor_scheme_used: hierarchical
 budget_surface:
 - padded_length_tokens: 3584
@@ -24,15 +89,12 @@ budget_surface:
 n_anchor: 4
 n_cells_analyzed: 31616
 n_empty_cells: 16082
-proposed_long_cell_diagnostic_note: "Long-cell diagnostic fires at the per-cell-token\
-  \ threshold corresponding to (chosen_quantile - 0.5pp) per spec \xA77.7. Reviewer\
-  \ chooses the quantile; the threshold value computed once the quantile is selected."
-proposed_long_cell_diagnostic_pp: 0.5
-proposed_truncation_strategy: alpha
-proposed_truncation_strategy_note: "alpha (tail-cell rejection) recommended. Bias\
-  \ conservative because stage-4 is formula-derived (sub-E cache absent). When sub-E\
-  \ is regenerated, re-run T3c against measured stage-4 and revisit the elbow \u2014\
-  \ see close-checklist line 12."
+long_cell_diagnostic_supersedes_note: "Pre-lock proposed_long_cell_diagnostic_pp \
+  field (spec \u00a77.7 literal formula 'chosen_quantile - 0.5pp') was REPLACED at Halt 4 \
+  ratification (2026-05-28). The percentile-space anchor lands at P99.4 = 4096 tokens \
+  for this distribution, 1792 tokens below the budget \u2014 too far to function as early \
+  warning. See lock.long_cell_diagnostic above for the token-space re-anchor + action \
+  contract."
 retention_by_quantile_by_type:
   99.0:
     '0': 0.9458730741619276

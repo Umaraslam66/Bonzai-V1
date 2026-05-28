@@ -1,6 +1,8 @@
 # Phase 1 Sub-F Task 3c Halt 4 Report
 
-Status: `DONE_WITH_CONCERNS pending Halt 4 reviewer approval.`
+Status: `APPROVED with reviewer modifications (2026-05-28).` Lock landed in `configs/sub_f/sequence_length_analysis.yaml _status: LOCKED`. The original DONE_WITH_CONCERNS surface (below) is preserved as the implementer evidence that went to the reviewer; the ratification + modifications are appended in the "Reviewer Ratification (2026-05-28)" section at end.
+
+Original implementer status (preserved for audit): `DONE_WITH_CONCERNS pending Halt 4 reviewer approval.`
 
 Branch: `phase-1-sub-F-micro-tokenizer`
 
@@ -285,3 +287,62 @@ Concerns surfaced for reviewer review (in priority order):
 4. **Truncation strategy.** α (tail-cell rejection) recommended for v1 with conservative quantile bias; β (within-cell priority tail-drop) is the deferred lever if reviewer rejects the POI override.
 
 Do not proceed past Halt 4 until reviewer approval. Implementer will NOT autonomously commit a `feat(sub_f): T3c ... (Halt 4 approved)` commit per Halt 4 gate discipline.
+
+---
+
+## Reviewer Ratification (2026-05-28)
+
+Halt 4 ratified with six item-level outcomes + one diagnostic re-anchor before lock. Three premise checks executed during ratification and folded into the lock evidence.
+
+### Item-by-item outcomes
+
+**Item 1 — PRD 10K projection: DROPPED from Halt 4 scope.** Reviewer disclosed their pre-loaded 1%/5%-vs-10K projection was a premise error: PRD line 61's "10,000 global instances" is the BP1 vocab-inclusion floor (already locked in Task 1), and PRD line 145's "10,000–50,000 tiles" is the architecture-bake-off training-set size. Neither is a per-sequence token ceiling. Implementer's `prd_cite_status: needs_reviewer_cite_confirmation` flag was the right call. Architecturally, the locked one-sequence-per-cell design (§7.1) means the budget is per-cell by construction; the global per-sequence ceiling is a downstream training-scaffold concern and this budget surface is its INPUT, not gated by it. The `scaling_projection` block in the lock YAML is retained for reference but recorded as N/A for sequence-length sizing.
+
+**Item 2 — Elbow = P99.9 (5,888 padded):** RATIFIED. 6.5x marginal-cost jump from P99.9→P99.99 (4,043 → 26,189 tokens/pp) is the cost cliff; P99.9 is the last point before it.
+
+**Item 3 — Per-type retention floor CALIBRATION (not POI relaxation):** RATIFIED with category-error rationale. The §7.5 uniform 99% floor was a v1 default proposal, not empirically grounded. Singapore data shows POI loss profile is per-cell (dense-cluster), not per-feature (sparse) — a structural distinction the uniform floor doesn't model. Calibrated per-type floors locked at observable retention given P99.9 budget: roads 99.34%, buildings 98.83%, POIs 90.18%, base 99.92%. Roads/buildings sub-floor misses (0.56pp / 0.17pp) are within plausible stage-4 formula error band; flagged for recheck when sub-E lands.
+
+**Item 4 — Truncation α for v1:** RATIFIED with locked rationale: β strictly dominates α on retention IN PRINCIPLE, but β's priority-ordering would tension with the just-locked §5.2 feature iteration order (sub-C source-order) + BP5 canonical form — would require a Halt 5 cascade. α ships as the not-reopening-a-lock choice. α drop report (Premise B below) makes the β-upgrade decision data-driven when training-scaffold needs it.
+
+**Item 5 — Long-cell diagnostic RE-ANCHORED before lock.** Reviewer caught: the spec §7.7 literal formula (`chosen_quantile - 0.5pp`) yields a percentile-space anchor at P99.4 = 4,096 tokens for this distribution — 1,792 tokens below the budget. At that threshold the diagnostic fires on every cell between P99.4 and P99.9 (~158 cells, ~0.5pp of cells), none actually near truncation. That's noise, not signal — exactly the failure mode the diagnostic was meant to prevent.
+
+Re-anchored in token space at 2 padding blocks below the padded budget = **5,632 tokens** (256-token margin = 4.35% of padded budget). 6 cells per region run land in the warning band. Two principles applied (per `feedback_diagnostic_threshold_design`): (a) optimize for earliest reliable warning above the noise floor, not tightest non-noise — 6 cells is well above noise, and the 256-token margin (vs alternative 128) gives more lead-time at zero cost; (b) every diagnostic must carry a defined action contract — see `lock.long_cell_diagnostic.action_contract` in the YAML for per-run logging, revisit triggers, and revisit actions.
+
+**Item 6 — Stage-4 formula provenance as v1-shipping:** RATIFIED with quantified residual-risk math. Padding slack = 96 tokens; plausible per-cell stage-4 formula error = 3–7 tokens; only 1 cell currently lies in the (raw 5,792, padded 5,888] elbow band. Padding slack absorbs plausible formula error by 13–32x. Three recheck obligations attached to the lock YAML's `recheck_obligations` + close-checklist.
+
+### Premise checks executed during ratification
+
+**Premise A — Does the budget count `<unknown_*>` tokens?** YES, safely. Verification:
+- T3a script (`scripts/sub_f/analyze_stage_1_2_joint.py`) iterates ALL rows in features.parquet by `feature_class` (0/1/2/3). It does NOT filter by `class_raw` sentinel value.
+- Spot-check on `tile=EPSG3414_i10_j10/features.parquet` (225 rows): 64 rows = `B__UNK__` buildings (28% of buildings in that tile). They're counted.
+- Per-feature token cost is INVARIANT between BP1 and BP4 family: `<feature> <semantic_tag> ... <feature_end>` uses exactly 1 `<semantic_tag>` token regardless of which family it's drawn from. Geometry-driven token count dominates.
+- No recomputation needed.
+
+**Premise B — α drop report at P99.9 padded:**
+
+Computed via new `scripts/sub_f/compute_alpha_drop_report.py`. Two runs (raw cut 5,792 + actual α cut at padded 5,888):
+
+| Cut | Cells dropped | Road dropped | Bldg dropped | POI dropped | Base dropped |
+|---|---:|---:|---:|---:|---:|
+| Raw 5,792 | 31 (0.098%) | 2,056 / 302,271 (0.680%) | 4,841 / 395,177 (1.225%) | 14,964 / 149,655 (9.999%) | 12 / 15,333 (0.078%) |
+| Padded 5,888 (actual α cut) | 30 (0.095%) | 2,007 (0.664%) | 4,631 (1.172%) | 14,700 (9.823%) | 12 (0.078%) |
+
+Dropped-cell length distribution at padded: min 5,913 / median 6,719 / max 8,966 (single-tail). Top-10 tail: 8,966 / 8,210 / 8,181 / 7,980 / 7,741 / 7,424 / 7,323 / 7,265 / 7,051 / 7,012. Outputs durable at `reports/sub_f_task_3c_alpha_drop_at_p999.yaml` + `..._padded.yaml`.
+
+**Premise B-implication (recorded for §13):** the drop set's distribution **weakens the β-upgrade case** vs how the original Halt 4 implementer surface framed it. Dropped cells are 15–52% OVER budget (min 5,913 / median 6,719 / max 8,966), not hovering at the elbow. β recovers within-cell tails by dropping low-priority features, but β would STILL truncate most of these cells since their over-budget magnitude is large (a 6,700-token cell needs ~13% feature drop to fit; a 9,000-token cell needs ~35% drop, which defeats the purpose). α vs β barely differ on this drop set — both lose most of these tails to truncation. The β-upgrade scaffold is preserved (action_contract above), but the marginal-retention-gain expectation should be calibrated honestly: β's benefit is lower priority than "keeps dense commercial cells" would imply. Re-measure when sub-E lands and multi-region data exists.
+
+**Premise C — Stage-4 headroom quantification:** see Item 6 above. Padding slack 96 tokens vs plausible 3–7 token error vs 1 cell in elbow band. 13–32x margin. P99.9 holds.
+
+### Lock outcome
+
+- `configs/sub_f/sequence_length_analysis.yaml _status: LOCKED` with `lock` block carrying ratified elbow, per-type floors, truncation strategy, long-cell diagnostic threshold + action contract, residual-risk math, recheck obligations.
+- α drop report tooling: `scripts/sub_f/compute_alpha_drop_report.py` + 2 durable drop-report YAMLs (raw + padded).
+- 5 intermediate `warn_band_thresh_*.yaml` diagnostic files removed (used to size diagnostic margin; not durable).
+- Close-checklist updated with 3 recheck obligations.
+- Spec §13.1 updated with Halt 4 ratification entry + β-honesty note + diagnostic-action-contract protocol-bump candidate.
+
+### Telemetry update
+
+- implementer-time-to-data-surface: 2026-05-28 same-session.
+- reviewer-time-to-decision: 2026-05-28 same-session (single ratification round-trip + diagnostic re-anchor sub-round). Reviewer modifications: per-type floor calibration framing (item 3 reword), stage-4 headroom quantification (item 6 reword), diagnostic anchor re-pick (item 5 fix), action-contract addition (item 5 augment).
+- total-halt-duration: same-session; sub-day.
