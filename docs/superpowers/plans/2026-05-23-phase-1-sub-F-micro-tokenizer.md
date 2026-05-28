@@ -82,6 +82,21 @@ Eight revisions surfaced. Revisions 1+2+3 surfaced at plan-write pre-dispatch au
 
 **Plan applies:** the earlier sub-F-local override is discarded. The real cascade #9 is upstream: sub-E's MINOR-default under-tiers `motorway` and over-emits non-vehicular or ambiguous values as MINOR. Halt 7 accepts this as a sub-E-inherited v1 limitation. sub-F must emit sub-E's class verbatim unless §3.7 architecture is explicitly revised.
 
+### Revision 9: BP5 vertex-order canonical form expanded from 1 DOF to 4 (Halt 5 ratification)
+
+**Halt 5 review found:** the plan's Task 5a vertex-order verification script samples sub-C `features.parquet` twice via cold pyarrow reads and reports 20/20 vertex match — but this exercises only the sub-C ↔ parquet round-trip (1 of 3 chain hops). The Overture → sub-A and sub-A → sub-C hops were not exercised; Overture parquet partition-scan ordering through DuckDB httpfs is not documented as vertex-order-preserving. Effective outcome per `feedback_ambiguous_third_branch_in_verification` is (c) ambiguous-but-locally-stable, not (a) as the YAML literally reported. Default for (c) is CANONICALIZE.
+
+Reviewer also surfaced that the plan's "lex-min polygon-ring rotation" framing was itself the same defect shape — it pinned only 1 of 3 arbitrary DOFs in a ring's token sequence (start vertex) while leaving winding and multi-part order unconstrained. A test that asserted only lex-min start could pass with partial coverage on geometries whose other DOFs happened to be canonical.
+
+**Upstream winding fact-find (2026-05-28):** neither sub-A (`src/cfm/data/overture/`) nor sub-C (`src/cfm/data/sub_c/`) enforces RFC 7946. No `orient(`, `winding`, `right-hand`, `signed_area`, or `polygon.orient(` calls in either module. `src/cfm/data/sub_c/io.py` `dump_wkb` uses `wkb.dumps(geom, hex=False, byte_order=1)` — explicit NDR byte order, no winding normalization. Shapely preserves winding through WKB round-trips. Therefore sub-F's winding canonicalizer is PRIMARY (not just backstop). Idempotency holds regardless of upstream.
+
+**Plan applies:**
+
+- **Task 5b Test 5** splits into 5 independent assertions (one per DOF + tiebreak), each with adversarial input that holds other DOFs constant. See updated Task 5b Step 1 below.
+- **Task 8 (writer/encoder)** ships `canonicalize_geometry(geom) -> geom` as a primary pre-tokenization step. Canonical form: open polylines pick lex-smaller of forward/reverse; closed rings rotate to lex-min start AND enforce RFC 7946 winding (exterior CCW, holes CW) idempotently; multi-part sorts parts by lex-min vertex with tiebreak via next-vertex-in-rotated-order then ring vertex count. Encoder imports from `src/cfm/data/sub_f/encoder.py`.
+- **Rounding axis** locks to `int(round(coord_m / quantum))` with Python `round()` banker's. Rationale: (a) determinism requires one rule pinned, (b) banker's is bias-free for coordinate snapping. NOT load-bearing on the `frequency_analysis.py:721` / `evidence.py:359` precedent — those are percentile-index quantization (different operation); sub-D usage is house-style consistency only.
+- **Sub-C sort-key cite drift** amended in spec §5.2: `src/cfm/data/sub_c/io.py:218-220` → `:219-221`. Forward preference adopted (`feedback_content_anchored_cites`): prefer content-anchored cites over line numbers for new locks; §9.1–§9.5 sweep deferred as separate atomic commit.
+
 ### Task 1 plan code bug fixes (5 substantive bugs surfaced at prompt-derivation review)
 
 The original Task 1 code blocks (snapshot_taginfo.py + floor_analysis.py) shipped with five code-level defects independent of the cascade revisions above. All five corrected inline in the Task 1 code blocks below:
@@ -2577,14 +2592,132 @@ def test_sub_c_feature_sort_key_is_4_tuple():
     )
 
 
-# Test 5: Vertex iteration order (per Task 5a outcome — inherit or canonicalize)
-@pytest.mark.skip(reason="locked at Halt 5; test specifics depend on outcome a/b/c")
-def test_vertex_iteration_per_task_5a_outcome():
-    """Per Halt 5 outcome:
-        (a) inherit → vertex order matches sub-C source-order on N samples.
-        (b/c) canonicalize → vertex order matches lex-min polygon-ring rotation.
+# Tests 5a–5e: Vertex iteration canonical form (Halt 5 locked as CANONICALIZE).
+# Per spec §5.6 canonical form has four DOFs + a tiebreak. One test per rule,
+# each with adversarial input that holds other DOFs constant by construction.
+# All five marked skipped until Task 8 ships `canonicalize_geometry` helper
+# at `src/cfm/data/sub_f/encoder.py`; un-skip on Task 8 close.
+
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
+
+_PENDING_T8 = pytest.mark.skip(
+    reason="awaiting Task 8 canonicalize_geometry helper in src/cfm/data/sub_f/encoder.py"
+)
+
+
+@_PENDING_T8
+def test_canonicalize_open_polyline_picks_lex_smaller_of_forward_reverse():
+    """DOF: LineString direction.
+
+    Input: LineString whose forward traversal is lex-greater than its
+    reverse. Expected: encoder reverses to the lex-smaller traversal.
+    Other DOFs not applicable (single open polyline; no winding, no parts).
     """
-    pass
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    forward = LineString([(5, 5), (1, 1)])          # lex-greater traversal
+    expected = LineString([(1, 1), (5, 5)])          # lex-smaller traversal
+    assert list(canonicalize_geometry(forward).coords) == list(expected.coords)
+
+
+@_PENDING_T8
+def test_canonicalize_closed_ring_rotates_to_lex_min_start():
+    """DOF: Polygon ring start vertex.
+
+    Input: CCW exterior ring (already RFC 7946 compliant) whose first
+    vertex is NOT the lex-min vertex. Expected: ring rotated so first
+    vertex is the lex-min. Winding DOF held constant (input is already
+    CCW); part-order DOF n/a (single polygon).
+    """
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    # Shoelace signed area of [(5,5),(1,1),(3,1)] = 8 > 0 → CCW.
+    poly_in = Polygon([(5, 5), (1, 1), (3, 1), (5, 5)])
+    canon = canonicalize_geometry(poly_in)
+    canon_coords = list(canon.exterior.coords)
+    assert canon_coords[0] == (1, 1), (
+        f"expected lex-min start (1,1); got {canon_coords[0]}"
+    )
+    assert canon_coords[0] == canon_coords[-1], "ring must close on itself"
+
+
+@_PENDING_T8
+def test_canonicalize_closed_ring_winding_corrected_to_rfc_7946():
+    """DOF: Polygon exterior winding (RFC 7946 right-hand rule).
+
+    Input: exterior ring whose first vertex IS the lex-min (so the start
+    DOF is held constant) but whose winding is CW (wrong for exterior).
+    Expected: encoder reverses traversal to CCW. Lex-min start preserved.
+    """
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    # [(1,1),(5,5),(3,1)] signed area = -8 < 0 → CW; lex-min (1,1) is first.
+    poly_in = Polygon([(1, 1), (5, 5), (3, 1), (1, 1)])
+    canon = canonicalize_geometry(poly_in)
+    canon_coords = list(canon.exterior.coords)
+    # CCW reverse: (1,1) → (3,1) → (5,5) → (1,1).
+    assert canon_coords[0] == (1, 1), "lex-min start must be preserved"
+    assert canon_coords == [(1, 1), (3, 1), (5, 5), (1, 1)], (
+        f"expected CCW traversal; got {canon_coords}"
+    )
+
+
+@_PENDING_T8
+def test_canonicalize_multi_part_sorted_by_lex_min_vertex():
+    """DOF: MultiLineString / MultiPolygon part order.
+
+    Input: two LineString parts, each internally canonical (lex-min
+    direction), in non-canonical part order. Expected: parts sorted by
+    first vertex (which equals the lex-min vertex by construction since
+    each part is internally canonical).
+    """
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    part_high = LineString([(3, 3), (7, 7)])         # lex-min vertex (3,3)
+    part_low = LineString([(1, 1), (5, 5)])          # lex-min vertex (1,1)
+    multi_in = MultiLineString([part_high, part_low])  # parts in non-canonical order
+
+    canon = canonicalize_geometry(multi_in)
+    canon_parts = list(canon.geoms)
+    assert list(canon_parts[0].coords)[0] == (1, 1), (
+        "first part must start at lex-min vertex (1,1)"
+    )
+    assert list(canon_parts[1].coords)[0] == (3, 3), (
+        "second part must start at (3,3)"
+    )
+
+
+@_PENDING_T8
+def test_canonicalize_multi_part_tiebreak_uses_next_vertex_then_count():
+    """DOF tiebreak: when two parts share an identical first vertex.
+
+    Per spec §5.6: fall through to next vertex in rotated order; if still
+    tied, compare by part vertex count (smaller first).
+
+    Input: two LineString parts, both starting at (1,1), each internally
+    canonical. Tiebreak: part A's next vertex (3,1) < part B's (3,5).
+    Expected: A first.
+
+    Then assert count-tiebreak with a third part starting at (1,1) with
+    identical leading sequence (1,1)→(3,1) but more vertices than A:
+    A wins on smaller count.
+    """
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    part_a = LineString([(1, 1), (3, 1), (5, 5)])
+    part_b = LineString([(1, 1), (3, 5), (2, 2)])
+    multi_ab = MultiLineString([part_b, part_a])
+    canon_ab = list(canonicalize_geometry(multi_ab).geoms)
+    assert list(canon_ab[0].coords)[1] == (3, 1), (
+        "first part should be A (next vertex (3,1) < (3,5))"
+    )
+
+    part_a_long = LineString([(1, 1), (3, 1), (5, 5), (7, 7)])  # leads with same (1,1),(3,1)
+    multi_ac = MultiLineString([part_a_long, part_a])
+    canon_ac = list(canonicalize_geometry(multi_ac).geoms)
+    assert len(list(canon_ac[0].coords)) == 3, (
+        "smaller-count part should win the count tiebreak"
+    )
 
 
 # Test 6: Vocab dict insertion-order preservation under PYTHONHASHSEED=random
@@ -3298,6 +3431,21 @@ git commit -m "feat(sub_f): T7 BP7 boundary-ref vocab + sub-C verify (Halt 7 app
 - Create: `src/cfm/data/sub_f/decoder.py`
 - Create: `src/cfm/data/sub_f/io.py` (cells.parquet schema + writer)
 - Test: `tests/data/sub_f/test_io.py`, append to `tests/data/sub_f/test_encoder.py`, `tests/data/sub_f/test_decoder.py`
+
+### BP5 canonicalize_geometry contract (per spec §5.6, Halt 5 lock)
+
+Before tokenization, the encoder applies `canonicalize_geometry(geom) -> geom` to every feature. This is a primary pre-tokenization step (not optional, not a backstop) because spec §5.6's upstream-winding fact-find confirmed neither sub-A nor sub-C enforces RFC 7946 winding, and Overture parquet partition-scan ordering through DuckDB httpfs is not documented as vertex-order-preserving.
+
+The helper enforces all four canonical-form DOFs from spec §5.6:
+
+1. **Open polyline (`LineString`):** pick lex-smaller of `tuple(forward_coords)` vs `tuple(reverse_coords)`.
+2. **Closed ring start vertex** (`Polygon` exterior + each interior hole): rotate the ring so it begins at its lex-min vertex (exclude the duplicate closing vertex from the comparison).
+3. **Closed ring winding** (RFC 7946 right-hand rule): exterior CCW, interior holes CW. If a ring's shoelace-signed-area has the wrong sign for its role, reverse it. Apply AFTER rule 2 so the lex-min start is preserved (reversing then re-rotating the closed ring yields the same lex-min start).
+4. **Multi-part order** (`MultiLineString` / `MultiPolygon`): after each part is internally canonicalized via rules 1–3, sort parts by their first vertex (equals the lex-min vertex by construction). Tiebreak: next vertex in rotated order; if still tied, part vertex count (smaller first). `Point` / `MultiPoint` are trivially canonical (no DOFs).
+
+**Idempotency invariant:** `canonicalize_geometry(canonicalize_geometry(g)) == canonicalize_geometry(g)` for every supported geometry class. This lets sub-F apply the canonicalizer unconditionally without checking what upstream did — if upstream ever starts enforcing RFC 7946, sub-F's rules are no-ops on already-canonical input.
+
+T5b Tests 5a–5e cover each rule independently with adversarial inputs that hold other DOFs constant by construction. Test bodies live in `tests/data/sub_f/test_per_axis_determinism.py` under the `@_PENDING_T8` skip mark — un-skip on Task 8 close.
 
 ### Pre-dispatch audit
 
