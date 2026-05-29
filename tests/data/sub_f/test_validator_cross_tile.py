@@ -264,26 +264,38 @@ def test_version_drift_across_tiles_raises(tmp_path: Path):
 
 
 def test_cross_reference_emitted_bref_disagrees_with_contract_raises(tmp_path: Path):
-    """NEGATIVE (cross-reference leg): a cell emits <bref_E_MAJOR> but sub-E's
-    contract says MINOR_ROAD for that cell's East edge.
+    """NEGATIVE (cross-reference leg): both cells emit <bref_MAJOR> on the
+    shared edge, but the sub-E contract says MINOR_ROAD for that edge.
 
     Rule-isolated: versions are consistent (single tile, valid provenance);
-    only cell (0,0) emits, and it is a ROAD feature on its OWN East edge, so
-    non-road passes and symmetry has no contradicting neighbour (neighbour
-    (1,0) emits nothing on its West edge; symmetry compares emitted sets, and
-    the disagreement here is cell-vs-CONTRACT, not cell-vs-neighbour). The
-    contract disagreement is the only fault -> 'cross-reference' substring.
+    BOTH cell (0,0) and its East neighbour (1,0) emit MAJOR on their shared
+    edge, so:
+      - symmetry PASSES: (0,0).East={MAJOR_ROAD} == (1,0).West={MAJOR_ROAD}.
+      - non-road PASSES: both are road (highway) features.
+      - coverage PASSES: active edge has road features AND brefs are emitted,
+        symmetry is satisfied.
+      - cross-reference FIRES: emitted MAJOR disagrees with contract MINOR_ROAD.
+    The ONLY fault is emitted-MAJOR vs contract-MINOR ->
+    'cross-reference' substring confirms the target leg fired.
+
+    Isolation verified by leg-neutering: with _check_cross_reference body
+    replaced by `return`, this test no longer raises CrossTileValidationError,
+    confirming no other leg fires on this fixture.
     """
     sub_f = tmp_path / "sub_f"
     sub_e = tmp_path / "sub_e"
 
     rows = _empty_cell_rows()
-    # Cell (0,0) emits a MAJOR bref on East edge.
-    chunk = _road_chunk_outbound("E", "MAJOR_ROAD")
-    _set_cell(rows, 0, 0, chunk, feature_count=1)
+    # Cell (0,0) emits MAJOR on East edge.
+    _set_cell(rows, 0, 0, _road_chunk_outbound("E", "MAJOR_ROAD"), feature_count=1)
+    # Cell (1,0) ALSO emits MAJOR on West edge — same shared edge, same class.
+    # Symmetry sees (0,0).East={MAJOR_ROAD} == (1,0).West={MAJOR_ROAD} -> passes.
+    _set_cell(rows, 1, 0, _road_chunk_outbound("W", "MAJOR_ROAD"), feature_count=1)
 
-    # Contract: East edge of (0,0) = slot_kind=1, lower_i=0, lower_j=0, axis=0,
-    # activated as MINOR_ROAD (enum=3) -> disagrees with the emitted MAJOR.
+    # Contract: shared East/West edge of (0,0)/(1,0) is active as MINOR_ROAD
+    # (scope_marker=0, boundary_class_enum=3). Both cells emit MAJOR -> cross-
+    # reference fires (MAJOR != MINOR). Symmetry is unaffected because both
+    # cells agree on MAJOR with each other; the disagreement is with the contract.
     overrides = {(1, 0, 0, 0): {"scope_marker": 0, "boundary_class_enum": 3}}
 
     _write_tile(sub_f, sub_e, "tile=0_0", rows, contract_overrides=overrides)
