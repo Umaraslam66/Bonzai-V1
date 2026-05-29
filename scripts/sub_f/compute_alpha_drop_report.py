@@ -6,10 +6,15 @@ composition, and the % of total per-type observations the drop set captures.
 This makes the β-upgrade decision data-driven once sub-E lands and stage-4
 is measured.
 
-Recreates the per-cell length computation of `compute_budget_surface.py`
-(same Case-A formula, same stage-4 formula fallback, same anchor scheme
-from the BP2 lock) so the drop report is consistent with the budget surface
-this report is grading.
+Per-cell length uses the CHUNKED, encoder-faithful Case-A token cost from
+`cfm.data.sub_f.token_cost.feature_token_cost` — the same budget-accounting
+twin (pinned against the encoder) used by the chunked-budget audit. This
+replaces the previous UNCHUNKED `3 + n_anchor + 2*(v-1)` formula, which
+under-counted long road segments (it ignored the §3.5 32m chunking) and
+mis-modelled Multi* features (it concatenated parts rather than splitting them
+per-feature as `encode_cell` does). Grading the drop set against the chunked
+budget with an unchunked length would compare apples to oranges and produce
+wrong drop counts; see the Halt 4 revisit (2026-05-29).
 """
 
 from __future__ import annotations
@@ -23,31 +28,12 @@ import pyarrow.parquet as pq
 import yaml
 from shapely.wkb import loads as wkb_loads
 
+from cfm.data.sub_f.token_cost import feature_token_cost
+
 ROOT = Path(__file__).resolve().parents[2]
 
-# Match compute_budget_surface.py defaults.
+# Spec §7.2 stage-4 estimate (sub-E absent); matches audit_chunked_budget.py.
 STAGE_4_FORMULA_TOKENS_PER_NONEMPTY_CELL = 0.7
-
-
-def _vertex_count(geom) -> int:
-    gt = geom.geom_type
-    if gt == "LineString":
-        return len(geom.coords)
-    if gt == "Polygon":
-        return len(geom.exterior.coords)
-    if gt == "Point":
-        return 1
-    if gt == "MultiPoint":
-        return sum(1 for _ in geom.geoms)
-    if gt == "MultiLineString":
-        return sum(len(part.coords) for part in geom.geoms)
-    if gt == "MultiPolygon":
-        return sum(len(part.exterior.coords) for part in geom.geoms)
-    return 0
-
-
-def case_a_tokens(v: int, n_anchor: int) -> int:
-    return 3 + n_anchor + 2 * (v - 1) if v >= 1 else 2
 
 
 def main() -> int:
@@ -57,13 +43,13 @@ def main() -> int:
         "--budget-raw",
         type=int,
         required=True,
-        help="Raw budget at chosen quantile (e.g. 5792 for P99.9).",
+        help="Raw budget at chosen quantile (e.g. 5899 for chunked P99.9).",
     )
     parser.add_argument(
         "--budget-padded",
         type=int,
         required=True,
-        help="Padded budget at chosen quantile (e.g. 5888 for P99.9 with 128 padding).",
+        help="Padded budget at chosen quantile (e.g. 6016 for chunked P99.9 with 128 padding).",
     )
     parser.add_argument(
         "--label",
@@ -98,10 +84,9 @@ def main() -> int:
         table = pq.ParquetFile(path).read()
         for r in table.to_pylist():
             geom = wkb_loads(r["geometry"])
-            v = _vertex_count(geom)
             fc = int(r["feature_class"])
             cell_key = (tile_i, tile_j, int(r["cell_i"]), int(r["cell_j"]))
-            per_cell[cell_key]["length"] += case_a_tokens(v, n_anchor)
+            per_cell[cell_key]["length"] += feature_token_cost(geom, n_anchor)
             per_cell[cell_key]["by_type"][fc] += 1
             total_by_type[fc] += 1
 
@@ -138,6 +123,11 @@ def main() -> int:
         "_status": "PROPOSED - companion to sequence_length_analysis.yaml",
         "anchor_scheme_used": anchor_scheme,
         "n_anchor": n_anchor,
+        "per_feature_cost_provenance": (
+            "chunked_encoder_faithful_case_a "
+            "(cfm.data.sub_f.token_cost.feature_token_cost; pinned against encoder; "
+            "Multi* split per-part per encode_cell)"
+        ),
         "stage_4_provenance": "formula_derived_per_spec_7_2_no_sub_e_cache",
         "budget_raw": args.budget_raw,
         "budget_padded": args.budget_padded,

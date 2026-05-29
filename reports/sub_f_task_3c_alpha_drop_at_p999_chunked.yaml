@@ -1,7 +1,7 @@
-_status: SUPERSEDED 2026-05-29 - PRE-CHUNKING baseline (UNCHUNKED Case-A cost, budget 5792/5888). Retained for audit trail. The chunked re-lock (revisit_2026_05_29) uses reports/sub_f_task_3c_alpha_drop_at_p999_chunked.yaml at budget 5899/6016. See configs/sub_f/sequence_length_analysis.yaml lock.revisit_2026_05_29.
+_status: PROPOSED - companion to sequence_length_analysis.yaml
 anchor_scheme_used: hierarchical
-budget_padded: 5888
-budget_raw: 5792
+budget_padded: 6016
+budget_raw: 5899
 drop_fraction_pct: 0.09805161943319837
 drop_set_by_type:
   0:
@@ -21,21 +21,23 @@ drop_set_by_type:
     n_features_dropped: 12
     n_features_total: 15333
 dropped_cell_length_head_top10:
-- 8966
-- 8210
-- 8181
-- 7980
-- 7741
-- 7424
-- 7323
-- 7265
-- 7051
-- 7012
-dropped_cell_length_max: 8966
-dropped_cell_length_median: 6692
-dropped_cell_length_min: 5797
+- 9032
+- 8374
+- 8359
+- 8070
+- 7817
+- 7616
+- 7497
+- 7489
+- 7203
+- 7165
+dropped_cell_length_max: 9032
+dropped_cell_length_median: 6914
+dropped_cell_length_min: 5920
 n_anchor: 4
 n_cells_dropped: 31
 n_cells_retained: 31585
 n_cells_total: 31616
+per_feature_cost_provenance: chunked_encoder_faithful_case_a (cfm.data.sub_f.token_cost.feature_token_cost;
+  pinned against encoder; Multi* split per-part per encode_cell)
 stage_4_provenance: formula_derived_per_spec_7_2_no_sub_e_cache

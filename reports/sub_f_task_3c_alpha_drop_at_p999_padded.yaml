@@ -1,4 +1,4 @@
-_status: PROPOSED - companion to sequence_length_analysis.yaml
+_status: SUPERSEDED 2026-05-29 - PRE-CHUNKING baseline (UNCHUNKED Case-A cost, padded cut at 5888). Retained for audit trail. The chunked re-lock (revisit_2026_05_29) uses reports/sub_f_task_3c_alpha_drop_at_p999_chunked_padded.yaml at padded cut 6016 - this is the basis for the locked per-type floors. See configs/sub_f/sequence_length_analysis.yaml lock.revisit_2026_05_29.
 anchor_scheme_used: hierarchical
 budget_padded: 5888
 budget_raw: 5888
