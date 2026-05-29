@@ -114,6 +114,80 @@ Two reviewer sub-decisions remain even with feedback adopted:
 - Characterise the feedback max=9.66m tail (degenerate geometry? near-180° turns?).
 - Re-affirm determinism (feedback is a deterministic function of canonical coords — BP5 preserved).
 
+## ADDENDUM (2026-05-29, post-reviewer pre-lock checks) — error-feedback DISQUALIFIED; recommendation revised
+
+The reviewer approved error-feedback conditionally and required three pre-lock
+checks. They reopened the comparison:
+
+**Check 1 — feedback tail (`reports/sub_f_halt2_residual_checks.yaml`).** The 9.66m
+feedback max is a *wiggly road* (MultiLineString, 80 vertices, max segment 1.2m,
+total 66m, `is_simple=True`) — accumulated drift over many tiny segments, not
+degenerate geometry. Benign in shape.
+
+**Check 2 — angle round-trip (the OTHER Halt 2 threshold). FAILS for feedback.**
+Right-angle building-corner post-deviation, 2.0M corners:
+
+| variant | non-catastrophic p95 | p99 | catastrophic (>45°) |
+|---|---|---|---|
+| baseline 48 | 7.5° (= locked) | 11.0° | 3,495 |
+| **feedback 48** | **22.5°** | 37.5° | **33,735 (10×)** |
+
+Error-feedback's per-chunk re-aiming dithers edge directions; on short building
+edges (drift comparable to edge length) this swings reconstructed corners wildly.
+Feedback fixes position but **regresses the angle threshold 3×** — a real lock
+cost the position-only comparison hid. **Feedback is disqualified.**
+
+**Check 3 — determinism (`...residual_checks.yaml`).** Within-process: DETERMINISTIC
+(0 token-stream mismatches). Cross-runtime tie exposure (chunk directions within
+1e-7° of a bin boundary, where a cross-libm atan2 1-ULP diff could flip the bin):
+feedback 7,672 vs baseline 26,507 of 847k chunks — feedback is *not worse*. Not a
+blocker (and moot now that feedback is out). Cross-env remains the existing
+end-of-Phase-1 deferral (§1.4 #4).
+
+**Reopened comparison — open-loop more-directions (`...direction_sweep.yaml`).** No
+dithering, so angle is preserved/improved at every N:
+
+| N | bin | pos p95 | pos p99.9 | pos max | angle p95 | angle cat |
+|---|---|---|---|---|---|---|
+| 48 | 7.5° | 8.85 | 28.3 | 33.5 | 7.5° | 3,495 |
+| 144 | 2.5° | 3.04 | 8.84 | 14.0 | 2.5° | 1,771 |
+| 256 | 1.41° | — | 5.00 | 14.2 | 2.8° | 1,553 |
+| 360 | 1.0° | — | 3.68 | 14.1 | 3.0° | 1,558 |
+
+Two facts: (a) **angle holds p95 ≤ 7.5° at every N** (open-loop never regresses it;
+more N halves catastrophic). (b) **position max plateaus at ~14m regardless of N** —
+an accumulation floor (wiggly features) that directions cannot remove; only
+re-anchoring or feedback bounds it.
+
+**The metric-mismatch fix changes the answer.** 4.8m was *derived* as the sample
+p95 (§ root cause above). Enforcing it at the same statistic (p95 ≤ 4.8m), the
+position holds at **N ≈ 96–144** (measured: 144 → p95 = 3.04m). Only a stricter
+p99.9 gate needs N = 360.
+
+### Revised recommendation
+
+**Open-loop more directions**, gate at **p95 ≤ 4.8m** (honouring the lock's
+derivation statistic — the metric-mismatch lesson), at the minimal N that holds
+it with margin (measured safe at 144; ~96–128 likely sufficient — pin precisely
+during implementation). This:
+- fixes the real gap (position p95 8.85 → ~3m) **without** the angle regression
+  feedback caused;
+- leaves the BP3 budget untouched (tokens-per-pair unchanged);
+- preserves the angle threshold;
+- documents the irreducible position max (~14m, wiggly features) and the residual
+  catastrophic corners (~1,771 at N=144) as v1 known-loss — consistent with the
+  already-accepted right-angle catastrophic known-loss.
+
+Cost: a direction-sub-block vocab expansion (48 → N) → BP2 / sentinel-inventory
+ID-layout re-lock (mechanical but non-trivial; the dir block 396..443 grows and
+cascades the magnitude / structural / BP7 / reserved bases).
+
+**Open question for the reviewer (gate statistic):** p95 (per derivation; N≈96–144;
+~14m max tail documented as known-loss) **vs** a stricter p99.9 gate (N=360) **vs**
+also bounding the max (requires re-anchor — +tokens, a BP3 budget pass). The
+position-max tail cannot be removed by directions alone, so a max-based gate is
+not achievable on the directions axis.
+
 ## Artifacts
 
 - `scripts/sub_f/scope_halt2_roundtrip.py` → `reports/sub_f_halt2_roundtrip_scoping.yaml`

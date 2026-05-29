@@ -1,0 +1,80 @@
+_status: SCOPING - open-loop direction sweep (position + angle); NO lock changes.
+n_right_angle_corners: 2014729
+note: open-loop (no dithering) so angle is preserved/improved unlike error-feedback.
+  Pick N holding BOTH position p99.9<=4.8m AND angle p95<=7.5deg.
+sweep:
+- N_directions: 48
+  bin_width_deg: 7.5
+  position_l_inf_m:
+    p95: 9.77
+    p99: 18.186
+    p99_9: 28.312
+    max: 33.462
+  angle_noncatastrophic_deg:
+    p95: 7.5
+    p99: 11.035
+    p99_9: 34.494
+    max: 45.0
+  angle_catastrophic_gt45_count: 3495
+  position_p99_9_holds_4_8m: false
+  angle_p95_holds_7_5deg: true
+- N_directions: 144
+  bin_width_deg: 2.5
+  position_l_inf_m:
+    p95: 3.347
+    p99: 6.034
+    p99_9: 8.839
+    max: 14.009
+  angle_noncatastrophic_deg:
+    p95: 2.5
+    p99: 8.13
+    p99_9: 28.944
+    max: 45.0
+  angle_catastrophic_gt45_count: 1771
+  position_p99_9_holds_4_8m: false
+  angle_p95_holds_7_5deg: true
+- N_directions: 192
+  bin_width_deg: 1.875
+  position_l_inf_m:
+    p95: 2.525
+    p99: 4.523
+    p99_9: 6.653
+    max: 14.043
+  angle_noncatastrophic_deg:
+    p95: 3.013
+    p99: 8.13
+    p99_9: 28.44
+    max: 45.0
+  angle_catastrophic_gt45_count: 1640
+  position_p99_9_holds_4_8m: false
+  angle_p95_holds_7_5deg: true
+- N_directions: 256
+  bin_width_deg: 1.406
+  position_l_inf_m:
+    p95: 1.938
+    p99: 3.399
+    p99_9: 4.999
+    max: 14.153
+  angle_noncatastrophic_deg:
+    p95: 2.813
+    p99: 7.727
+    p99_9: 27.125
+    max: 45.0
+  angle_catastrophic_gt45_count: 1553
+  position_p99_9_holds_4_8m: false
+  angle_p95_holds_7_5deg: true
+- N_directions: 360
+  bin_width_deg: 1.0
+  position_l_inf_m:
+    p95: 1.455
+    p99: 2.475
+    p99_9: 3.675
+    max: 14.101
+  angle_noncatastrophic_deg:
+    p95: 3.0
+    p99: 7.422
+    p99_9: 26.742
+    max: 45.0
+  angle_catastrophic_gt45_count: 1558
+  position_p99_9_holds_4_8m: true
+  angle_p95_holds_7_5deg: true

@@ -1,0 +1,95 @@
+_status: SCOPING - Halt 2 pre-lock residual checks; NO lock changes.
+check_1_feedback_tail_top8:
+- l_inf_m: 9.664
+  type: roads
+  geom_type: MultiLineString
+  n_vertices: 80
+  max_segment_m: 1.2
+  total_len_m: 66.5
+  max_turn_deg: 7.0
+  shapely_is_simple: true
+- l_inf_m: 8.6
+  type: roads
+  geom_type: LineString
+  n_vertices: 114
+  max_segment_m: 0.7
+  total_len_m: 79.2
+  max_turn_deg: 5.0
+  shapely_is_simple: true
+- l_inf_m: 7.915
+  type: roads
+  geom_type: LineString
+  n_vertices: 115
+  max_segment_m: 18.0
+  total_len_m: 292.4
+  max_turn_deg: 20.9
+  shapely_is_simple: true
+- l_inf_m: 6.337
+  type: base
+  geom_type: Polygon
+  n_vertices: 47
+  max_segment_m: 117.9
+  total_len_m: 1120.7
+  max_turn_deg: 161.6
+  shapely_is_simple: true
+- l_inf_m: 6.182
+  type: roads
+  geom_type: LineString
+  n_vertices: 15
+  max_segment_m: 45.0
+  total_len_m: 331.6
+  max_turn_deg: 30.2
+  shapely_is_simple: true
+- l_inf_m: 6.164
+  type: roads
+  geom_type: LineString
+  n_vertices: 61
+  max_segment_m: 18.6
+  total_len_m: 57.1
+  max_turn_deg: 6.3
+  shapely_is_simple: true
+- l_inf_m: 6.085
+  type: roads
+  geom_type: LineString
+  n_vertices: 17
+  max_segment_m: 31.3
+  total_len_m: 339.1
+  max_turn_deg: 27.2
+  shapely_is_simple: true
+- l_inf_m: 5.941
+  type: buildings
+  geom_type: Polygon
+  n_vertices: 77
+  max_segment_m: 0.7
+  total_len_m: 53.7
+  max_turn_deg: 6.2
+  shapely_is_simple: true
+check_2_angle_roundtrip_right_angle_corners:
+  metric: post-roundtrip |corner_angle - 90deg| on building corners with input within
+    5deg of 90; non-catastrophic p95 is the Halt 2 basis (7.5deg)
+  total_right_angle_corners_measured: 2014729
+  baseline_non_catastrophic_deg:
+    n: 2011234
+    p50: 0.0
+    p95: 7.5
+    p99: 11.0348
+    max: 45.0
+  feedback_non_catastrophic_deg:
+    n: 1981029
+    p50: 7.5
+    p95: 22.5
+    p99: 37.5
+    max: 45.0
+  baseline_catastrophic_gt45_count: 3495
+  feedback_catastrophic_gt45_count: 33735
+check_3_determinism:
+  within_process_token_stream_mismatches: 0
+  within_process_verdict: DETERMINISTIC
+  feedback_chunk_dirs_within_1e-7deg_of_bin_boundary: 7672
+  baseline_chunk_dirs_within_1e-7deg_of_bin_boundary: 26507
+  total_feedback_chunks_sampled: 847461
+  cross_runtime_note: 'Within-env determinism is what BP5 locks; cross-env (dev darwin/arm64
+    vs Leonardo linux/x86_64) is the existing end-of-Phase-1 deferral (spec 1.4 #4).
+    Tie exposure above estimates how many feedback direction decisions a cross-libm
+    atan2 1-ULP difference could flip; ~0 means feedback does not materially raise
+    the deferred cross-env risk.'
