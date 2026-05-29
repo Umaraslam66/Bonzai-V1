@@ -363,21 +363,30 @@ def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
     # (commit 4c4f880, 2026-05-28): BP2 status carries the consumption note;
     # used_count/reserved_count reflect the 2 consumed slots;
     # reserved_v2_headroom shrank from the front (509-1499 -> 511-1499).
+    # Halt-2 revisit 2026-05-29: direction widened 48->360 + relocated
+    # 396..443 -> 511..870 (append-safe into reserved front); old block retired
+    # to direction_v1_deprecated; magnitude/structural/anchor unchanged.
     assert bp2["status"] == (
         "LOCKED at Halt 2 approval; "
-        "structural_sentinels consumed at T8 plan-write 2026-05-28"
+        "structural_sentinels consumed at T8 plan-write 2026-05-28; "
+        "direction widened 48->360 + relocated 396..443->511..870 at Halt-2 revisit 2026-05-29"
     )
-    assert bp2["used_count"] == 211
-    assert bp2["reserved_count"] == 989
+    assert bp2["used_count"] == 571
+    assert bp2["reserved_count"] == 629
     assert bp2["sub_blocks"]["anchor"] == {
         "start_id": 300,
         "end_id": 395,
         "slot_count": 96,
     }
-    assert bp2["sub_blocks"]["direction"] == {
+    assert bp2["sub_blocks"]["direction_v1_deprecated"] == {
         "start_id": 396,
         "end_id": 443,
         "slot_count": 48,
+    }
+    assert bp2["sub_blocks"]["direction"] == {
+        "start_id": 511,
+        "end_id": 870,
+        "slot_count": 360,
     }
     assert bp2["sub_blocks"]["magnitude"] == {
         "start_id": 444,
@@ -385,9 +394,9 @@ def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
         "slot_count": 65,
     }
     assert bp2["sub_blocks"]["reserved_v2_headroom"] == {
-        "start_id": 511,
+        "start_id": 871,
         "end_id": 1499,
-        "slot_count": 989,
+        "slot_count": 629,
     }
     # Structural sentinels consumed from reserved_v2_headroom front. Locked
     # record lives under bp2["consumed_from_reserved_v2_headroom"]["slots"].
@@ -410,15 +419,17 @@ def test_load_sub_f_vocab_returns_all_on_disk_families_in_id_order():
     Families: BP1 semantic + BP4 unknown + BP2 encoding_primitive + structural + BP7.
     On-disk excludes dataloader sentinels (256-260 per sentinel_inventory.yaml
     dataloader_sentinels block, on_disk=false). Total on-disk count is the sum
-    of BP1 used (127) + BP4 used (28) + BP2 encoding_primitive used (209) +
+    of BP1 used (127) + BP4 used (28) + BP2 encoding_primitive used (521 after the
+    Halt-2 revisit 2026-05-29 widened direction 48->360; = 96 anchor + 360 direction
+    + 65 magnitude; the retired direction_v1_deprecated 48 is NOT emitted) +
     structural sentinels (2 - <feature>/<feature_end> at 509/510, consumed
     from BP2 reserved_v2_headroom front per pre-flight Assertion 4) +
-    BP7 used (8) = 374 slots.
+    BP7 used (8) = 686 slots.
     """
     from cfm.data.sub_f.vocab import load_sub_f_vocab
 
     slots = load_sub_f_vocab()
-    assert len(slots) == 374, f"expected 374 on-disk slots; got {len(slots)}"
+    assert len(slots) == 686, f"expected 686 on-disk slots; got {len(slots)}"
 
     # Strictly ascending token_id (per `feedback_pythonhashseed_dict_iteration_test`
     # the loader must produce deterministic order, not hash-order).
@@ -434,14 +445,25 @@ def test_load_sub_f_vocab_returns_all_on_disk_families_in_id_order():
     bp7 = [s for s in slots if s.family == "boundary_reference"]
     assert len(bp1) == 127
     assert len(bp4) == 28
-    assert len(bp2) == 209  # anchor 96 + direction 48 + magnitude 65
+    # Halt-2 revisit 2026-05-29: anchor 96 + direction 360 + magnitude 65 = 521
+    # (was 209 at direction=48). The retired direction_v1_deprecated (396-443) is
+    # NOT emitted into the encoding_primitive family.
+    assert len(bp2) == 521
     assert len(structural) == 2  # <feature> + <feature_end>
     assert len(bp7) == 8
 
     # ID-range invariants from sentinel_inventory.yaml.
     assert all(0 <= s.token_id <= 126 for s in bp1)
     assert all(200 <= s.token_id <= 227 for s in bp4)
-    assert all(300 <= s.token_id <= 508 for s in bp2)
+    # BP2 encoding_primitive IDs span anchor (300-395) + magnitude (444-508) +
+    # direction (511-870, relocated at the Halt-2 revisit). NONE fall in the
+    # retired direction_v1_deprecated block (396-443) or the structural slots
+    # (509-510) — this binds the append-safe relocation.
+    assert all(
+        (300 <= s.token_id <= 395) or (444 <= s.token_id <= 508) or (511 <= s.token_id <= 870)
+        for s in bp2
+    )
+    assert not any(396 <= s.token_id <= 443 for s in bp2), "deprecated 396-443 must NOT be emitted"
     assert {s.token_id for s in structural} == {509, 510}
     assert all(1500 <= s.token_id <= 1507 for s in bp7)
 

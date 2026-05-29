@@ -9,6 +9,7 @@ lock_metadata:
   halt: Halt 2
   status: APPROVED_LOCKED
   task: Sub-F Task 2 BP2 encoder primitives
+  approved_lock_values_superseded_2026_05_29: "HISTORICAL Halt-2-original record (2026-04-15), derived from the 1000-polyline sample below. SUPERSEDED by the Halt-2 revisit 2026-05-29: direction_count 48->360, round_trip_angle_threshold_deg 7.5->4.0, round_trip_l_inf_threshold_m 4.8 re-affirmed at p99.9 (not the 1000-sample p95). The OPERATIVE lock is `proposed_lock` at the bottom of this file (+ its revisit_2026_05_29 block). This block is retained as the original-derivation audit trail only."
   approved_lock_values:
     direction_count: 48
     magnitude_quantum_m: 0.5
@@ -1570,20 +1571,26 @@ bp2_placeholder_fit:
   placeholder_end_id: 1499
   placeholder_range: 300..1499
   placeholder_slot_count: 1200
-  proposed_required_slots: 209
+  proposed_required_slots: 521  # Halt-2 revisit 2026-05-29: 96 anchor + 360 direction + 65 magnitude (was 209 at direction=48)
   components:
     anchor_vocab_size: 96
-    direction_vocab_size: 48
+    direction_vocab_size: 360  # Halt-2 revisit 2026-05-29 (was 48); direction block relocated 396..443 -> 511..870
     magnitude_vocab_size: 65
-  fits_placeholder: true
+  fits_placeholder: true  # 521 encoding-primitive slots (+ 48 retired + 2 structural) fit in the 1200-slot 300..1499 range; 871..1499 (629) remain reserved
 proposed_lock:
-  direction_count: 48
+  direction_count: 360
   magnitude_quantum_m: 0.5
   anchor_scheme: hierarchical
   chunk_threshold_m: 32
   round_trip_l_inf_threshold_m: 4.8
-  round_trip_l_inf_threshold_status: LOCKED_HALT_2_APPROVED
-  round_trip_angle_threshold_deg: 7.5
-  round_trip_angle_threshold_status: LOCKED_HALT_2_APPROVED
+  round_trip_l_inf_threshold_status: LOCKED_HALT_2_REVISIT_2026_05_29
+  round_trip_angle_threshold_deg: 4.0
+  round_trip_angle_threshold_status: LOCKED_HALT_2_REVISIT_2026_05_29
   collinearity_admission_perpendicular_m: 0.928048
-  rationale: 'Halt 2 approved lock: 48 directions restore polyline-only L_inf p95 to the target band while fitting BP2; 0.5m quantum is kept because 0.25m adds magnitude vocabulary with little measured L_inf gain. Hierarchical anchors lock project design principle #1, cheap-to-keep and impossible-to-recover: flat consumes 1000/1200 BP2 slots while hierarchical consumes 96/1200, and the bounded sequence-length cost is recoverable training-compute cost while vocab namespace cost is permanent within phase. Right-angle catastrophic >45deg cases are accepted v1 known-loss and excluded from the non-catastrophic angle threshold.'
+  rationale: 'Halt 2 approved lock (2026-04-15): 48 directions restored polyline-only L_inf p95 to the target band while fitting BP2; 0.5m quantum is kept because 0.25m adds magnitude vocabulary with little measured L_inf gain. Hierarchical anchors lock project design principle #1, cheap-to-keep and impossible-to-recover: flat consumes 1000/1200 BP2 slots while hierarchical consumes 96/1200, and the bounded sequence-length cost is recoverable training-compute cost while vocab namespace cost is permanent within phase. Right-angle catastrophic >45deg cases are accepted v1 known-loss and excluded from the non-catastrophic angle threshold. HALT-2 REVISIT 2026-05-29: direction_count widened 48->360 (1deg bins). The original 4.8m/7.5deg were the p95 of a 1000-polyline sample that under-represented real data; T8.7 dispatch + the chunking fix (86f0c99) exposed that 48 directions drift L*sin(3.75deg) and accumulate over multi-vertex features (real position p95=8.8m at 48 dir). 360 directions holds position p99.9<=4.8m (measured 3.7m) and right-angle-corner post-deviation p95<=4.0deg (measured 3.0deg), improving BOTH axes with no dithering (error-feedback and re-anchor were scoped and rejected: each regresses the angle axis; see reports/sub_f_halt2_revisit_scoping.md). Budget unaffected (tokens-per-pair unchanged). See revisit_2026_05_29 below + §13.1.'
+  revisit_2026_05_29:
+    trigger: "T8.7 decoder round-trip gate exposed that the BP2 round-trip thresholds did not hold on real data. Root cause feedback_sample_regime_blind_locks: 4.8m/7.5deg were derived as the p95 of a 1000-polyline sample (l_inf_scope=polyline_only) that under-represented the real 862k-feature distribution; the chunking fix (86f0c99) then made long segments faithfully representable and unmasked the gap. 7.5deg was additionally just the N=48 bin width (a gate nothing could fail)."
+    change: "direction_count 48->360; round_trip_angle_threshold_deg 7.5->4.0 (re-derived FRESH, not inherited; measured real-data p95=3.0deg + margin); round_trip_l_inf_threshold_m 4.8 re-affirmed but enforced at p99.9 on real data (measured 3.7m), NOT the original 1000-sample p95."
+    direction_block_relocation: "48->360 cannot extend contiguously in place (magnitude 444-508 + structural 509-510 sit immediately after 396-443). Relocated append-safely to 511-870 in reserved_v2_headroom front (precedent: structural sentinels 509-510); old 396-443 retired to reserved; magnitude/structural/anchor/BP7 unchanged; reserved 989->629. See sentinel_inventory.yaml."
+    enforcement: "Position synthetic gate: tests/data/sub_f/test_decoder.py aggregate max<=4.8m (binds — failed at 25.8m on N=48). Angle gate is NOT unit-tested (its failure mode is data-dependent; a uniformly-rotated synthetic rectangle preserves exact-90deg corners at every N, giving false assurance) — bound by this YAML value + the real-data measurement + the close-checklist re-measure obligation, as the original 7.5deg was. Real-data p99.9 position + p95 angle re-measure is a close-checklist obligation."
+    rejected_alternatives: "error-feedback (position p99.9=4.1m at zero token cost, but angle catastrophic 3,500->33,735, 10x regression); re-anchor T=40 (position p99.9=4.7m but angle catastrophic ->6,664 AND +3.27% tokens forcing a 3rd BP3 budget pass). Both restructure relative vertex placement and regress the angle axis. More-directions refines quantization without restructuring -> improves both axes. Full comparison: reports/sub_f_halt2_revisit_scoping.md."

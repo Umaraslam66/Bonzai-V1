@@ -153,14 +153,16 @@ def test_proposed_lock_uses_approved_halt2_values(
     encoding_primitives,
 ):
     proposed = encoding_primitives["proposed_lock"]
-    assert proposed["direction_count"] == 48
+    # Halt-2 revisit 2026-05-29: direction 48->360, angle 7.5->4.0 (re-derived
+    # fresh at N=360), L_inf 4.8 re-affirmed at p99.9. See proposed_lock.revisit.
+    assert proposed["direction_count"] == 360
     assert proposed["magnitude_quantum_m"] == 0.5
     assert proposed["anchor_scheme"] == "hierarchical"
     assert proposed["chunk_threshold_m"] == 32
     assert proposed["round_trip_l_inf_threshold_m"] == 4.8
-    assert proposed["round_trip_l_inf_threshold_status"] == ("LOCKED_HALT_2_APPROVED")
-    assert proposed["round_trip_angle_threshold_deg"] == 7.5
-    assert proposed["round_trip_angle_threshold_status"] == ("LOCKED_HALT_2_APPROVED")
+    assert proposed["round_trip_l_inf_threshold_status"] == ("LOCKED_HALT_2_REVISIT_2026_05_29")
+    assert proposed["round_trip_angle_threshold_deg"] == 4.0
+    assert proposed["round_trip_angle_threshold_status"] == ("LOCKED_HALT_2_REVISIT_2026_05_29")
     assert proposed["collinearity_admission_perpendicular_m"] == 0.928048
 
 
@@ -209,20 +211,25 @@ def test_sentinel_inventory_locks_bp2_subranges(sentinel_inventory):
     bp2 = sentinel_inventory["bp2_encoding_primitives"]
     assert bp2["start_id"] == 300
     assert bp2["end_id"] == 1499
+    # Halt-2 revisit 2026-05-29: direction widened 48->360, relocated 396..443
+    # -> 511..870 (append-safe into reserved front); old block retired to
+    # direction_v1_deprecated; magnitude/structural/anchor unchanged.
     assert bp2["status"] == (
-        "LOCKED at Halt 2 approval; structural_sentinels consumed at T8 plan-write 2026-05-28"
+        "LOCKED at Halt 2 approval; structural_sentinels consumed at T8 plan-write 2026-05-28; "
+        "direction widened 48->360 + relocated 396..443->511..870 at Halt-2 revisit 2026-05-29"
     )
     assert bp2["placeholder"] is False
-    assert bp2["used_count"] == 211
-    assert bp2["reserved_count"] == 989
+    assert bp2["used_count"] == 571
+    assert bp2["reserved_count"] == 629
     assert bp2["sub_blocks"] == {
         "anchor": {"start_id": 300, "end_id": 395, "slot_count": 96},
-        "direction": {"start_id": 396, "end_id": 443, "slot_count": 48},
+        "direction_v1_deprecated": {"start_id": 396, "end_id": 443, "slot_count": 48},
         "magnitude": {"start_id": 444, "end_id": 508, "slot_count": 65},
+        "direction": {"start_id": 511, "end_id": 870, "slot_count": 360},
         "reserved_v2_headroom": {
-            "start_id": 511,
+            "start_id": 871,
             "end_id": 1499,
-            "slot_count": 989,
+            "slot_count": 629,
         },
     }
     assert "bp2_encoding_primitives_placeholder" not in sentinel_inventory
@@ -324,9 +331,15 @@ def test_proposed_lock_carries_chunk_threshold_metadata(encoding_primitives):
     proposed = encoding_primitives["proposed_lock"]
     sweep = encoding_primitives["l_inf_chunk_threshold_sweep_24_0_5_hierarchical"]
     assert proposed["chunk_threshold_m"] == sweep["proposed_chunk_threshold_m"]
+    # Halt-2 revisit 2026-05-29: direction_count is now DECOUPLED from the
+    # original direction-count sweep's proposed_direction_count (48). The sweep
+    # (rows 24/32/48/72) is the pre-revisit analysis; the revisit re-derived
+    # 360 fresh from real-data round-trip on the post-chunking encoder. The
+    # decoupling is itself the lesson (feedback_sample_regime_blind_locks).
     direction_sweep = encoding_primitives["l_inf_direction_count_sweep_0_5_hierarchical"]
-    assert proposed["direction_count"] == direction_sweep["proposed_direction_count"]
-    assert proposed["round_trip_l_inf_threshold_status"] == ("LOCKED_HALT_2_APPROVED")
+    assert direction_sweep["proposed_direction_count"] == 48  # pre-revisit analysis (historical)
+    assert proposed["direction_count"] == 360  # operative lock (revisit 2026-05-29)
+    assert proposed["round_trip_l_inf_threshold_status"] == ("LOCKED_HALT_2_REVISIT_2026_05_29")
 
 
 def test_right_angle_root_cause_reports_hypothesis_buckets(encoding_primitives):

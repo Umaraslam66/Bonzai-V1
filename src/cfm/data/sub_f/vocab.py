@@ -76,8 +76,11 @@ def _load_encoding_primitive_slots() -> list[VocabSlot]:
 
     Each slot's tag is synthesised from its sub-block + offset:
       - anchor:    `<anchor_${start_id_offset}>`   (96 slots, ids 300-395)
-      - direction: `<direction_${idx}>`            (48 slots, ids 396-443)
+      - direction: `<direction_${idx}>`            (360 slots, ids 511-870; Halt-2
+                   revisit 2026-05-29 widened 48->360 + relocated from 396-443)
       - magnitude: `<magnitude_${idx}>`            (65 slots, ids 444-508)
+    Only ("anchor", "direction", "magnitude") are emitted; the retired
+    "direction_v1_deprecated" block (396-443) is NOT iterated.
     """
     inv = yaml.safe_load((_CONFIGS / "sentinel_inventory.yaml").read_text(encoding="utf-8"))
     bp2 = inv["bp2_encoding_primitives"]["sub_blocks"]
@@ -153,4 +156,7 @@ def vocab_tag_to_id() -> dict[str, int]:
 
 
 # Total on-disk vocab count, used by tests + downstream checks.
-SUB_F_ON_DISK_TOTAL: Final[int] = 374  # BP1 127 + BP4 28 + BP2 209 + structural 2 + BP7 8
+# Halt-2 revisit 2026-05-29: direction 48->360 grew BP2 encoding_primitive 209->521
+# (96 anchor + 360 direction + 65 magnitude); retired direction_v1_deprecated (48) is
+# NOT emitted. Total on-disk: BP1 127 + BP4 28 + BP2 521 + structural 2 + BP7 8 = 686.
+SUB_F_ON_DISK_TOTAL: Final[int] = 686

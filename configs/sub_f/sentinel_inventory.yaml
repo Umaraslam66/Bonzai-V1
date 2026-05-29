@@ -9,16 +9,16 @@ bp1_semantic:
 bp2_encoding_primitives:
   end_id: 1499
   placeholder: false
-  reserved_count: 989
+  reserved_count: 629
   start_id: 300
-  status: LOCKED at Halt 2 approval; structural_sentinels consumed at T8 plan-write 2026-05-28
-  sub_block_ordering: anchor, direction, magnitude, reserved_v2_headroom
+  status: LOCKED at Halt 2 approval; structural_sentinels consumed at T8 plan-write 2026-05-28; direction widened 48->360 + relocated 396..443->511..870 at Halt-2 revisit 2026-05-29
+  sub_block_ordering: anchor, direction_v1_deprecated, magnitude, structural_sentinels(509-510), direction, reserved_v2_headroom
   sub_blocks:
     anchor:
       end_id: 395
       slot_count: 96
       start_id: 300
-    direction:
+    direction_v1_deprecated:
       end_id: 443
       slot_count: 48
       start_id: 396
@@ -26,12 +26,16 @@ bp2_encoding_primitives:
       end_id: 508
       slot_count: 65
       start_id: 444
+    direction:
+      end_id: 870
+      slot_count: 360
+      start_id: 511
     reserved_v2_headroom:
       end_id: 1499
-      slot_count: 989
-      start_id: 511
-  used_count: 211
-  used_range: 300..510
+      slot_count: 629
+      start_id: 871
+  used_count: 571
+  used_range: 300..870
   consumed_from_reserved_v2_headroom:
     rationale: |
       T8 plan-write (2026-05-28) surfaced spec §2.2 / sentinel_inventory.yaml
@@ -53,6 +57,27 @@ bp2_encoding_primitives:
       token: <feature_end>
       on_disk: true
       family_tag: structural
+  direction_relocation_2026_05_29:
+    rationale: |
+      Halt-2 revisit 2026-05-29 widened direction 48->360 (1deg bins) for
+      round-trip fidelity on long/wiggly real features (see
+      encoding_primitives.yaml proposed_lock.revisit_2026_05_29 + §13.1). 360
+      contiguous slots do NOT fit at the old direction base 396 — magnitude
+      (444-508) and structural sentinels (509-510) sit immediately after — so
+      extending in place would renumber locked IDs (append-only violation).
+      RESOLVED append-safely: the direction sub-block RELOCATES to 511-870
+      (360 contiguous slots consumed from the FRONT of reserved_v2_headroom, the
+      exact precedent the structural sentinels set). Magnitude, structural,
+      anchor, and BP7 are UNCHANGED — no locked non-direction ID moves. The old
+      396-443 block is RETIRED to direction_v1_deprecated (allocated-but-unused,
+      available for v2); it is NOT reused with new meaning (that would reassign
+      locked IDs, a worse violation than retiring). reserved_v2_headroom shrinks
+      989->629 (871-1499). Contiguity is a convention (arithmetic base offset),
+      preserved by relocation (new base 511); no mapping table needed.
+    old_direction_block: 396..443 (retired)
+    new_direction_block: 511..870
+    reserved_headroom_before: 511..1499 (989)
+    reserved_headroom_after: 871..1499 (629)
 bp4_unknown_family:
   end_id: 255
   reserved_count: 28

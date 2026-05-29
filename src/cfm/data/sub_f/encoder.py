@@ -30,7 +30,7 @@ from cfm.data.sub_f.vocab import vocab_tag_to_id
 
 # BP2 Halt 2 locked values — read here as module-level constants for fast
 # access in encoder hot paths. Source of truth is configs/sub_f/encoding_primitives.yaml.
-DEFAULT_DIRECTION_COUNT: Final[int] = 48
+DEFAULT_DIRECTION_COUNT: Final[int] = 360  # Halt-2 revisit 2026-05-29 (was 48); 1° bins
 DEFAULT_MAGNITUDE_QUANTUM_M: Final[float] = 0.5
 DEFAULT_ANCHOR_SCHEME: Final[str] = "hierarchical"
 DEFAULT_N_ANCHOR_TOKENS: Final[int] = 4  # hierarchical scheme -> 4 tokens
@@ -221,7 +221,13 @@ _FEATURE_END_TOKEN_ID = 510
 _HIERARCHICAL_ANCHOR_BASE = 300
 
 # Sub-block bases for direction/magnitude per sentinel_inventory.yaml.
-_DIRECTION_BASE = 396
+# Halt-2 revisit 2026-05-29: direction widened 48->360 (1° bins) for round-trip
+# fidelity on long/wiggly real features. 360 contiguous slots do not fit at the
+# old 396 base (magnitude 444-508 + structural 509-510 sit immediately after), so
+# the direction sub-block RELOCATES append-safely into reserved_v2_headroom at
+# 511-870; magnitude STAYS at 444 (unchanged); old 396-443 retired to reserved.
+# See sentinel_inventory.yaml direction + direction_v1_deprecated blocks.
+_DIRECTION_BASE = 511
 _MAGNITUDE_BASE = 444
 
 # Hierarchical anchor block width: 23 slots per sub-axis (hi/lo for x/y).
@@ -319,7 +325,8 @@ def _direction_magnitude_pair(dx: float, dy: float) -> list[int]:
     <magnitude_36>`)." Encoder MUST emit chunked pairs to avoid silent
     geometry loss on long segments.
 
-    Direction sub-block: ids 396..443 (48 slots).
+    Direction sub-block: ids 511..870 (360 slots, 1° bins; relocated from 396..443
+    at the Halt-2 revisit 2026-05-29 — see _DIRECTION_BASE).
     Magnitude sub-block: ids 444..508 (65 slots; 0.5m * (1..64), max 32m per pair).
 
     Returns a list of `2 * ceil(distance_m / 32)` tokens for `distance_m > 0`,

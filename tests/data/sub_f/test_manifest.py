@@ -28,13 +28,7 @@ from cfm.data.sub_f.versions import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 OVERTURE_PIN_PATH = REPO_ROOT / "configs" / "data" / "overture_release.yaml"
 SUB_C_SINGAPORE_MANIFEST_PATH = (
-    REPO_ROOT
-    / "data"
-    / "processed"
-    / "sub_c"
-    / "2026-04-15.0"
-    / "singapore"
-    / "manifest.yaml"
+    REPO_ROOT / "data" / "processed" / "sub_c" / "2026-04-15.0" / "singapore" / "manifest.yaml"
 )
 SENTINEL_INVENTORY_PATH = REPO_ROOT / "configs" / "sub_f" / "sentinel_inventory.yaml"
 
@@ -81,9 +75,7 @@ def test_sub_f_version_manifest_returns_matching_namespaced_refs():
 def test_source_version_is_composite_from_overture_pin_and_sub_c_manifest():
     source = load_sub_f_source_version()
     overture_pin = yaml.safe_load(OVERTURE_PIN_PATH.read_text(encoding="utf-8"))
-    sub_c_manifest = yaml.safe_load(
-        SUB_C_SINGAPORE_MANIFEST_PATH.read_text(encoding="utf-8")
-    )
+    sub_c_manifest = yaml.safe_load(SUB_C_SINGAPORE_MANIFEST_PATH.read_text(encoding="utf-8"))
 
     assert source == {
         "overture_release": overture_pin["release"],
@@ -91,9 +83,7 @@ def test_source_version_is_composite_from_overture_pin_and_sub_c_manifest():
         "sub_c_commit_sha": sub_c_manifest["initial_extraction"]["commit_sha"],
     }
     assert encode_sub_f_source_version(source) == (
-        "overture=2026-04-15.0;"
-        "subc_schema=1.1;"
-        "subc_commit=12b1cdf8838d9f8b601ea4b2a859f905ee5ab368"
+        "overture=2026-04-15.0;subc_schema=1.1;subc_commit=12b1cdf8838d9f8b601ea4b2a859f905ee5ab368"
     )
 
 
@@ -210,10 +200,12 @@ def test_sentinel_inventory_keeps_bp2_and_bp7_locked():
     data = yaml.safe_load(SENTINEL_INVENTORY_PATH.read_text(encoding="utf-8"))
 
     # Post commit 4c4f880 (2026-05-28 sentinel-inventory fix): BP2 status
-    # carries the structural_sentinels-consumed note.
+    # carries the structural_sentinels-consumed note. Halt-2 revisit 2026-05-29
+    # appended the direction 48->360 + relocation note.
     assert data["bp2_encoding_primitives"]["status"] == (
         "LOCKED at Halt 2 approval; "
-        "structural_sentinels consumed at T8 plan-write 2026-05-28"
+        "structural_sentinels consumed at T8 plan-write 2026-05-28; "
+        "direction widened 48->360 + relocated 396..443->511..870 at Halt-2 revisit 2026-05-29"
     )
     assert data["bp2_encoding_primitives"]["start_id"] == 300
     assert data["bp2_encoding_primitives"]["end_id"] == 1499
