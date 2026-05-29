@@ -36,29 +36,21 @@ ROOT = Path(__file__).resolve().parents[2]
 STAGE_4_FORMULA_TOKENS_PER_NONEMPTY_CELL = 0.7
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--sub-c-region-dir", required=True, type=Path)
-    parser.add_argument(
-        "--budget-raw",
-        type=int,
-        required=True,
-        help="Raw budget at chosen quantile (e.g. 5899 for chunked P99.9).",
-    )
-    parser.add_argument(
-        "--budget-padded",
-        type=int,
-        required=True,
-        help="Padded budget at chosen quantile (e.g. 6016 for chunked P99.9 with 128 padding).",
-    )
-    parser.add_argument(
-        "--label",
-        type=str,
-        default="alpha_drop_at_chosen_elbow",
-        help="Label for output file naming.",
-    )
-    args = parser.parse_args()
+def compute_alpha_drop_report(
+    sub_c_region_dir: Path,
+    budget_raw: int,
+    budget_padded: int,
+) -> dict:
+    """Compute the alpha (tail-cell rejection) drop report and return it.
 
+    Pure computation: reads the sub-C region's per-tile features.parquet, grades
+    each cell against the chunked encoder-faithful Case-A token cost, and returns
+    the report dict (drop counts, per-type composition, length-tail stats). Does
+    NOT write any file or print — see ``main`` / ``run_alpha_drop_report`` for
+    the I/O wrappers. Extracted as a thin importable entrypoint so the Task 11
+    pipeline orchestrator can emit the warning-band composition into the region
+    run report without shelling out (close-checklist obligation).
+    """
     primitives = yaml.safe_load(
         (ROOT / "configs" / "sub_f" / "encoding_primitives.yaml").read_text(encoding="utf-8")
     )
@@ -71,7 +63,7 @@ def main() -> int:
         lambda: {"length": 0, "by_type": defaultdict(int)}
     )
 
-    tile_features = sorted(args.sub_c_region_dir.glob("tile=*/features.parquet"))
+    tile_features = sorted(sub_c_region_dir.glob("tile=*/features.parquet"))
     print(f"[alpha drop report] {len(tile_features)} tiles", flush=True)
     tile_keys: set[tuple[int, int]] = set()
     total_by_type: dict[int, int] = defaultdict(int)
@@ -103,12 +95,8 @@ def main() -> int:
 
     # Apply alpha at budget_raw (cells whose length exceeds raw quantile are dropped).
     n_cells_total = len(per_cell)
-    dropped_cells = [
-        (key, data) for key, data in per_cell.items() if data["length"] > args.budget_raw
-    ]
-    retained_cells = [
-        (key, data) for key, data in per_cell.items() if data["length"] <= args.budget_raw
-    ]
+    dropped_cells = [(key, data) for key, data in per_cell.items() if data["length"] > budget_raw]
+    retained_cells = [(key, data) for key, data in per_cell.items() if data["length"] <= budget_raw]
 
     # Per-type drop composition.
     dropped_by_type: dict[int, int] = defaultdict(int)
@@ -129,8 +117,8 @@ def main() -> int:
             "Multi* split per-part per encode_cell)"
         ),
         "stage_4_provenance": "formula_derived_per_spec_7_2_no_sub_e_cache",
-        "budget_raw": args.budget_raw,
-        "budget_padded": args.budget_padded,
+        "budget_raw": budget_raw,
+        "budget_padded": budget_padded,
         "n_cells_total": n_cells_total,
         "n_cells_dropped": len(dropped_cells),
         "n_cells_retained": len(retained_cells),
@@ -159,11 +147,29 @@ def main() -> int:
         else 0,
     }
 
-    out = ROOT / "reports" / f"sub_f_task_3c_{args.label}.yaml"
+    return output
+
+
+def run_alpha_drop_report(
+    sub_c_region_dir: Path,
+    budget_raw: int,
+    budget_padded: int,
+    label: str = "alpha_drop_at_chosen_elbow",
+) -> dict:
+    """Compute the report, write it to reports/, log a one-line summary, return it.
+
+    Thin importable entrypoint (also called by ``main``). The Task 11 pipeline
+    orchestrator calls this after a successful region derive to emit the
+    warning-band composition; it returns the report dict so the caller can log
+    the warning-band count + per-type composition into the region run report.
+    """
+    output = compute_alpha_drop_report(sub_c_region_dir, budget_raw, budget_padded)
+    out = ROOT / "reports" / f"sub_f_task_3c_{label}.yaml"
     out.write_text(yaml.safe_dump(output, sort_keys=True), encoding="utf-8")
     print(f"[alpha drop report] wrote {out}")
     print(
-        f"[alpha drop report] dropped {len(dropped_cells)}/{n_cells_total} cells "
+        f"[alpha drop report] dropped {output['n_cells_dropped']}/"
+        f"{output['n_cells_total']} cells "
         f"({output['drop_fraction_pct']:.3f}%); "
         f"per-type drop: "
         + ", ".join(
@@ -171,6 +177,37 @@ def main() -> int:
             f"({v['fraction_of_type_dropped_pct']:.3f}%)"
             for fc, v in output["drop_set_by_type"].items()
         )
+    )
+    return output
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sub-c-region-dir", required=True, type=Path)
+    parser.add_argument(
+        "--budget-raw",
+        type=int,
+        required=True,
+        help="Raw budget at chosen quantile (e.g. 5899 for chunked P99.9).",
+    )
+    parser.add_argument(
+        "--budget-padded",
+        type=int,
+        required=True,
+        help="Padded budget at chosen quantile (e.g. 6016 for chunked P99.9 with 128 padding).",
+    )
+    parser.add_argument(
+        "--label",
+        type=str,
+        default="alpha_drop_at_chosen_elbow",
+        help="Label for output file naming.",
+    )
+    args = parser.parse_args()
+    run_alpha_drop_report(
+        sub_c_region_dir=args.sub_c_region_dir,
+        budget_raw=args.budget_raw,
+        budget_padded=args.budget_padded,
+        label=args.label,
     )
     return 0
 
