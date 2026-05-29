@@ -40,8 +40,22 @@ _FEATURE_CLASS_TO_KEY: dict[int, str] = {
 
 
 def _semantic_tag_from_row(row: dict) -> str:
-    """Build "key=value" from sub-C row. class_raw can be None or a sentinel."""
-    key = _FEATURE_CLASS_TO_KEY[int(row["feature_class"])]
+    """Build "key=value" from sub-C row.
+
+    Reads row keys:
+      - ``feature_class`` (int): expected values 0=highway, 1=building,
+        2=poi (maps to "amenity"), 3=base (maps to "natural"). Any other
+        value raises ``ValueError``.
+      - ``class_raw`` (str | None): the raw OSM class tag value; may be
+        ``None`` or a sentinel; treated as empty string in either case.
+    """
+    fc = int(row["feature_class"])
+    key = _FEATURE_CLASS_TO_KEY.get(fc)
+    if key is None:
+        raise ValueError(
+            f"_semantic_tag_from_row: unknown feature_class {fc!r} "
+            f"(expected 0=highway, 1=building, 2=poi, 3=base)"
+        )
     value = row.get("class_raw") or ""
     return f"{key}={value}"
 

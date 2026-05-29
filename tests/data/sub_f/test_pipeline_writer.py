@@ -111,7 +111,7 @@ def _make_full_tile_contract_rows(
                     slot_kind = 2
                     slot_index = external_slot_idx
                     external_slot_idx += 1
-                row: dict = {
+                row = {
                     "slot_kind": slot_kind,
                     "slot_index": slot_index,
                     "lower_cell_i": lower_i,
@@ -358,7 +358,13 @@ def test_encode_tile_case_a_polygon_round_trip(tmp_path: Path):
     assert "coordinates" in decoded
     decoded_coords = [tuple(p) for p in decoded["coordinates"]]
 
-    # decoder returns LineString shape even for closed polygons (see decoder.py:144-155).
+    # decoder returns LineString shape even for closed polygons (see decoder.py:144-155):
+    # closed coord sequence with no bref tokens -> {"type": "LineString", ...}.
+    # Caller reconstructs Polygon from coords when needed; test anchors this contract.
+    assert decoded["type"] == "LineString", (
+        f"decode_feature should return type='LineString' for a closed polygon "
+        f"(no bref tokens); got {decoded['type']!r}"
+    )
     # Compare against canonical exterior coords.
     l_inf = _source_vertex_l_inf(canonical_coords, decoded_coords)
     assert l_inf <= _L_INF_THRESHOLD_M, (
@@ -669,6 +675,17 @@ def test_encode_tile_returns_out_path(tmp_path: Path):
 
     result = encode_tile(sub_c, sub_e, out)
     assert result == out
+
+
+def test_semantic_tag_from_row_unknown_feature_class_raises():
+    """_semantic_tag_from_row must raise ValueError with a clear message for
+    any feature_class outside {0, 1, 2, 3}.  Validates the structural boundary
+    guard added in T8.8 follow-up; prevents opaque KeyError on bad sub-C input.
+    """
+    from cfm.data.sub_f.pipeline_writer import _semantic_tag_from_row
+
+    with pytest.raises(ValueError, match="unknown feature_class"):
+        _semantic_tag_from_row({"feature_class": 4, "class_raw": None})
 
 
 def test_encode_tile_case_b_non_road_no_bref(tmp_path: Path):
