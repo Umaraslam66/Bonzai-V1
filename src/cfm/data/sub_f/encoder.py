@@ -307,22 +307,52 @@ def _hierarchical_anchor_tokens(x_m: float, y_m: float) -> list[int]:
     ]
 
 
+_MAX_MAGNITUDE_Q: Final[int] = 64  # 64 * 0.5m = 32m per spec §3.5 chunk threshold
+
+
 def _direction_magnitude_pair(dx: float, dy: float) -> list[int]:
-    """One (direction, magnitude) pair token list for a segment.
+    """(direction, magnitude) tokens for a segment, CHUNKED per spec §3.5.
+
+    Per spec §3.5: "Magnitudes beyond 32m broken into multiple direction +
+    magnitude pairs at the same direction (e.g., a 50m straight stretch
+    becomes `<direction_0> <magnitude_64>` followed by `<direction_0>
+    <magnitude_36>`)." Encoder MUST emit chunked pairs to avoid silent
+    geometry loss on long segments.
 
     Direction sub-block: ids 396..443 (48 slots).
-    Magnitude sub-block: ids 444..508 (65 slots; 0.5m * (1..64) plus a single
-    overflow marker at 444+64 = 508).
+    Magnitude sub-block: ids 444..508 (65 slots; 0.5m * (1..64), max 32m per pair).
+
+    Returns a list of `2 * ceil(distance_m / 32)` tokens for `distance_m > 0`,
+    grouped as (dir, mag) pairs all carrying the same direction. The final
+    pair carries the remainder. Zero-length segments emit a single
+    (dir, mag=1) pair as a minimum to preserve vertex count (matches the
+    pre-chunking magnitude_q = max(1, ...) floor).
     """
     angle_deg = math.degrees(math.atan2(dy, dx))
     direction = direction_bin(angle_deg)
     distance_m = math.hypot(dx, dy)
-    magnitude_q = max(1, min(64, quantize_coord_m(distance_m)))
-    return [_DIRECTION_BASE + direction, _MAGNITUDE_BASE + (magnitude_q - 1)]
+
+    # Quantize the total distance; the first ceil(total/64) - 1 chunks emit
+    # max magnitude (64 = 32m); the final chunk carries the remainder.
+    total_q = max(1, quantize_coord_m(distance_m))
+    out: list[int] = []
+    remaining = total_q
+    direction_token = _DIRECTION_BASE + direction
+    while remaining > 0:
+        chunk = min(_MAX_MAGNITUDE_Q, remaining)
+        out.append(direction_token)
+        out.append(_MAGNITUDE_BASE + (chunk - 1))
+        remaining -= chunk
+    return out
 
 
 def _vertex_pairs_dir_mag(coords: list[tuple[float, float]]) -> list[int]:
-    """For V vertices, emit 2*(V-1) tokens - one (dir, mag) pair per segment."""
+    """Emit (dir, mag) token pairs for V vertices, with chunking per §3.5.
+
+    Pre-§3.5-chunking: emitted exactly `2 * (V - 1)` tokens.
+    Post-§3.5-chunking: emits `2 * sum_segments(ceil(distance_m_i / 32))` tokens,
+    which is >= `2 * (V - 1)` and equal when all segments are ≤ 32m.
+    """
     out: list[int] = []
     for i in range(1, len(coords)):
         x1, y1 = coords[i - 1]
@@ -371,10 +401,12 @@ def encode_feature(
       - inbound_bref=set,  outbound_bref=None -> Case C
       - inbound_bref=set,  outbound_bref=set  -> Case D
 
-    BP7 emission - UNVERIFIED against real sub-E parquet; see close-checklist +
-    project_sub_e_cache_absent_t3c_code_inferred memory. inbound_bref /
-    outbound_bref values originate at T8.5's sub-E reader against the
-    documented schema.
+    BP7 emission: inbound_bref / outbound_bref values originate at T8.5's
+    sub-E reader (`src/cfm/data/sub_f/boundary_contract.py`) against the
+    source-derived contract (T8.5, commit efa6786, sub-E sources cited in
+    `_SUB_E_CONTRACT`). Residual debt: empirical T3c stage-4 ratio +
+    first real-data end-to-end flow, per
+    `reports/2026-05-23-phase-1-sub-F-close-checklist.md`.
     """
     tag_to_id = vocab_tag_to_id()
     coords = _extract_coords(geom)
@@ -400,7 +432,7 @@ def encode_feature(
         # Inbound bref prepended; per spec section 3.2, the anchor IS the
         # entry vertex which IS coords[0] (canonical convention).
         assert inbound_bref is not None  # narrows for type-checker
-        tokens.append(tag_to_id[inbound_bref])  # BP7 emission - UNVERIFIED
+        tokens.append(tag_to_id[inbound_bref])  # BP7: source-derived per T8.5
 
     anchor_x, anchor_y = coords[0]
     tokens.extend(_hierarchical_anchor_tokens(anchor_x, anchor_y))
@@ -412,7 +444,7 @@ def encode_feature(
 
     if case in ("B", "D"):
         assert outbound_bref is not None  # narrows for type-checker
-        tokens.append(tag_to_id[outbound_bref])  # BP7 emission - UNVERIFIED
+        tokens.append(tag_to_id[outbound_bref])  # BP7: source-derived per T8.5
 
     tokens.append(_FEATURE_END_TOKEN_ID)
     return EncodedFeature(case=case, semantic_tag=semantic_tag, tokens=tokens)

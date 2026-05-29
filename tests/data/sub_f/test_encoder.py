@@ -654,15 +654,19 @@ def test_encode_feature_case_c_inbound_road():
       <feature> <semantic_tag>
         <bref_dir_class>                       inbound bref (prepended)
         <anchor_x_q> <anchor_y_q>              entry vertex coords (on edge)
-        <direction_d> <magnitude_q>           x (V-1) pairs
+        <direction_d> <magnitude_q>           x (V-1) pairs (chunked per section 3.5)
       <feature_end>
 
-    Pattern: tokens = 1 + 1 + 1 + N_anchor + 2*(V-1) + 1 = 4 + N_anchor + 2*(V-1)
-    With n_anchor=4: tokens = 8 + 2*(V-1)
+    Base formula (all segments <= 32m, so no chunking):
+      tokens = 1 + 1 + 1 + N_anchor + 2*(V-1) + 1 = 8 + 2*(V-1)
+
+    Test uses 25m segments (under the 32m chunk threshold) so the base
+    formula holds. A separate test (test_long_segment_chunks_per_spec_3_5)
+    covers the chunking path.
     """
     from cfm.data.sub_f.encoder import encode_feature
 
-    geom = LineString([(0.0, 100.0), (50.0, 100.0), (100.0, 100.0)])
+    geom = LineString([(0.0, 100.0), (25.0, 100.0), (50.0, 100.0)])  # 25m segs
     encoded = encode_feature(
         geom,
         semantic_tag="highway=primary",
@@ -682,16 +686,19 @@ def test_encode_feature_case_d_through_road():
       <feature> <semantic_tag>
         <bref_dir_class>                       inbound
         <anchor_x_q> <anchor_y_q>              entry vertex
-        <direction_d> <magnitude_q>           x (V-2) inner pairs
+        <direction_d> <magnitude_q>           x (V-2) inner pairs (chunked per section 3.5)
         <bref_dir_class>                       outbound
       <feature_end>
 
-    Pattern: tokens = 5 + N_anchor + 2*(V-2)
-    With n_anchor=4: tokens = 9 + 2*(V-2)
+    Base formula (all segments <= 32m, so no chunking):
+      tokens = 5 + N_anchor + 2*(V-2) = 9 + 2*(V-2)
+
+    Test uses 25m segments under the 32m chunk threshold; chunking covered
+    separately by test_long_segment_chunks_per_spec_3_5.
     """
     from cfm.data.sub_f.encoder import encode_feature
 
-    geom = LineString([(0.0, 100.0), (125.0, 100.0), (250.0, 100.0)])
+    geom = LineString([(0.0, 100.0), (25.0, 100.0), (50.0, 100.0)])  # 25m segs
     encoded = encode_feature(
         geom,
         semantic_tag="highway=primary",
@@ -701,6 +708,71 @@ def test_encode_feature_case_d_through_road():
     assert encoded.case == "D"
     V = 3
     assert len(encoded.tokens) == 9 + 2 * (V - 2)
+
+
+def test_long_segment_chunks_per_spec_3_5():
+    """Per spec section 3.5: "Magnitudes beyond 32m broken into multiple
+    direction + magnitude pairs at the same direction (e.g., a 50m straight
+    stretch becomes <direction_0> <magnitude_64> followed by <direction_0>
+    <magnitude_36>)."
+
+    Test: a 50m horizontal stretch (anchor + 1 vertex 50m east) must emit
+    2 (dir, mag) pairs both pointing east; magnitudes 64 (=32m) + 36 (=18m).
+    Total decoded distance = 32m + 18m = 50m.
+    """
+    from cfm.data.sub_f.encoder import (
+        _DIRECTION_BASE,
+        _MAGNITUDE_BASE,
+        encode_feature,
+    )
+
+    geom = LineString([(0.0, 0.0), (50.0, 0.0)])  # 50m east, V=2
+    encoded = encode_feature(geom, semantic_tag="highway=residential")
+    # Case A; no brefs.
+    # Token shape: <feature> <semantic_tag> anchor(4 tokens) (dir,mag)*N <feature_end>
+    # 50m / 32m chunk threshold = 2 chunks → 4 tokens for (dir, mag) pairs.
+    # Total tokens: 1 + 1 + 4 + 4 + 1 = 11
+    assert len(encoded.tokens) == 11, (
+        f"expected 11 tokens (1 + 1 + 4 + 4 + 1) for 50m chunked feature; got {len(encoded.tokens)}"
+    )
+    # Body inspection: skip <feature>, <semantic_tag>, 4 anchor tokens → 4 tokens
+    # remaining before <feature_end>. They form 2 (dir, mag) pairs, both
+    # pointing east (direction=0 at 7.5° resolution).
+    body = encoded.tokens[6:-1]  # 4 tokens
+    assert len(body) == 4
+    # Both directions are the same (east).
+    assert body[0] == body[2]
+    # First mag = 64 (max, = 32m); second mag = 36 (= 18m).
+    assert body[1] == _MAGNITUDE_BASE + (64 - 1), (
+        f"first chunk should be max magnitude (64 quanta = 32m); "
+        f"got mag_idx={body[1] - _MAGNITUDE_BASE + 1}"
+    )
+    assert body[3] == _MAGNITUDE_BASE + (36 - 1), (
+        f"second chunk should be remainder (36 quanta = 18m); "
+        f"got mag_idx={body[3] - _MAGNITUDE_BASE + 1}"
+    )
+    # Direction should be east (0° = direction bin 0).
+    assert body[0] == _DIRECTION_BASE + 0
+
+
+def test_chunking_token_count_matches_ceil_distance_over_32():
+    """For any segment of length L, the number of emitted (dir, mag) pairs
+    equals ceil(L / 32m). The total magnitude across pairs equals L within
+    the quantization step (0.5m).
+
+    Tests with L = 32, 64, 96, 100 (boundaries of the chunking behavior).
+    """
+    import math
+
+    from cfm.data.sub_f.encoder import _direction_magnitude_pair
+
+    for distance_m in (32.0, 32.5, 64.0, 96.0, 100.0):
+        tokens = _direction_magnitude_pair(distance_m, 0.0)
+        n_pairs = len(tokens) // 2
+        assert n_pairs == math.ceil(distance_m / 32.0), (
+            f"distance={distance_m}m: expected ceil({distance_m}/32) = "
+            f"{math.ceil(distance_m / 32.0)} pairs; got {n_pairs}"
+        )
 
 
 def test_encode_feature_starts_with_feature_marker_ends_with_feature_end():

@@ -22,8 +22,11 @@ the schema). When that signal fires, the consumer needs updating.
 
 See the audit trail at `_SUB_E_CONTRACT`; see
 `reports/2026-05-23-phase-1-sub-F-close-checklist.md` for the residual
-absent-data obligation (first real sub-E read should succeed; spot-check
-T3c stage-4 ratio when sub-E lands).
+absent-real-data obligation: first end-to-end read of a real sub-E
+`boundary_contract.parquet` plus the T3c stage-4 empirical ratio
+spot-check, both pending sub-E cache regeneration. (The schema /
+dtype / enum / sentinel / hierarchy / join-key facts are NOT pending —
+those are source-derived from sub-E modules, T8.5 commit efa6786.)
 """
 
 from __future__ import annotations
