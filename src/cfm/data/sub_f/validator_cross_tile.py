@@ -2,7 +2,8 @@
 
 Per spec §4.7 + §8.1 BP7 row: the BP7 four-test composite
 (cross-reference, symmetry, non-road non-emission, coverage) PLUS
-version-manifest consistency across tiles.
+version-manifest consistency across tiles PLUS sha-uniqueness PLUS
+all-64-distinct-cells-present per tile.
 
 ALL-OF discipline (per BP2 fix 1 protocol-level lesson): every leg must
 pass independently; a single failure halts with a leg-specific message.
@@ -11,7 +12,8 @@ LEG DECOMPOSITION (T9 rule-isolation standard, per
 `feedback_gate_must_distinguish_regimes`): each BP7 leg is one private
 function (`_check_cross_reference`, `_check_symmetry`,
 `_check_non_road_non_emission`, `_check_coverage`,
-`_check_version_consistency`). This lets a negative test target ONE leg
+`_check_version_consistency`, `_check_sha_uniqueness`,
+`_check_all_cells_present`). This lets a negative test target ONE leg
 in isolation and confirm the TARGET leg fires, not an incidentally-earlier
 check. Each leg raises `CrossTileValidationError` with a distinct
 leg-name substring in the message:
@@ -20,6 +22,8 @@ leg-name substring in the message:
   - "non-road"
   - "coverage"
   - "version manifest"
+  - "sha" + "unique"
+  - "cell" + "present" (or "distinct")
 
 WHAT THIS MODULE READS (never writes — provenance/manifest/_SUCCESS are
 Task 11):
@@ -49,6 +53,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
 
@@ -382,6 +387,87 @@ def _freeze(value: object) -> object:
     return value
 
 
+# --------------------------------------------------------------------------
+# Leg 6: sha-uniqueness across tiles
+# --------------------------------------------------------------------------
+
+
+def _check_sha_uniqueness(tile_provenances: dict[str, dict]) -> None:
+    """Every tile's provenance.yaml must carry a DISTINCT `provenance_sha256`.
+
+    A real tile's provenance sha is content-derived (provenance.py
+    `provenance_sha256`), so two tiles with genuinely distinct provenance
+    content always produce distinct shas. A duplicate sha either means two
+    tiles with identical provenance content (a pipeline bug) or a stub/
+    placeholder sha that was not replaced (also a pipeline bug).
+
+    Raises CrossTileValidationError with "sha" and "unique" in the message
+    if any two tiles share the same sha, or if any tile's provenance.yaml
+    is missing the `provenance_sha256` field entirely.
+    """
+    seen: dict[str, str] = {}  # sha -> first tile_label that carries it
+    for tile_label, prov in tile_provenances.items():
+        sha = prov.get("provenance_sha256")
+        if sha is None:
+            raise CrossTileValidationError(
+                f"sha unique check failed: tile {tile_label} provenance.yaml is "
+                f"missing the required `provenance_sha256` field — every tile "
+                f"manifest must carry its self-integrity sha."
+            )
+        if sha in seen:
+            raise CrossTileValidationError(
+                f"sha not unique across tiles: {tile_label} and {seen[sha]} share "
+                f"identical provenance_sha256 {sha!r} — each tile must have a "
+                f"distinct content-derived sha."
+            )
+        seen[sha] = tile_label
+
+
+# --------------------------------------------------------------------------
+# Leg 7: all-64-distinct-cells-present per tile
+# --------------------------------------------------------------------------
+
+
+def _check_all_cells_present(tile_label: str, cells_table: pa.Table) -> None:
+    """The tile's cells.parquet must contain exactly the 64 distinct (cell_i,
+    cell_j) pairs that span the full 8x8 grid (every (i,j) with 0<=i,j<8).
+
+    Raises CrossTileValidationError with "cell" and "present" in the message if:
+    - Any (cell_i, cell_j) pair is missing from the grid.
+    - Any (cell_i, cell_j) pair is duplicated (two rows for the same cell).
+
+    This is the region-level complement to Task 9's inline row-count==64 check:
+    T9 catches count!=64, but a table with exactly 64 rows can still have a
+    duplicate cell and a missing cell — those row-count-correct anomalies are
+    what this leg catches.
+    """
+    cell_i_col = cells_table.column("cell_i").to_pylist()
+    cell_j_col = cells_table.column("cell_j").to_pylist()
+
+    expected: set[tuple[int, int]] = {(i, j) for i in range(8) for j in range(8)}
+    seen: set[tuple[int, int]] = set()
+    duplicates: list[tuple[int, int]] = []
+
+    for i, j in zip(cell_i_col, cell_j_col, strict=True):
+        pair = (int(i), int(j))
+        if pair in seen:
+            duplicates.append(pair)
+        seen.add(pair)
+
+    missing = sorted(expected - seen)
+    if duplicates or missing:
+        parts: list[str] = []
+        if duplicates:
+            parts.append(f"duplicate cells {sorted(set(duplicates))}")
+        if missing:
+            parts.append(f"missing cells {missing}")
+        raise CrossTileValidationError(
+            f"cell not present: tile {tile_label} cells.parquet has "
+            f"{'; '.join(parts)} — all 64 distinct (cell_i, cell_j) pairs "
+            f"(0..7 x 0..7) must be present exactly once."
+        )
+
+
 def _SHORT(class_label: str) -> str:
     """Short BP7 token suffix for a sub-E class label (for messages only)."""
     return "MAJOR" if class_label == "MAJOR_ROAD" else "MINOR"
@@ -428,8 +514,9 @@ def validate_cross_tile(sub_f_region_dir: Path, sub_e_region_dir: Path) -> None:
             )
         tile_provenances[tile_path.parent.name] = yaml.safe_load(prov_path.read_text())
     _check_version_consistency(tile_provenances)
+    _check_sha_uniqueness(tile_provenances)  # leg 6: distinct content-derived shas
 
-    # --- per-tile BP7 four-test composite (legs 1-4) ---
+    # --- per-tile BP7 four-test composite (legs 1-4) + all-cells-present (leg 7) ---
     for tile_path in tile_paths:
         tile_label = tile_path.parent.name
         sub_e_contract_path = sub_e_region_dir / tile_path.parent.name / "boundary_contract.parquet"
@@ -440,7 +527,10 @@ def validate_cross_tile(sub_f_region_dir: Path, sub_e_region_dir: Path) -> None:
             )
         contract = load_boundary_contract(sub_e_contract_path)
 
-        cells_rows = pq.ParquetFile(tile_path).read().to_pylist()
+        cells_table = pq.ParquetFile(tile_path).read()
+        _check_all_cells_present(tile_label, cells_table)  # leg 7: full 8x8 grid
+
+        cells_rows = cells_table.to_pylist()
         emitted_by_cell = _emitted_brefs_by_cell(cells_rows, bref_decode, sem_id_to_tag)
         road_cells = _road_cells(cells_rows, sem_id_to_tag)
 
