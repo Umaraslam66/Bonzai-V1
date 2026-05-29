@@ -137,9 +137,9 @@ def test_direction_bin_locked_360_tie_break_to_lower():
     With floor-division, 0.5 // 1.0 = 0, so direction_bin(0.5, 360) == 0.
 
     Non-vacuity: if the implementation used round() instead of floor-div,
-    direction_bin(0.5, 360) would be 1 (rounds to nearest even = 0 at this
-    specific value, but 1.5/1=1.5→2 would differ). The canonical
-    counterexample: direction_bin(1.5, 360): floor→1 vs ceil→2.
+    direction_bin(1.5, 360) would differ — floor-div gives 1 (1.5 // 1.0 = 1),
+    whereas round() would give 2 (round(1.5) = 2 via banker's round-half-to-even).
+    The 1.5° case is the canonical discriminator between floor-div and round().
     """
     from cfm.data.sub_f.encoder import direction_bin
 
@@ -236,15 +236,41 @@ def test_5a_open_linestring_forward_direction_preserved():
 
 
 def test_5a_open_linestring_reverse_direction_preserved():
-    """§5.6: open LineString source direction is PRESERVED (reverse)."""
+    """§5.6: open LineString source direction is PRESERVED — adversarial version.
+
+    The previous version used (1,1)→(5,5), which already starts at the lex-min
+    vertex; a buggy implementation that rotated open LineStrings to lex-min start
+    would produce the same output, making the test vacuous.
+
+    This version is adversarial on two axes:
+    - ``forward`` starts at the NON-lex-min vertex (5,5). A lex-min-rotation bug
+      would change it to (1,1)→(5,5), so the first assertion catches that bug.
+    - The inequality assertion catches any direction-collapse bug: an encoder that
+      canonicalises all traversals of the same segment to one orientation would
+      make forward and reverse map to the same coord list, failing the !=  check.
+
+    DOFs held constant: open LineString (no ring canonicalizer), 2-vertex segment.
+    """
     from cfm.data.sub_f.encoder import canonicalize_geometry
 
-    # Non-lex-min start (1,1) → (5,5): lex-min is (1,1) which happens to be start,
-    # but source direction is preserved regardless
-    rev = LineString([(1, 1), (5, 5)])
-    result = canonicalize_geometry(rev)
-    assert list(result.coords) == [(1, 1), (5, 5)], (
-        "Reverse LineString: direction must be preserved"
+    forward = LineString([(5, 5), (1, 1)])  # starts at non-lex-min (5,5)
+    reverse = LineString([(1, 1), (5, 5)])  # opposite traversal of same segment
+
+    # Each direction preserved exactly
+    assert list(canonicalize_geometry(forward).coords) == [(5, 5), (1, 1)], (
+        "Forward LineString starting at non-lex-min (5,5): direction must be "
+        "PRESERVED, NOT rotated to lex-min start (1,1)"
+    )
+    assert list(canonicalize_geometry(reverse).coords) == [(1, 1), (5, 5)], (
+        "Reverse LineString starting at (1,1): direction must be preserved"
+    )
+
+    # The two opposite traversals must remain DISTINCT after canonicalization
+    assert list(canonicalize_geometry(forward).coords) != list(
+        canonicalize_geometry(reverse).coords
+    ), (
+        "Forward and reverse traversals of the same segment must stay DISTINCT — "
+        "a direction-collapse bug would canonicalise both to the same orientation"
     )
 
 
@@ -819,17 +845,6 @@ import sys, json
 sys.path.insert(0, {src_path!r})
 from cfm.data.sub_f.vocab import load_sub_f_vocab
 slots = [(s.token_id, s.tag) for s in load_sub_f_vocab()]
-print(json.dumps(slots))
-"""
-
-# Script to get vocab order from YAML files directly (no Python dict hashing).
-# load_sub_f_vocab() sorts by token_id, so YAML order == ascending-id order.
-_SUBPROCESS_YAML_ORDER_SCRIPT = """
-import sys, json
-sys.path.insert(0, {src_path!r})
-from cfm.data.sub_f.vocab import load_sub_f_vocab
-# Ascending token_id IS the YAML-intended order (source of truth)
-slots = sorted([(s.token_id, s.tag) for s in load_sub_f_vocab()], key=lambda x: x[0])
 print(json.dumps(slots))
 """
 
