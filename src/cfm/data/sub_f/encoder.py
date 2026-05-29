@@ -25,6 +25,7 @@ from shapely.geometry import MultiLineString, MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import LinearRing
 
+from cfm.data.sub_f.boundary_contract import resolve_bref_tag
 from cfm.data.sub_f.vocab import vocab_tag_to_id
 
 # BP2 Halt 2 locked values — read here as module-level constants for fast
@@ -415,3 +416,137 @@ def encode_feature(
 
     tokens.append(_FEATURE_END_TOKEN_ID)
     return EncodedFeature(case=case, semantic_tag=semantic_tag, tokens=tokens)
+
+
+# ---- per-cell aggregator (§3.3, §4.4) -------------------------------------
+
+
+@dataclass(frozen=True)
+class EncodedCell:
+    """Per-cell encoded sequence."""
+
+    tokens: list[int]
+    feature_count: int  # number of features encoded (matches cells.parquet col)
+
+
+def _classify_feature_for_bref(
+    geom: BaseGeometry,
+    cell_edges: dict[str, str],
+    cell_origin: tuple[float, float] = (0.0, 0.0),
+    cell_extent_m: float = 250.0,
+    edge_eps_m: float = 1e-6,
+) -> tuple[str | None, str | None]:
+    """Determine inbound / outbound boundary-ref tags for one feature.
+
+    Compares geometry endpoints against cell edges; if an endpoint lies on
+    an active boundary edge (MAJOR or MINOR per cell_edges), emit the
+    matching <bref_DIR_CLASS> tag.
+
+    LineStrings only emit brefs - Polygons (buildings) and Points (POIs) do
+    not cross cell boundaries in token-layer per spec section 1.4 (non-road
+    cross-cell features clipped at geometry layer).
+
+    BP7 emission: cell_edges supplied here originates from the T8.5
+    source-derived sub-E boundary-contract reader; resolve_bref_tag emits
+    only for MAJOR_ROAD / MINOR_ROAD classes per spec section 3.7 BP7 lock.
+    """
+    gt = geom.geom_type
+    if gt not in ("LineString", "MultiLineString"):
+        return None, None
+
+    if gt == "MultiLineString":
+        # Multi-part is split by encode_cell before reaching here.
+        return None, None
+
+    coords = list(geom.coords)
+    if len(coords) < 2:
+        return None, None
+
+    def _direction_of_endpoint(x: float, y: float) -> str | None:
+        ox, oy = cell_origin
+        x_rel = x - ox
+        y_rel = y - oy
+        if abs(x_rel) <= edge_eps_m:
+            return "W"
+        if abs(x_rel - cell_extent_m) <= edge_eps_m:
+            return "E"
+        if abs(y_rel) <= edge_eps_m:
+            return "S"
+        if abs(y_rel - cell_extent_m) <= edge_eps_m:
+            return "N"
+        return None
+
+    in_dir = _direction_of_endpoint(*coords[0])
+    out_dir = _direction_of_endpoint(*coords[-1])
+
+    in_class = cell_edges.get(in_dir) if in_dir else None
+    out_class = cell_edges.get(out_dir) if out_dir else None
+
+    inbound_bref = resolve_bref_tag(in_dir, in_class) if in_dir and in_class else None
+    outbound_bref = resolve_bref_tag(out_dir, out_class) if out_dir and out_class else None
+    return inbound_bref, outbound_bref
+
+
+def encode_cell(
+    features: list[tuple[BaseGeometry, str]],
+    cell_edges: dict[str, str],
+    cell_origin: tuple[float, float] = (0.0, 0.0),
+) -> EncodedCell:
+    """Encode one cell to a flat token sequence.
+
+    Args:
+      features: list of (geom, semantic_tag) tuples in sub-C row order
+                (caller does NOT re-sort).
+      cell_edges: per-cell boundary-class map from
+                  ``boundary_contract.load_boundary_contract``. Pass empty
+                  dict for empty / no-edge cells.
+      cell_origin: cell SW corner in projected meters (default (0,0) for
+                   cell-local coords).
+
+    Per spec sections 3.3 + 4.4:
+      - Empty cells emit tokens = [] (not null).
+      - Per-feature output is concatenated with no <cell_start>/<cell_end>
+        sentinel on-disk (cell boundary is the parquet row structure).
+      - Each feature is canonicalized internally before encoding (BP5
+        contract).
+    """
+    if not features:
+        return EncodedCell(tokens=[], feature_count=0)
+
+    tokens: list[int] = []
+    feature_count = 0
+    for geom, semantic_tag in features:
+        canon = canonicalize_geometry(geom)
+
+        # Multi-part: encode each part separately per spec section 3.2 implicit
+        # multi-part handling (one EncodedFeature per part).
+        gt = canon.geom_type
+        if gt in ("MultiLineString", "MultiPolygon"):
+            for part in canon.geoms:
+                inbound, outbound = _classify_feature_for_bref(part, cell_edges, cell_origin)
+                ef = encode_feature(
+                    part,
+                    semantic_tag=semantic_tag,
+                    inbound_bref=inbound,
+                    outbound_bref=outbound,
+                )
+                tokens.extend(ef.tokens)
+                feature_count += 1
+        elif gt == "MultiPoint":
+            # MultiPoint: encode each Point as a separate Case A feature.
+            for part in canon.geoms:
+                ef = encode_feature(part, semantic_tag=semantic_tag)
+                tokens.extend(ef.tokens)
+                feature_count += 1
+        else:
+            inbound, outbound = _classify_feature_for_bref(canon, cell_edges, cell_origin)
+            ef = encode_feature(
+                canon,
+                semantic_tag=semantic_tag,
+                inbound_bref=inbound,
+                outbound_bref=outbound,
+            )
+            tokens.extend(ef.tokens)
+            feature_count += 1
+
+    return EncodedCell(tokens=tokens, feature_count=feature_count)

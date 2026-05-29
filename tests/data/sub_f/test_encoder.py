@@ -740,3 +740,80 @@ def test_encode_feature_uses_bp4_unknown_tag_when_semantic_unmapped():
     # Expect the BP4 token id for <unknown_building> in the encoded sequence.
     unknown_building_id = vocab_tag_to_id()["<unknown_building>"]
     assert unknown_building_id in encoded.tokens
+
+
+# ---- per-cell aggregator (§3.3, §4.4) -------------------------------------
+
+
+def test_encode_cell_empty_emits_empty_token_list():
+    """Per spec §4.4: empty cells emit token_sequence = [] (not null)."""
+    from cfm.data.sub_f.encoder import EncodedCell, encode_cell
+
+    out = encode_cell(features=[], cell_edges={})
+    assert isinstance(out, EncodedCell)
+    assert out.tokens == []
+    assert out.feature_count == 0
+
+
+def test_encode_cell_concatenates_per_feature_tokens():
+    """Per spec §3.3: cell-level sequence is flat concatenation of per-feature seqs."""
+    from shapely.geometry import LineString
+
+    from cfm.data.sub_f.encoder import encode_cell
+
+    features = [
+        (LineString([(1.0, 1.0), (2.0, 2.0)]), "highway=service", "A"),
+        (LineString([(10.0, 10.0), (20.0, 20.0)]), "highway=residential", "A"),
+    ]
+    out = encode_cell(
+        features=[(geom, tag) for geom, tag, _case in features],
+        cell_edges={"N": "NONE", "E": "NONE", "S": "NONE", "W": "NONE"},
+    )
+    # 2 features x (3 + 4 + 2*1 = 9) tokens each = 18 total
+    assert len(out.tokens) == 18
+    assert out.feature_count == 2
+
+
+def test_encode_cell_preserves_sub_c_source_order():
+    """Per spec §3.3: features encoded in sub-C row order. Caller controls
+    ordering by the order of `features` list. encode_cell does NOT re-sort.
+    """
+    from shapely.geometry import LineString
+
+    from cfm.data.sub_f.encoder import encode_cell
+
+    f1 = (LineString([(1.0, 1.0), (2.0, 2.0)]), "highway=service")
+    f2 = (LineString([(10.0, 10.0), (20.0, 20.0)]), "highway=residential")
+    out_12 = encode_cell(
+        features=[f1, f2], cell_edges={"N": "NONE", "E": "NONE", "S": "NONE", "W": "NONE"}
+    )
+    out_21 = encode_cell(
+        features=[f2, f1], cell_edges={"N": "NONE", "E": "NONE", "S": "NONE", "W": "NONE"}
+    )
+    assert out_12.tokens != out_21.tokens, "encode_cell must respect input feature order"
+
+
+def test_encode_cell_canonicalizes_each_feature():
+    """Each feature is passed through canonicalize_geometry before encoding.
+    Token output for a non-canonical polygon must equal the output for its
+    canonical form.
+    """
+    from shapely.geometry import Polygon
+
+    from cfm.data.sub_f.encoder import canonicalize_geometry, encode_cell
+
+    raw = Polygon([(5, 5), (1, 1), (3, 1), (5, 5)])  # CCW, non-lex-min start
+    canon = canonicalize_geometry(raw)
+
+    out_raw = encode_cell(
+        features=[(raw, "building=residential")],
+        cell_edges={"N": "NONE", "E": "NONE", "S": "NONE", "W": "NONE"},
+    )
+    out_canon = encode_cell(
+        features=[(canon, "building=residential")],
+        cell_edges={"N": "NONE", "E": "NONE", "S": "NONE", "W": "NONE"},
+    )
+    assert out_raw.tokens == out_canon.tokens, (
+        "encode_cell must canonicalize raw inputs internally so output is "
+        "invariant to source ordering — required for BP3 token-count invariance"
+    )
