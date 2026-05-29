@@ -1,0 +1,55 @@
+anchor_scheme_used: hierarchical
+chunked_p999_audit:
+  delta_padded_vs_locked: 128
+  delta_raw_vs_locked: 107
+  padded_tokens: 6016
+  raw_tokens: 5899
+  same_padded_block: false
+  within_padding_slack: false
+chunked_vs_unchunked_budget_surface:
+- chunked_padded_length_tokens: 3712
+  chunked_sequence_length_tokens: 3680
+  delta_chunked_minus_unchunked: 96
+  quantile: 99.0
+  unchunked_sequence_length_tokens: 3584
+- chunked_padded_length_tokens: 4352
+  chunked_sequence_length_tokens: 4266
+  delta_chunked_minus_unchunked: 90
+  quantile: 99.5
+  unchunked_sequence_length_tokens: 4175
+- chunked_padded_length_tokens: 6016
+  chunked_sequence_length_tokens: 5899
+  delta_chunked_minus_unchunked: 106
+  quantile: 99.9
+  unchunked_sequence_length_tokens: 5792
+- chunked_padded_length_tokens: 8320
+  chunked_sequence_length_tokens: 8312
+  delta_chunked_minus_unchunked: 163
+  quantile: 99.99
+  unchunked_sequence_length_tokens: 8149
+- chunked_padded_length_tokens: 9088
+  chunked_sequence_length_tokens: 9032
+  delta_chunked_minus_unchunked: 66
+  quantile: 100.0
+  unchunked_sequence_length_tokens: 8966
+halt_4_p999_lock:
+  padded_tokens: 5888
+  padding_slack_tokens: 96
+  raw_tokens: 5792
+n_anchor: 4
+n_cells_analyzed: 31616
+n_empty_cells: 16082
+per_type_chunked_token_inflation_pct:
+  '0': 13.8
+  '1': 3.41
+  '2': 0.0
+  '3': 26.45
+per_type_n_observations:
+  '0': 302271
+  '1': 395177
+  '2': 149655
+  '3': 15333
+recommendation: Halt 4 REVISIT required. Chunked P99.9 raw delta (+107) exceeds padding
+  slack (96). New padded budget 6016 vs locked 5888 (+128). Elbow choice or per-type
+  floors may need re-calibration; alpha drop report would also shift.
+stage_4_provenance: formula_derived_per_spec_7_2_no_sub_e_cache
