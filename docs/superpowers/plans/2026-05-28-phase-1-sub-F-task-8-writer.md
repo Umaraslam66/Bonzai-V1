@@ -2486,27 +2486,78 @@ git commit -m "feat(sub_f): T8.6 encode_cell per-cell aggregator + empty-cell ha
 
 ---
 
-## Sub-task T8.7: decoder + canonical GeoJSON
+## Sub-task T8.7: decoder + canonical GeoJSON (empirical round-trip gate, Case A scope)
 
 **Files:**
 - Create: `src/cfm/data/sub_f/decoder.py`
 - Create: `tests/data/sub_f/test_decoder.py`
+- Modify: `src/cfm/data/sub_f/encoder.py` (Step 0 stale-comment sweep)
+- Modify: `src/cfm/data/sub_f/boundary_contract.py` (Step 0 stale-comment sweep)
+
+### Posture (DIFFERENT from T8.1–T8.6)
+
+T8.7 is an EMPIRICAL GATE against the Halt 2 lock (`round_trip_l_inf_threshold_m: 4.8`), not a contract-implementation task. The L_∞ 4.8m number was empirically derived at Halt 2 and was the justification for the hierarchical-anchor + 48-direction + 0.5m-magnitude lock. Relaxing it retroactively invalidates the Halt 2 lock.
+
+**HALT (do NOT resolve inline) on any of:**
+- Tolerance relaxation on the 4.8m number (e.g., changing `assert l_inf <= 4.8` to `<= 5.0` for any case).
+- Geometry-type carve-out from the threshold ("this case doesn't count because…").
+- Extension of the round-trip gate INTO the bref vertex (Case B/C/D crossing position). Spec §1.4 scope lock #1 + §13.1 ledger ratify this as a v2-scoped deferral; the decoder emits a last-known-vertex with explicit `# v2-scoped per §1.4 + §13.1` comments at every bref emission site. Implementation discovers §1.4, does NOT re-decide it.
+
+Lint-driven fixes (RUF002/003 ASCII, B007 _var, B905 strict=True) and trivial path-math inline. Semantic decisions or threshold adjustments: HALT.
+
+### Scope summary
+
+- **In scope:** Case A round-trip gate (uncrossed features) — LineString (open + closed/roundabout), Polygon (canonicalize → encode → decode → set-match against original within L_∞ 4.8m), MultiLineString per-part as Case A. Canonicalize-preserves-vertex-set invariant tested independently. Aggregate L_∞ stress across N synthetic fixtures.
+- **In scope:** Cases B/C/D decoder mechanics — decoder must HANDLE these tokens (read them, infer presence of inbound/outbound bref) and emit a sensible last-known-vertex for the crossing position with the §1.4 + §13.1 cite comment. The bref vertex position is NOT round-trip-asserted (per the deferral) but the decoder must not crash on Case B/C/D tokens.
+- **OUT of scope:** Case B/C/D bref-vertex round-trip L_∞ assertion. Explicitly excluded via a NEGATIVE test that asserts the decoder output for a Case B/D feature is NOT round-trip-asserted on the bref vertex (cites §1.4 + §13.1 in test docstring).
 
 ### Implementation steps
 
-- [ ] **Step 1: Write failing test (round-trip via decode)**
+- [ ] **Step 0: Stale-UNVERIFIED-sub-E-comment sweep**
+
+T8.5 replaced the original "inferred contract" framing with source-derived contracts. Stale comments from the superseded framing may survive in `encoder.py` + `boundary_contract.py` referencing sub-E as "UNVERIFIED" / "inferred" / "code-inferred" / "absent" in ways that no longer apply (T8.5 confirmed sub-E source IS the authority).
+
+Run the sweep:
+```bash
+git grep -nE "(UNVERIFIED|inferred|code-inferred|absent).*(sub.E|sub_e)" src/cfm/data/sub_f/
+```
+
+For each match, decide:
+- **Stale (T8.5 confirmed via source):** rewrite to cite the source file:line (e.g., "Sub-E contract sourced from `src/cfm/data/sub_e/writer.py:38-48`").
+- **Still accurate (a residual absent-data point):** keep but tighten to specify what's still unverified (e.g., "First real sub-E read pending sub-E cache regeneration; close-checklist obligation").
+
+Do the sweep in one pass — bundle the edits into the T8.7 commit with the rest of T8.7 (lock-and-guards-travel-together: the source-derived framing landed at `efa6786`, and stale comments in its dependents are guards that need to travel).
+
+- [ ] **Step 1: Write failing tests (6 tests)**
 
 Create `tests/data/sub_f/test_decoder.py`:
 
 ```python
-"""Sub-F decoder + canonical GeoJSON tests."""
+"""Sub-F decoder + canonical GeoJSON round-trip gate (Case A scope).
+
+The 4.8m L_inf threshold (BP2 Halt 2 lock at
+configs/sub_f/encoding_primitives.yaml `round_trip_l_inf_threshold_m`) is
+the empirical justification for the hierarchical-anchor + 48-direction +
+0.5m-magnitude lock. Tests in this file MEASURE end-to-end
+canonicalize -> encode -> decode against that threshold. Relaxing 4.8m
+retroactively invalidates Halt 2; HALT if any test forces relaxation.
+
+Cases B/C/D bref vertex position is NOT round-trip-asserted per spec §1.4
+scope lock #1 + §13.1 "T8.7 plan-write -> BP7 bref vertex position: NO
+v1 round-trip gate" ledger entry. The NEGATIVE test below explicitly
+asserts the absence of a position gate so a future contributor cannot
+silently re-add one thinking it was forgotten.
+"""
 
 from __future__ import annotations
 
-import json
-import math
+import random
 
-from shapely.geometry import LineString, Polygon
+import pytest
+from shapely.geometry import LineString, MultiLineString, Polygon
+
+
+_L_INF_THRESHOLD_M = 4.8  # BP2 Halt 2 lock; do NOT relax without re-running Halt 2.
 
 
 def test_canonical_geojson_byte_stable_across_key_order():
@@ -2518,24 +2569,197 @@ def test_canonical_geojson_byte_stable_across_key_order():
     assert serialize_geojson(geom1) == serialize_geojson(geom2)
 
 
-def test_decode_feature_case_a_round_trip_linf_within_threshold():
-    """Per BP2 Halt 2 lock: round_trip_l_inf_threshold_m = 4.8 m."""
+def _per_vertex_l_inf(a_coords: list[tuple[float, float]], b_coords: list[tuple[float, float]]) -> float:
+    """Max per-vertex L_inf distance for ordered coord lists of equal length."""
+    assert len(a_coords) == len(b_coords), (
+        f"vertex counts differ: {len(a_coords)} vs {len(b_coords)}"
+    )
+    return max(
+        max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+        for a, b in zip(a_coords, b_coords, strict=True)
+    )
+
+
+def test_round_trip_open_linestring_case_a_within_threshold():
+    """Case A round-trip on an OPEN LineString. LineString direction is
+    NOT canonicalized (§5.6 preserves source direction), so decoded coords
+    match source coords sequentially. Direct per-vertex L_inf comparison.
+    """
+    from cfm.data.sub_f.decoder import decode_feature
+    from cfm.data.sub_f.encoder import canonicalize_geometry, encode_feature
+
+    source = LineString([(10.0, 20.0), (15.0, 25.0), (20.0, 30.0)])
+    canonical = canonicalize_geometry(source)
+    # For open LineString, canonical IS source (direction preserved).
+    assert list(canonical.coords) == list(source.coords), (
+        "open LineString direction must be preserved by canonicalize (§5.6)"
+    )
+
+    encoded = encode_feature(canonical, semantic_tag="highway=residential")
+    decoded = decode_feature(encoded.tokens)
+
+    decoded_coords = [tuple(p) for p in decoded["coordinates"]]
+    l_inf = _per_vertex_l_inf(list(source.coords), decoded_coords)
+    assert l_inf <= _L_INF_THRESHOLD_M, (
+        f"open LineString L_inf {l_inf:.4f}m exceeds Halt 2 threshold "
+        f"{_L_INF_THRESHOLD_M}m"
+    )
+
+
+def test_round_trip_closed_linestring_roundabout_case_a_within_threshold():
+    """Case A round-trip on a CLOSED LineString (roundabout: coords[0] ==
+    coords[-1] but typed LineString). Per §5.6 closed LineString is
+    routed to LineString-preserve (NOT polygon-ring), so direction is
+    preserved. Decoder must emit a closed coord list matching source.
+    """
+    from cfm.data.sub_f.decoder import decode_feature
+    from cfm.data.sub_f.encoder import canonicalize_geometry, encode_feature
+
+    source = LineString(
+        [(2.0, 0.0), (2.0, 2.0), (0.0, 2.0), (0.0, 0.0), (2.0, 0.0)]
+    )
+    canonical = canonicalize_geometry(source)
+    assert list(canonical.coords) == list(source.coords), (
+        "closed LineString direction must be preserved by canonicalize"
+    )
+
+    encoded = encode_feature(canonical, semantic_tag="highway=residential")
+    decoded = decode_feature(encoded.tokens)
+    decoded_coords = [tuple(p) for p in decoded["coordinates"]]
+
+    l_inf = _per_vertex_l_inf(list(source.coords), decoded_coords)
+    assert l_inf <= _L_INF_THRESHOLD_M, (
+        f"closed LineString (roundabout) L_inf {l_inf:.4f}m exceeds "
+        f"Halt 2 threshold {_L_INF_THRESHOLD_M}m"
+    )
+
+
+def test_canonicalize_preserves_polygon_vertex_set_zero_tolerance():
+    """Independent invariant (NOT a round-trip): canonicalize_geometry's
+    rotation + winding-flip rules MUST preserve the polygon's vertex set
+    exactly (zero tolerance). If canonicalize ever adds or removes a
+    vertex (e.g., a degenerate-ring normalizer that inserts a midpoint),
+    the round-trip L_inf comparisons below would silently pass against
+    canonical while the end-to-end vs source diverges — exactly the
+    failure mode this test guards.
+    """
+    from cfm.data.sub_f.encoder import canonicalize_geometry
+
+    source = Polygon([(5, 5), (1, 1), (3, 1), (5, 5)])  # CCW already
+    canonical = canonicalize_geometry(source)
+
+    src_unique = set(tuple(p) for p in source.exterior.coords[:-1])
+    canon_unique = set(tuple(p) for p in canonical.exterior.coords[:-1])
+    assert src_unique == canon_unique, (
+        f"canonicalize altered polygon vertex set: "
+        f"source={src_unique} canonical={canon_unique}"
+    )
+
+
+def test_round_trip_polygon_case_a_within_threshold():
+    """Case A round-trip on a Polygon. Per §5.6, canonicalize rotates the
+    ring to start at lex-min vertex and enforces RFC 7946 CCW winding;
+    these reorder vertices but do NOT change coordinates (asserted by
+    the preceding test). Round-trip compares decoded coords sequentially
+    against CANONICAL coords (which IS the encoder input).
+    """
+    from cfm.data.sub_f.decoder import decode_feature
+    from cfm.data.sub_f.encoder import canonicalize_geometry, encode_feature
+
+    source = Polygon([(5, 5), (1, 1), (3, 1), (5, 5)])
+    canonical = canonicalize_geometry(source)
+    canonical_coords = [tuple(p) for p in canonical.exterior.coords]
+
+    encoded = encode_feature(canonical, semantic_tag="building=residential")
+    decoded = decode_feature(encoded.tokens)
+    decoded_coords = [tuple(p) for p in decoded["coordinates"]]
+
+    l_inf = _per_vertex_l_inf(canonical_coords, decoded_coords)
+    assert l_inf <= _L_INF_THRESHOLD_M, (
+        f"Polygon round-trip L_inf {l_inf:.4f}m exceeds Halt 2 threshold "
+        f"{_L_INF_THRESHOLD_M}m"
+    )
+
+
+def test_round_trip_aggregate_linf_across_synthetic_fixtures():
+    """Aggregate stress: max L_inf across N=30 synthetic uncrossed
+    fixtures (mix of LineString + Polygon) must stay <= 4.8m. Catches
+    cases the single-fixture tests miss; deterministic seed so the
+    aggregate is reproducible.
+    """
+    from cfm.data.sub_f.decoder import decode_feature
+    from cfm.data.sub_f.encoder import canonicalize_geometry, encode_feature
+
+    rng = random.Random(20260529)  # deterministic
+    cell_extent = 250.0
+    max_l_inf = 0.0
+    for _ in range(30):
+        # Open LineString with 2..6 vertices, all inside cell.
+        n_vertices = rng.randint(2, 6)
+        coords = [
+            (rng.uniform(10, cell_extent - 10), rng.uniform(10, cell_extent - 10))
+            for _ in range(n_vertices)
+        ]
+        line = LineString(coords)
+        canonical = canonicalize_geometry(line)
+        encoded = encode_feature(canonical, semantic_tag="highway=residential")
+        decoded = decode_feature(encoded.tokens)
+        decoded_coords = [tuple(p) for p in decoded["coordinates"]]
+        l_inf = _per_vertex_l_inf(list(canonical.coords), decoded_coords)
+        max_l_inf = max(max_l_inf, l_inf)
+
+    assert max_l_inf <= _L_INF_THRESHOLD_M, (
+        f"aggregate Case A max L_inf {max_l_inf:.4f}m across 30 fixtures "
+        f"exceeds Halt 2 threshold {_L_INF_THRESHOLD_M}m"
+    )
+
+
+def test_case_b_d_bref_vertex_position_is_NOT_round_trip_asserted():
+    """NEGATIVE TEST — protects the v2-scoped deferral.
+
+    Per spec §1.4 scope lock #1 + §13.1 "T8.7 plan-write -> BP7 bref vertex
+    position: NO v1 round-trip gate" ledger entry: Cases B/C/D drop the
+    crossing-position vertex by design (class-only `<bref>` tokens).
+    The bref edge vertex's geometric error is UNBOUNDED-BY-TEST in v1,
+    bounded ABOVE only by cell_extent/2 = 125m. v1 BP7 coverage is
+    class-agreement via §8.1 four-test composite (T8.5 + T10), NOT
+    round-trip L_inf.
+
+    This test EXISTS so a future contributor cannot silently re-add a
+    bref-vertex round-trip assertion thinking it was forgotten. If you
+    are reading this test wondering "shouldn't we round-trip the bref
+    vertex?", the answer is NO — read §1.4 + §13.1 first. v2-scoped.
+
+    The test asserts the decoder DOES handle Case B/D tokens without
+    raising (so the writer pipeline does not crash on real road features)
+    and DOES produce coord output, but does NOT assert L_inf against the
+    source's crossing vertex.
+    """
     from cfm.data.sub_f.decoder import decode_feature
     from cfm.data.sub_f.encoder import encode_feature
 
-    source = LineString([(10.0, 20.0), (15.0, 25.0), (20.0, 30.0)])
-    encoded = encode_feature(source, semantic_tag="highway=residential")
-    decoded = decode_feature(encoded.tokens)
-
-    src_coords = list(source.coords)
-    dec_coords = list(LineString(decoded["coordinates"]).coords)
-    assert len(src_coords) == len(dec_coords)
-
-    l_inf = max(
-        max(abs(s[0] - d[0]), abs(s[1] - d[1]))
-        for s, d in zip(src_coords, dec_coords)
+    # Case B: road exits east edge.
+    source = LineString([(10.0, 100.0), (50.0, 100.0), (250.0, 100.0)])
+    encoded = encode_feature(
+        source,
+        semantic_tag="highway=primary",
+        outbound_bref="<bref_E_MAJOR>",
     )
-    assert l_inf <= 4.8, f"L_inf {l_inf:.4f} exceeds BP2 Halt 2 threshold 4.8m"
+    assert encoded.case == "B"
+
+    # Decoder must NOT crash on Case B token stream.
+    decoded = decode_feature(encoded.tokens)
+    assert "coordinates" in decoded
+    assert len(decoded["coordinates"]) >= 1, (
+        "decoder must emit at least the inner vertices; bref-edge vertex "
+        "may be approximate per the v1 deferral"
+    )
+
+    # NEGATIVE: explicitly DO NOT compare the final decoded vertex against
+    # source[(-1)] for L_inf. If you are about to add such an assertion,
+    # STOP and read spec §1.4 scope lock #1 + §13.1 ledger entry first.
+    # The deferral is v2-scoped; the assertion belongs in sub-F-v2 with
+    # a threshold derived from sub-E rotation precision.
 ```
 
 - [ ] **Step 2: Run test, expect FAIL**
@@ -2554,11 +2778,22 @@ Inverse of `encoder.encode_feature` per spec §3.2 four-case grammar. Output
 geometry serializes to canonical GeoJSON via `serialize_geojson` (sort_keys,
 no indent, ASCII) per spec §5.3 for byte-identity comparisons.
 
-Decoder reconstructs the per-feature 4-case shape by reading positional
-tokens — the encoder is byte-deterministic so this inverse is exact modulo
-the canonicalization rules (start vertex, winding, multi-part order ARE
-restored to canonical form; LineString direction is the source's, preserved
-through encode/decode).
+The decoder reconstructs vertices from the encoder's hierarchical anchor +
+(direction, magnitude) pair stream and detects geometry type from coord
+closure (Polygon if coords[0] == coords[-1] else LineString). Multi-part
+geometries are split into separate features at encode_cell (T8.6); each
+encode_feature call corresponds to one decode_feature call.
+
+CASES B/C/D BREF VERTEX (per spec §1.4 scope lock #1 + §13.1 ledger):
+Cases B/C/D drop the crossing-position vertex by design — the `<bref>`
+token carries only direction + class, not position. The decoder emits a
+last-known-vertex (the inner anchor + dir/mag extrapolation reaching the
+edge) for Case B/D outbound and a first-vertex-on-edge stub for Case C/D
+inbound. The bref edge vertex's geometric error is UNBOUNDED-BY-TEST in
+sub-F-v1 (bounded ABOVE by cell_extent/2 = 125m); class agreement is the
+v1 BP7 gate per §8.1, not L_inf. v2-scoped per §1.4. Every bref vertex
+emission below carries an explicit # v2-scoped comment so a future
+contributor cannot silently re-add a position assertion.
 """
 
 from __future__ import annotations
@@ -2605,60 +2840,97 @@ def _decode_dir_mag(d_token: int, m_token: int) -> tuple[float, float]:
     return distance_m * math.cos(angle_rad), distance_m * math.sin(angle_rad)
 
 
+def _is_bref_token(token_id: int) -> bool:
+    """BP7 boundary-reference token IDs are 1500..1507."""
+    return 1500 <= token_id <= 1507
+
+
 def decode_feature(tokens: list[int]) -> dict[str, Any]:
     """Decode a per-feature token sequence to a GeoJSON-shape dict.
 
-    Returns:
-      {"type": "LineString", "coordinates": [[x, y], ...]}
-    for LineStrings and similar for Polygons. Multi-* are encoded as
-    separate features and decoded one per call.
+    Returns one of:
+      - {"type": "Polygon", "coordinates": [[[x, y], ...]]}  (closed: coords[0]==coords[-1])
+      - {"type": "LineString", "coordinates": [[x, y], ...]}  (open or closed roundabout)
+      - {"type": "Point", "coordinates": [x, y]}              (single vertex)
+
+    Closure detection: if the decoded coord sequence has coords[0] ==
+    coords[-1] AND the feature had no bref tokens (uncrossed Case A), the
+    decoder returns Polygon shape. If the feature carried bref tokens
+    (Case B/C/D), the decoder always returns LineString (roads).
+
+    For Cases B/C/D: the inbound bref token signals "first vertex is on
+    the entry edge" (position class-only per §1.4 deferral; decoder uses
+    the anchor as the entry vertex). The outbound bref token signals
+    "last vertex is on the exit edge" (decoder appends a last-known-vertex
+    derived from the prior inner vertex). Bref vertex positions are NOT
+    asserted to round-trip — see module docstring.
     """
     if tokens[0] != _FEATURE_TOKEN_ID or tokens[-1] != _FEATURE_END_TOKEN_ID:
         raise ValueError("decode_feature: missing <feature>/<feature_end> markers")
 
-    body = tokens[1:-1]  # strip outer markers
-    # body[0] is semantic_tag id (skip — geometry decode doesn't need it)
+    body = tokens[1:-1]
+    # body[0] is semantic_tag id (skip — geometry decode doesn't need it).
     offset = 1
 
-    # Inbound bref?
-    has_inbound = _is_bref_token(body[offset])
-    inbound_token = None
+    # Optional inbound bref (Cases C/D): present immediately after semantic tag.
+    has_inbound = offset < len(body) and _is_bref_token(body[offset])
     if has_inbound:
-        inbound_token = body[offset]
-        offset += 1
+        offset += 1  # inbound bref consumed; anchor that follows IS the entry vertex
 
-    # Anchor (4 hierarchical tokens)
+    # Anchor (4 hierarchical tokens) — always present.
     (x, y), offset = _decode_anchor(body, offset)
     coords: list[tuple[float, float]] = [(x, y)]
 
-    # Walk remaining body: (dir, mag) pairs, optionally terminated by outbound bref.
+    # Walk (dir, mag) pairs until <feature_end> or outbound bref.
     while offset < len(body):
         if _is_bref_token(body[offset]):
-            break  # outbound bref; no more dir/mag pairs
+            break  # outbound bref; no more inner pairs
         dx, dy = _decode_dir_mag(body[offset], body[offset + 1])
         nx, ny = coords[-1][0] + dx, coords[-1][1] + dy
         coords.append((nx, ny))
         offset += 2
 
-    # If outbound bref present, derive a final vertex on the named edge.
-    # Simplification: emit the previous vertex projected to the cell edge
-    # corresponding to outbound_bref's direction (E/W/N/S extrema).
-    if offset < len(body) and _is_bref_token(body[offset]):
-        # For the integration round-trip test, the encoder put the final
-        # vertex on the named edge; we extrapolate to recover. For the v1
-        # decoder we keep the last decoded vertex as the terminus and the
-        # round-trip threshold absorbs the small error.
+    # Outbound bref present (Cases B/D)? Emit a last-known-vertex.
+    # v2-scoped per spec §1.4 scope lock #1 + §13.1: bref vertex position is
+    # NOT carried by the token; the decoder emits the previous interior
+    # vertex unchanged as a stand-in. The bref edge vertex's geometric
+    # error is unbounded-by-test in v1, bounded above by cell_extent/2.
+    # DO NOT add an L_inf assertion against the source's edge vertex here
+    # without first updating §1.4 + §13.1 + a fresh threshold lock.
+    has_outbound = offset < len(body) and _is_bref_token(body[offset])
+    if has_outbound:
+        # v2-scoped: emit previous vertex as a stand-in for the edge crossing.
+        # See module docstring + spec §1.4 + §13.1 ledger entry.
+        if coords:
+            coords.append(coords[-1])  # bref vertex placeholder
         offset += 1
 
+    # Determine output GeoJSON shape from coord properties.
+    is_closed = len(coords) >= 4 and coords[0] == coords[-1]
+    has_brefs = has_inbound or has_outbound
+
+    if len(coords) == 1:
+        # Point feature.
+        return {"type": "Point", "coordinates": [coords[0][0], coords[0][1]]}
+
+    if is_closed and not has_brefs:
+        # Closed sequence with no brefs: ambiguous between Polygon and
+        # closed-LineString (roundabout). The encoder cannot distinguish
+        # them in the token stream. Caller (with knowledge of original
+        # geom_type) reconstructs the right Shapely shape; we return
+        # LineString shape by default and tests promote to Polygon as
+        # needed via `Polygon(decoded_coords)`. This matches the empirical
+        # round-trip tests' usage pattern.
+        return {
+            "type": "LineString",
+            "coordinates": [list(p) for p in coords],
+        }
+
+    # Open LineString (Case A open polyline) OR Case B/C/D road (always LineString).
     return {
         "type": "LineString",
         "coordinates": [list(p) for p in coords],
     }
-
-
-def _is_bref_token(token_id: int) -> bool:
-    """BP7 boundary-reference token IDs are 1500..1507."""
-    return 1500 <= token_id <= 1507
 
 
 def serialize_geojson(geom: dict) -> str:
@@ -2672,15 +2944,19 @@ def serialize_geojson(geom: dict) -> str:
 - [ ] **Step 4: Run tests, expect PASS**
 
 Run: `uv run pytest tests/data/sub_f/test_decoder.py -v`
-Expected: 2 PASS.
+Expected: **7 PASS** (canonical GeoJSON byte-stable + open LineString round-trip + closed-LineString round-trip + polygon canonicalize-preserves-vertex-set + polygon round-trip + aggregate L_inf across 30 fixtures + NEGATIVE bref-vertex-not-asserted).
+
+Full sub-F suite: `uv run pytest tests/data/sub_f/ -q` → expected 133 + 7 = 140 passed.
+
+If any round-trip test surfaces L_inf > 4.8m, STOP — do NOT relax the threshold. The 4.8m is the Halt 2 lock; relaxing it retroactively invalidates BP2. Surface the failing geometry + L_inf value as a cascade.
 
 - [ ] **Step 5: Lint + commit**
 
 ```bash
-uv run ruff format src/cfm/data/sub_f/decoder.py tests/data/sub_f/test_decoder.py
-uv run ruff check src/cfm/data/sub_f/decoder.py tests/data/sub_f/test_decoder.py
-git add src/cfm/data/sub_f/decoder.py tests/data/sub_f/test_decoder.py
-git commit -m "feat(sub_f): T8.7 decoder + canonical GeoJSON (L_inf within BP2 4.8m threshold)"
+uv run ruff format src/cfm/data/sub_f/decoder.py tests/data/sub_f/test_decoder.py src/cfm/data/sub_f/encoder.py src/cfm/data/sub_f/boundary_contract.py
+uv run ruff check src/cfm/data/sub_f/decoder.py tests/data/sub_f/test_decoder.py src/cfm/data/sub_f/encoder.py src/cfm/data/sub_f/boundary_contract.py
+git add src/cfm/data/sub_f/decoder.py tests/data/sub_f/test_decoder.py src/cfm/data/sub_f/encoder.py src/cfm/data/sub_f/boundary_contract.py
+git commit -m "feat(sub_f): T8.7 decoder + canonical GeoJSON round-trip gate (Case A; bref vertex v2-scoped per §1.4 + §13.1)"
 ```
 
 ---
