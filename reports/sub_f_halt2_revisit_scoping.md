@@ -188,6 +188,80 @@ also bounding the max (requires re-anchor — +tokens, a BP3 budget pass). The
 position-max tail cannot be removed by directions alone, so a max-based gate is
 not achievable on the directions axis.
 
+## ADDENDUM 2 (2026-05-29) — option 3 (re-anchor) scoped; complete measured comparison
+
+The reviewer (correctly) flagged that recommending more-directions while re-anchor
+was unmeasured repeated the very error the angle check had just caught
+(`feedback_characterize_before_recommend`). Re-anchor is now scoped
+(`reports/sub_f_halt2_reanchor_scoping.yaml`): emit a fresh absolute anchor when
+cumulative path since the last anchor exceeds T; decoder snaps; reuses the anchor
+sub-block (no new sentinel); needs a §3.2 grammar change.
+
+| T | pos p95 | p99.9 | max | triggers | token Δ | cell P99.9 padded | >6016? | angle cat | trigger ties |
+|---|---|---|---|---|---|---|---|---|---|
+| 73m | 4.53 | 8.20 | 12.7 | 291k | **−0.03%** | 6016 | No | 7,597 | 0 |
+| 60m | 3.91 | 6.84 | 11.7 | 385k | +0.66% | 6016 | No | — | 0 |
+| 40m | 2.86 | **4.69** | 9.65 | 651k | +3.27% | 6272 | Yes | 6,664 | 0 |
+| 30m | 2.30 | 3.61 | 7.86 | 871k | +5.62% | 6400 | Yes | — | 0 |
+
+- **Budget:** T=73 is token-*negative* (re-anchoring long segments saves more than
+  short-segment re-anchors cost) → budget stays 6016, no third pass. Holding
+  position p99.9 ≤ 4.8m needs T=40 → budget 6272 (a third BP3 pass).
+- **Determinism:** 0 trigger-flip ties at every T (the `cum_path > T` compare is
+  not float-fragile on real data). Within-env safe.
+- **Angle:** re-anchor preserves p95 (7.5°) but worsens the tail — catastrophic
+  corners 3,500 → 7,597 (2.2×) at T=73, p99 11° → 19°. The absolute snap places an
+  exact vertex next to drifted neighbours, jittering the corner.
+
+### The cross-cutting finding
+
+**Any mechanism that restructures relative vertex placement regresses the angle
+axis** — feedback (dithering) 10×, re-anchor (snap) 2.2×. **More-directions is the
+only mechanism that improves BOTH** position and angle, because it refines the
+quantization without changing how vertices sit relative to each other (angle
+catastrophic *halves* 3,500 → 1,558 at N=360).
+
+### Complete measured matrix (all options scoped)
+
+| mechanism | pos p95 | pos p99.9 | pos max | angle cat | budget | vocab/ID | grammar |
+|---|---|---|---|---|---|---|---|
+| baseline 48 | 8.85 | 28.3 | 33.5 | 3,500 | locked 6016 | — | — |
+| feedback 48 | 2.86 | 4.13 | 9.66 | **33,735** ✗ | unchanged | none | none |
+| re-anchor T=73 | 4.53 | 8.20 | 12.7 | 7,597 ✗ | unchanged (−0.03%) | none | §3.2 |
+| re-anchor T=40 | 2.86 | 4.69 | 9.65 | 6,664 ✗ | **6272 (pass)** | none | §3.2 |
+| more-dir N≈144 | ~3.0 | 8.8 | 14.0 | 1,771 ✓ | unchanged | 48→144 re-lock | none |
+| more-dir N=360 | — | 3.7 | 14.1 | 1,558 ✓ | unchanged | 48→360 re-lock | none |
+
+`feedback` disqualified (angle 10×). No mechanism bounds the position **max** to
+4.8m at reasonable cost (best is re-anchor T=30 at 7.86m, +5.6% tokens + budget
+pass) → a max-based gate is off the table; the gate must be a percentile.
+
+### Decision — framed against persona need, not derivation history
+
+The v1 persona is AV/robotics sim; the bar is **plausibility + geometric
+validity** (`project_v1_persona`). Geometric validity implicates **both** axes — a
+drifted vertex *and* a jittered right-angle corner are both invalid. That favours
+the only option that regresses neither: **more-directions**. Re-anchor buys cheaper
+tokens but pays in angle-tail regression (2.2× catastrophic) and, for a p99.9
+position bound, a third budget pass.
+
+Re-affirming the threshold is a **fresh** decision (the old 4.8m was a thinly-
+justified sample p95 — do not inherit the statistic). Two things for the reviewer
+to set explicitly:
+
+1. **Position percentile the sim needs.** p95 (more-dir N≈96–144) leaves ~5% of
+   features 4.8–14m off; p99.9 (more-dir N=360) leaves 0.1% up to ~14m. Max is
+   unachievable cheaply either way.
+2. **Cost tolerance.** more-dir = a direction-vocab/ID-layout re-lock (BP2/sentinel
+   cascade), no budget change, angle improves. re-anchor = §3.2 grammar change,
+   token-cheap at T=73 (no budget change) but angle-tail regression and only
+   p99.9≈8m; T=40 holds p99.9 but needs a budget pass + worse angle.
+
+I am NOT pre-recommending the N or the statistic — both are now fully scoped and
+the persona-bar + cost-tolerance call is yours. My read: more-directions dominates
+on the axes the persona cares about (only no-regression option); the open question
+is purely which position percentile justifies which N (vocab cost).
+
 ## Artifacts
 
 - `scripts/sub_f/scope_halt2_roundtrip.py` → `reports/sub_f_halt2_roundtrip_scoping.yaml`

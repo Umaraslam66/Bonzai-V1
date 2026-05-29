@@ -1,0 +1,91 @@
+_status: SCOPING - Halt 2 re-anchor option; NO lock changes.
+n_features: 862436
+baseline_total_tokens: 14535404
+locked_padded_budget: 6016
+grammar_sentinel_cost: "Re-anchor needs a \xA73.2 GRAMMAR change (mid-feature absolute\
+  \ anchor); the decoder snaps on anchor-range tokens (300..395). NO new vocab/sentinel\
+  \ \u2014 reuses the existing anchor sub-block. Self-delimiting preserved (disjoint\
+  \ ID ranges). token_cost.py budget twin would need a re-anchor-aware update."
+thresholds:
+- threshold_m: 73.0
+  position_l_inf_m:
+    p95: 4.534
+    p99: 6.454
+    p99_9: 8.204
+    max: 12.651
+  reanchor_triggers: 291471
+  net_token_delta_vs_baseline: -4540
+  net_token_delta_pct: -0.031
+  cell_p99_9_tokens: 5892
+  cell_max_tokens: 9056
+  cell_p99_9_padded: 6016
+  exceeds_locked_6016_padded: false
+  trigger_flip_ties_within_1e-6m: 0
+- threshold_m: 60.0
+  position_l_inf_m:
+    p95: 3.908
+    p99: 5.457
+    p99_9: 6.838
+    max: 11.705
+  reanchor_triggers: 385460
+  net_token_delta_vs_baseline: 96368
+  net_token_delta_pct: 0.663
+  cell_p99_9_tokens: 5962
+  cell_max_tokens: 9134
+  cell_p99_9_padded: 6016
+  exceeds_locked_6016_padded: false
+  trigger_flip_ties_within_1e-6m: 0
+- threshold_m: 40.0
+  position_l_inf_m:
+    p95: 2.862
+    p99: 3.823
+    p99_9: 4.689
+    max: 9.649
+  reanchor_triggers: 651501
+  net_token_delta_vs_baseline: 474936
+  net_token_delta_pct: 3.267
+  cell_p99_9_tokens: 6198
+  cell_max_tokens: 9518
+  cell_p99_9_padded: 6272
+  exceeds_locked_6016_padded: true
+  trigger_flip_ties_within_1e-6m: 0
+- threshold_m: 30.0
+  position_l_inf_m:
+    p95: 2.304
+    p99: 2.984
+    p99_9: 3.609
+    max: 7.858
+  reanchor_triggers: 871495
+  net_token_delta_vs_baseline: 816918
+  net_token_delta_pct: 5.62
+  cell_p99_9_tokens: 6311
+  cell_max_tokens: 9678
+  cell_p99_9_padded: 6400
+  exceeds_locked_6016_padded: true
+  trigger_flip_ties_within_1e-6m: 0
+angle_right_angle_corners:
+  n_corners: 2014729
+  note: open-loop directions, no dithering; preserves angle p95 but the absolute snap
+    (exact vertex mixed with drifted neighbours) worsens the angle TAIL (p99/catastrophic)
+    vs baseline.
+  baseline_openloop:
+    non_catastrophic_deg:
+      p95: 7.5
+      p99: 11.029
+      p99_9: 34.486
+      max: 45.0
+    catastrophic_gt45: 3500
+  reanchor_73m:
+    non_catastrophic_deg:
+      p95: 7.5
+      p99: 19.111
+      p99_9: 40.063
+      max: 45.0
+    catastrophic_gt45: 7597
+  reanchor_40m:
+    non_catastrophic_deg:
+      p95: 8.13
+      p99: 21.432
+      p99_9: 40.373
+      max: 45.0
+    catastrophic_gt45: 6664
