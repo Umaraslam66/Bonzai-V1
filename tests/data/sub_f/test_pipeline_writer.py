@@ -27,7 +27,7 @@ SYNTHETIC FIXTURE DISCIPLINE:
 
 BREF TOKEN IDs (verified against vocab_tag_to_id() at T8.8 write time):
   <bref_E_MAJOR> = 1501
-  <bref_S_MINOR> = 1504  (verified below; see _BREF_S_MINOR_ID)
+  <bref_S_MINOR> = 1506  (verified below; see _BREF_S_MINOR_ID)
 """
 
 from __future__ import annotations
@@ -533,6 +533,106 @@ def test_encode_tile_case_c_south_entry_bref_token_present(tmp_path: Path):
     assert chunk[2] == bref_s_minor_id, (
         f"Case C: expected <bref_S_MINOR> (id={bref_s_minor_id}) at chunk[2], "
         f"got {chunk[2]}. Full chunk: {chunk}"
+    )
+
+
+def test_encode_tile_case_d_inbound_outbound_bref(tmp_path: Path):
+    """Case D: road whose entry vertex touches one active edge AND exit vertex
+    touches a different active edge -> encoder emits BOTH an inbound and an
+    outbound bref token in the same feature chunk.
+
+    Cell (1,1) is used. Its West edge and East edge are both INTERNAL:
+      West: lower_i=0, lower_j=1, axis=0 -> override key (1, 0, 1, 0)
+      East: lower_i=1, lower_j=1, axis=0 -> override key (1, 1, 1, 0)
+    Both activated as MAJOR_ROAD (boundary_class_enum=2) so the encoder
+    resolves inbound=<bref_W_MAJOR> and outbound=<bref_E_MAJOR>.
+
+    Road: coords[0] on West edge (x=0, cell-local), coords[-1] on East edge
+    (x=250, cell-local) — genuine two-boundary-touching feature.
+
+    Sub-E override keys verified via cell_to_edge_ids(1,1) at T8.8 write time.
+
+    Position of bref vertices NOT round-trip asserted per spec §1.4 scope
+    lock #1 + §13.1 v2-deferral. Structural-only assertions.
+    """
+    from cfm.data.sub_f.boundary_contract import resolve_bref_tag
+    from cfm.data.sub_f.pipeline_writer import encode_tile
+    from cfm.data.sub_f.vocab import vocab_tag_to_id
+
+    tag_to_id = vocab_tag_to_id()
+
+    bref_w_major_tag = resolve_bref_tag("W", "MAJOR_ROAD")
+    assert bref_w_major_tag == "<bref_W_MAJOR>"
+    bref_w_major_id = tag_to_id[bref_w_major_tag]
+
+    bref_e_major_tag = resolve_bref_tag("E", "MAJOR_ROAD")
+    assert bref_e_major_tag == "<bref_E_MAJOR>"
+    bref_e_major_id = tag_to_id[bref_e_major_tag]
+
+    # Road: entry at West edge (x=0), exit at East edge (x=250), feature_class=0.
+    road = LineString([(0.0, 100.0), (125.0, 100.0), (250.0, 100.0)])
+
+    sub_c = tmp_path / "features.parquet"
+    sub_e = tmp_path / "boundary_contract.parquet"
+    out = tmp_path / "cells.parquet"
+
+    rows = [_feature_row(1, 1, 0, road, "residential", "road-d")]
+    _write_sub_c_parquet(sub_c, rows)
+
+    # Activate West edge of cell (1,1): lower_i=0, lower_j=1, axis=0 -> MAJOR_ROAD.
+    # Activate East edge of cell (1,1): lower_i=1, lower_j=1, axis=0 -> MAJOR_ROAD.
+    _write_sub_e_parquet(
+        sub_e,
+        overrides={
+            (1, 0, 1, 0): {"scope_marker": 0, "boundary_class_enum": 2},  # West
+            (1, 1, 1, 0): {"scope_marker": 0, "boundary_class_enum": 2},  # East
+        },
+    )
+
+    encode_tile(sub_c, sub_e, out)
+
+    table = pq.ParquetFile(out).read()
+    pyrows = table.to_pylist()
+    cell_11 = next(r for r in pyrows if r["cell_i"] == 1 and r["cell_j"] == 1)
+    token_seq = list(cell_11["token_sequence"])
+
+    assert cell_11["feature_count"] == 1, (
+        f"Case D: expected feature_count=1, got {cell_11['feature_count']}"
+    )
+
+    # Both bref tokens must be present.
+    assert bref_w_major_id in token_seq, (
+        f"<bref_W_MAJOR> (id={bref_w_major_id}) not found in token_sequence: {token_seq}"
+    )
+    assert bref_e_major_id in token_seq, (
+        f"<bref_E_MAJOR> (id={bref_e_major_id}) not found in token_sequence: {token_seq}"
+    )
+
+    chunks = _split_into_feature_chunks(token_seq)
+    assert len(chunks) == 1, f"Case D: expected 1 feature chunk, got {len(chunks)}"
+    chunk = chunks[0]
+
+    # Layout: [509, semantic, <bref_W_MAJOR>(inbound), anchor..., pairs...,
+    #          <bref_E_MAJOR>(outbound), 510]
+    assert chunk[0] == _FEATURE_TOKEN_ID
+    assert chunk[-1] == _FEATURE_END_TOKEN_ID
+
+    # chunk[2] = inbound bref (immediately after <feature> and semantic_tag_id).
+    assert chunk[2] == bref_w_major_id, (
+        f"Case D: expected <bref_W_MAJOR> (id={bref_w_major_id}) at chunk[2], "
+        f"got {chunk[2]}. Full chunk: {chunk}"
+    )
+    # chunk[-2] = outbound bref (immediately before <feature_end>).
+    assert chunk[-2] == bref_e_major_id, (
+        f"Case D: expected <bref_E_MAJOR> (id={bref_e_major_id}) at chunk[-2], "
+        f"got {chunk[-2]}. Full chunk: {chunk}"
+    )
+
+    # Exactly two bref-range ids (1500-1507) confirms both substitutions occurred.
+    bref_ids_in_chunk = [t for t in chunk if 1500 <= t <= 1507]
+    assert len(bref_ids_in_chunk) == 2, (
+        f"Case D: expected exactly 2 bref tokens (1500-1507), "
+        f"got {len(bref_ids_in_chunk)}: {bref_ids_in_chunk}. Full chunk: {chunk}"
     )
 
 
