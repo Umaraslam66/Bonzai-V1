@@ -466,6 +466,11 @@ def test_quantize_coord_m_integer_only_banker_tiebreak():
 def test_direction_bin_lower_at_boundary_48_directions():
     """Per BP5 §5.2: tie-break to LOWER bin index. 48 directions = 7.5 deg each.
     3.75 deg is exactly half-bin between dir_0 and dir_1 -> dir_0.
+
+    NOTE: 48 is the RETIRED v1 direction count (relocated to 360 at the Halt-2
+    revisit 2026-05-29). This test exercises direction_bin's count-parameterized
+    tie-break GENERALITY, not the lock; the LOCKED count (360) is covered by
+    test_per_axis_determinism::test_direction_bin_locked_360_*.
     """
     from cfm.data.sub_f.encoder import direction_bin
 
