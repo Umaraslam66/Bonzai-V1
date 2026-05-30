@@ -117,19 +117,29 @@ def test_region_manifest_has_six_version_fields_and_region_vocab_sources():
         assert field in manifest
 
     assert manifest["sub_f_source_version"] == load_sub_f_source_version()
-    assert manifest["vocab_sources_status"] == "partial_pending_bp7"
+    assert manifest["vocab_sources_status"] == "complete"
     assert "vocab_sources" in manifest
     assert all("vocab_sources" not in tile for tile in manifest["tiles"])
     assert [(t["tile_i"], t["tile_j"]) for t in manifest["tiles"]] == [(1, 2), (2, 1)]
     assert manifest["manifest_sha256"] == manifest_sha256(manifest)
 
 
-def test_task6_vocab_sources_cover_locked_bp1_bp2_bp4_only():
+def test_task6_vocab_sources_cover_all_locked_blueprints():
+    # Renamed from ..._bp1_bp2_bp4_only: BP7 (boundary_reference_vocab.yaml) was
+    # added once Task 7 locked it (close-checklist line 8, discharged at T15).
     sources = task6_vocab_sources()
 
-    assert set(sources) == {"bp1_semantic_vocab", "bp4_unknown_family", "bp2_encoding_primitives"}
+    assert set(sources) == {
+        "bp1_semantic_vocab",
+        "bp4_unknown_family",
+        "bp2_encoding_primitives",
+        "bp7_boundary_reference_vocab",
+    }
     assert [sources[key]["path"] for key in sources] == list(TASK6_VOCAB_SOURCE_PATHS)
-    assert all("boundary" not in key for key in sources)
+    # BP7 boundary-ref source is now present (was explicitly absent pre-T15).
+    assert sources["bp7_boundary_reference_vocab"]["path"] == (
+        "configs/sub_f/boundary_reference_vocab.yaml"
+    )
     assert all(Path(source["path"]).exists() for source in sources.values())
 
 
