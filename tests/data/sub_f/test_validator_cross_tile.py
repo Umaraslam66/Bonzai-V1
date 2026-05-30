@@ -731,26 +731,6 @@ def test_bp1_class_mapping_major_set_is_nonempty_and_minor_default():
     assert grouping.get("__no_such_class__", BoundaryClass.MINOR_ROAD) is BoundaryClass.MINOR_ROAD
 
 
-# ===========================================================================
-# Real-region BP7 composite — SKIP STUB (sub-E + sub-F caches absent)
-# ===========================================================================
-
-
-@pytest.mark.skip(
-    reason=(
-        "awaiting sub-E + sub-F cache regeneration — real-region BP7 composite; "
-        "see close-checklist. Un-skip when both caches regenerate; run "
-        "cross-reference/symmetry/non-road/coverage + version consistency "
-        "against real cached Singapore tiles."
-    )
-)
-def test_validate_cross_tile_against_real_region_singapore():  # type: ignore[empty-body]
-    """Integration: run validate_cross_tile on the real cached Singapore
-    sub-F region against the real sub-E region.
-
-    Requires real caches under data/processed/sub_f/<release>/singapore/ and
-    data/processed/sub_e/<release>/singapore/. This is the real-region layer
-    of the BP7 verification debt inherited from T7/T8.
-    See reports/2026-05-23-phase-1-sub-F-close-checklist.md.
-    """
-    ...
+# The real-region BP7 cross-tile composite is now in the consolidated
+# tests/data/sub_f/test_singapore_integration.py (T13), gated fail-loud on the
+# sub-E + sub-F caches. See reports/2026-05-23-phase-1-sub-F-close-checklist.md.

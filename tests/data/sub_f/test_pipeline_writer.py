@@ -723,20 +723,7 @@ def test_encode_tile_case_b_non_road_no_bref(tmp_path: Path):
     assert not bref_ids_in_seq, f"building encoded with unexpected bref tokens: {bref_ids_in_seq}"
 
 
-@pytest.mark.skip(
-    reason=(
-        "awaiting sub-E cache regeneration — BP7 verification debt; see close-checklist. "
-        "Un-skip when sub-E cache regenerates. Assert encoder output matches real sub-E "
-        "parquet on grammar cases B/C/D edge scenarios. Verify BP7 four-test composite "
-        "per spec §8.1 (cross-reference, symmetry, non-road non-emission, coverage). "
-        "This is the T8 layer of the BP7 verification debt inherited from T7."
-    )
-)
-def test_encode_tile_against_real_sub_e_singapore(tmp_path: Path):  # type: ignore[empty-body]
-    """Integration test against real sub-E Singapore boundary_contract.parquet.
-
-    Requires: real sub-E cache at data/processed/sub_e/2024-04-16-beta.3/singapore/
-    This test is the T8 layer of the BP7 verification debt inherited from T7.
-    See reports/2026-05-23-phase-1-sub-F-close-checklist.md.
-    """
-    ...
+# The T8/encode layer on real sub-E (first-real-read without SubEContractViolation
+# + grammar B/C/D + inline well-formedness) is now in the consolidated
+# tests/data/sub_f/test_singapore_integration.py (T13), gated fail-loud on the
+# sub-E cache. See reports/2026-05-23-phase-1-sub-F-close-checklist.md.

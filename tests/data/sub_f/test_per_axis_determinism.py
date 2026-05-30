@@ -48,7 +48,6 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pytest
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
 from shapely.wkb import dumps as wkb_dumps
 
@@ -940,32 +939,6 @@ def test_vocab_cross_seed_matches_in_process_order():
     )
 
 
-# ============================================================================
-# D. Real-cached-Singapore §5.5 integration — SKIP STUB (cache absent)
-# ============================================================================
-
-
-@pytest.mark.skip(
-    reason=(
-        "awaiting sub-E cache regeneration — §5.5 real-Singapore determinism; "
-        "see close-checklist. Un-skip when sub-E cache regenerates. Run same-process "
-        "+ fresh-process + round-trip byte-identity against the real cached Singapore "
-        "tiles per spec §5.5. The synthetic-tile determinism tests ship now; the "
-        "real-cache leg is gated on sub-E."
-    )
-)
-def test_per_axis_determinism_real_singapore_same_and_fresh_process(tmp_path: Path):  # type: ignore[empty-body]
-    """§5.5 real-Singapore determinism gate.
-
-    Requires: real sub-E cache at data/processed/sub_e/2024-04-16-beta.3/singapore/
-    and real sub-C cache at data/processed/sub_c/singapore/.
-
-    When un-skipped, this test must:
-    - Encode the Singapore tile twice in-process → byte-identical token sequences.
-    - Encode in a cold subprocess → byte-identical to in-process.
-    - Round-trip: encode then decode → L_inf ≤ 4.8m position, p95 ≤ 4.0° angle
-      (re-measured on the full real dataset, not just synthetic fixtures).
-
-    See reports/2026-05-23-phase-1-sub-F-close-checklist.md §5.5 obligation.
-    """
-    ...
+# §5.5 real-cached-Singapore determinism is now in the consolidated
+# tests/data/sub_f/test_singapore_integration.py (T13), gated fail-loud on the
+# sub-E cache. See reports/2026-05-23-phase-1-sub-F-close-checklist.md.

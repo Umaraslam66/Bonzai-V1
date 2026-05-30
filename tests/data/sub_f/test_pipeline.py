@@ -654,25 +654,6 @@ def test_alpha_drop_report_entrypoint_returns_report_dict(tmp_path: Path, monkey
     assert report["n_cells_dropped"] == 0
 
 
-# ===========================================================================
-# REAL-SINGAPORE derive — SKIP STUB (sub-C/sub-D/sub-E caches absent)
-# ===========================================================================
-
-
-@pytest.mark.skip(
-    reason=(
-        "awaiting sub-C/sub-D/sub-E cache regeneration — real-region derive; "
-        "see close-checklist. Un-skip when all three caches exist; run "
-        "derive_region against the real cached Singapore region and assert "
-        "_SUCCESS + manifest + per-tile cells/provenance, then run the BP7 "
-        "composite via validate_cross_tile on the real output."
-    )
-)
-def test_derive_region_against_real_singapore():  # type: ignore[empty-body]
-    """Integration: run derive_region on the real cached Singapore region.
-
-    Requires real caches under data/processed/sub_{c,d,e}/<release>/singapore/.
-    This is the real-region layer of the verification debt inherited from
-    T8/T10. See reports/2026-05-23-phase-1-sub-F-close-checklist.md.
-    """
-    ...
+# Real-region derive is now in the consolidated
+# tests/data/sub_f/test_singapore_integration.py (T13), gated fail-loud on the
+# sub-C/sub-D/sub-E caches. See reports/2026-05-23-phase-1-sub-F-close-checklist.md.
