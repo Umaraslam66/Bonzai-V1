@@ -1,0 +1,244 @@
+_status: LOCKED - Halt 7 approved
+encoded_geometry_type_counts:
+  '0': 149666
+  '1': 303302
+  '2': 399695
+  '4': 5690
+  '5': 4083
+geometry_type_counts:
+  LineString: 303302
+  MultiLineString: 5690
+  MultiPolygon: 4083
+  Point: 149666
+  Polygon: 399695
+outcome: branched_multi_row_present
+recommendation: Accepted v1 as sub-E-inherited per-edge collapse; no sub-F multi-outbound grammar change
+road_geometry_type_4_count: 5605
+road_multiline_count: 5605
+road_multiline_decoded_count: 5605
+road_multiline_examples:
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 920f98c1-98a6-421e-8374-02ba48b4c584
+  tile: tile=EPSG3414_i10_j10
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: a6587721-6f44-4feb-9018-e28820c993ea
+  tile: tile=EPSG3414_i10_j11
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 391e9951-e9d4-46cb-800f-0edc6ddc29af
+  tile: tile=EPSG3414_i10_j11
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: e887926c-2035-45a7-9c62-b1c2d4320a45
+  tile: tile=EPSG3414_i10_j11
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 47b08875-0726-4a99-b06d-706d8e76c406
+  tile: tile=EPSG3414_i10_j11
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: a62be704-c350-4a1b-84e1-b3f23b706f86
+  tile: tile=EPSG3414_i10_j14
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 6e3ba62e-fee9-4f51-bbde-0ab4dedd21c2
+  tile: tile=EPSG3414_i10_j14
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 2fd8dc54-0399-40ab-b2ff-6ec829a016a1
+  tile: tile=EPSG3414_i10_j14
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 6cf613eb-2926-40a0-b054-18b3c61647a6
+  tile: tile=EPSG3414_i10_j14
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: dd6d65ba-2aef-4dfc-a100-950c19a3512f
+  tile: tile=EPSG3414_i10_j14
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 4ae2e0c7-9105-4df5-99b7-27d82c4c74af
+  tile: tile=EPSG3414_i10_j14
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 695f9b06-594d-40a4-b450-3f2944bd5e88
+  tile: tile=EPSG3414_i10_j15
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 3
+  source_feature_id: 1a15f48c-451f-40c6-8656-fbea8ccd84f2
+  tile: tile=EPSG3414_i10_j15
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 884d0eff-464c-4d2c-bd36-11b9a4179bee
+  tile: tile=EPSG3414_i10_j15
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: df68e08e-2417-4d50-8acf-ec5211270af1
+  tile: tile=EPSG3414_i10_j15
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: d02c7d90-8e1a-4de2-8799-a8e7f9ba2916
+  tile: tile=EPSG3414_i10_j15
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: cc8594e0-7f3c-4914-a918-616bc04ebb8a
+  tile: tile=EPSG3414_i10_j15
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 3
+  source_feature_id: 1a15f48c-451f-40c6-8656-fbea8ccd84f2
+  tile: tile=EPSG3414_i10_j15
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: afc46e2c-8d23-4a99-ba1e-8b52ca122265
+  tile: tile=EPSG3414_i10_j15
+- encoded_geometry_type: 4
+  geometry_type: MultiLineString
+  part_count: 2
+  source_feature_id: 29b25d05-c812-4216-b77d-93c16993d6f1
+  tile: tile=EPSG3414_i10_j15
+road_multiline_part_edge_buckets:
+  different_cell_edges: 352
+  mergeable_artifact: 0
+  no_multi_part_boundary_interaction: 47
+  same_cell_edge_multi_part: 5206
+road_multiline_same_edge_examples:
+- cell_i: 3
+  cell_j: 4
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - E
+  - - E
+  repeated_edges:
+  - E
+  source_feature_id: 920f98c1-98a6-421e-8374-02ba48b4c584
+  tile: tile=EPSG3414_i10_j10
+- cell_i: 1
+  cell_j: 6
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - E
+    - S
+  - - E
+  repeated_edges:
+  - E
+  source_feature_id: a6587721-6f44-4feb-9018-e28820c993ea
+  tile: tile=EPSG3414_i10_j11
+- cell_i: 2
+  cell_j: 5
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - E
+    - W
+  - - E
+  repeated_edges:
+  - E
+  source_feature_id: 391e9951-e9d4-46cb-800f-0edc6ddc29af
+  tile: tile=EPSG3414_i10_j11
+- cell_i: 4
+  cell_j: 7
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - N
+  - - E
+    - N
+  repeated_edges:
+  - N
+  source_feature_id: e887926c-2035-45a7-9c62-b1c2d4320a45
+  tile: tile=EPSG3414_i10_j11
+- cell_i: 5
+  cell_j: 5
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - S
+    - W
+  - - W
+  repeated_edges:
+  - W
+  source_feature_id: 47b08875-0726-4a99-b06d-706d8e76c406
+  tile: tile=EPSG3414_i10_j11
+- cell_i: 6
+  cell_j: 6
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - W
+  - - W
+  repeated_edges:
+  - W
+  source_feature_id: a62be704-c350-4a1b-84e1-b3f23b706f86
+  tile: tile=EPSG3414_i10_j14
+- cell_i: 6
+  cell_j: 7
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - S
+    - W
+  - - W
+  repeated_edges:
+  - W
+  source_feature_id: 6e3ba62e-fee9-4f51-bbde-0ab4dedd21c2
+  tile: tile=EPSG3414_i10_j14
+- cell_i: 7
+  cell_j: 5
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - E
+  - - E
+  repeated_edges:
+  - E
+  source_feature_id: 2fd8dc54-0399-40ab-b2ff-6ec829a016a1
+  tile: tile=EPSG3414_i10_j14
+- cell_i: 7
+  cell_j: 5
+  class_raw: service
+  part_count: 2
+  part_edges:
+  - - N
+  - - N
+  repeated_edges:
+  - N
+  source_feature_id: 6cf613eb-2926-40a0-b054-18b3c61647a6
+  tile: tile=EPSG3414_i10_j14
+- cell_i: 7
+  cell_j: 6
+  class_raw: footway
+  part_count: 2
+  part_edges:
+  - - E
+    - N
+  - - N
+  repeated_edges:
+  - N
+  source_feature_id: dd6d65ba-2aef-4dfc-a100-950c19a3512f
+  tile: tile=EPSG3414_i10_j14
+row_count: 862436
+sub_c_region_dir: data/processed/sub_c/2026-04-15.0/singapore
+tile_count: 494

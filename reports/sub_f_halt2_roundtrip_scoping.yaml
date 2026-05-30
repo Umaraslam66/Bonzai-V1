@@ -1,0 +1,136 @@
+_status: SCOPING - Halt 2 round-trip revisit; NO lock changes. Input to re-lock proposal.
+current_direction_count: 48
+current_l_inf_threshold_m: 4.8
+honest_metric: per-source-vertex L_inf via cumulative chunked_segment_pairs mapping
+  (admits collinear chunk-inserted vertices per spec 3.8)
+real_roundtrip_l_inf_at_48_dir:
+  ALL:
+    n: 862436
+    p50: 0.874
+    p95: 8.847
+    p99: 17.408
+    p99_9: 27.868
+    max: 33.462
+  roads:
+    n: 302271
+    p50: 2.047
+    p95: 13.866
+    p99: 21.721
+    p99_9: 29.898
+    max: 32.999
+  buildings:
+    n: 395177
+    p50: 0.889
+    p95: 4.15
+    p99: 8.199
+    p99_9: 15.473
+    max: 32.184
+  pois:
+    n: 149655
+    p50: 0.0
+    p95: 0.0
+    p99: 0.0
+    p99_9: 0.0
+    max: 0.0
+  base:
+    n: 15333
+    p50: 2.653
+    p95: 18.014
+    p99: 26.888
+    p99_9: 32.713
+    max: 33.462
+real_segment_length_m:
+  ALL:
+    n: 3747563
+    p50: 7.12
+    p95: 44.003
+    p99: 92.685
+    p99_9: 205.791
+    max: 344.088
+  roads:
+    n: 1090873
+    p50: 10.299
+    p95: 67.038
+    p99: 125.807
+    p99_9: 238.145
+    max: 342.586
+  buildings:
+    n: 2551646
+    p50: 6.4
+    p95: 28.56
+    p99: 60.819
+    p99_9: 118.65
+    max: 276.677
+  pois:
+    n: 0
+    p50: 0.0
+    p95: 0.0
+    p99: 0.0
+    p99_9: 0.0
+    max: 0.0
+  base:
+    n: 105044
+    p50: 9.018
+    p95: 92.244
+    p99: 247.663
+    p99_9: 270.333
+    max: 344.088
+direction_count_curve:
+- N_directions: 48
+  bin_width_deg: 7.5
+  max_segment_len_within_4_8m: 73.4
+  recon_err_at_real_p99_9_segment_m: 13.459
+  recon_err_at_real_max_segment_m: 22.504
+  holds_4_8m_at_p99_9: false
+- N_directions: 64
+  bin_width_deg: 5.625
+  max_segment_len_within_4_8m: 97.8
+  recon_err_at_real_p99_9_segment_m: 10.098
+  recon_err_at_real_max_segment_m: 16.884
+  holds_4_8m_at_p99_9: false
+- N_directions: 72
+  bin_width_deg: 5.0
+  max_segment_len_within_4_8m: 110.0
+  recon_err_at_real_p99_9_segment_m: 8.976
+  recon_err_at_real_max_segment_m: 15.009
+  holds_4_8m_at_p99_9: false
+- N_directions: 96
+  bin_width_deg: 3.75
+  max_segment_len_within_4_8m: 146.7
+  recon_err_at_real_p99_9_segment_m: 6.733
+  recon_err_at_real_max_segment_m: 11.258
+  holds_4_8m_at_p99_9: false
+- N_directions: 128
+  bin_width_deg: 2.8125
+  max_segment_len_within_4_8m: 195.6
+  recon_err_at_real_p99_9_segment_m: 5.05
+  recon_err_at_real_max_segment_m: 8.444
+  holds_4_8m_at_p99_9: false
+- N_directions: 144
+  bin_width_deg: 2.5
+  max_segment_len_within_4_8m: 220.0
+  recon_err_at_real_p99_9_segment_m: 4.489
+  recon_err_at_real_max_segment_m: 7.506
+  holds_4_8m_at_p99_9: true
+- N_directions: 192
+  bin_width_deg: 1.875
+  max_segment_len_within_4_8m: 293.4
+  recon_err_at_real_p99_9_segment_m: 3.367
+  recon_err_at_real_max_segment_m: 5.63
+  holds_4_8m_at_p99_9: true
+- N_directions: 256
+  bin_width_deg: 1.4062
+  max_segment_len_within_4_8m: 391.1
+  recon_err_at_real_p99_9_segment_m: 2.525
+  recon_err_at_real_max_segment_m: 4.222
+  holds_4_8m_at_p99_9: true
+- N_directions: 360
+  bin_width_deg: 1.0
+  max_segment_len_within_4_8m: 550.0
+  recon_err_at_real_p99_9_segment_m: 1.796
+  recon_err_at_real_max_segment_m: 3.003
+  holds_4_8m_at_p99_9: true
+min_N_holding_4_8m_at_real_p99_9_segment: 144
+real_p99_9_segment_len_m: 205.791
+real_max_segment_len_m: 344.088
+synthetic_aggregate_honest_l_inf_max_m: 25.811

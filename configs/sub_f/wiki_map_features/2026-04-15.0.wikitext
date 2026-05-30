@@ -1,0 +1,53 @@
+{{Languages|Map Features}} {{Communication channels/tagging}}
+
+[[OpenStreetMap]] represents [[features|physical features on the ground]] (e.g., roads or buildings) using [[tags]] attached to its basic data structures (its [[nodes]], [[ways]], and [[relations]]). Each tag describes a geographic attribute of the feature being shown by that specific node, way or relation. 
+
+OpenStreetMap's [[tags|free tagging system]] allows the map to include an unlimited number of attributes describing each feature. The community agrees on certain key and value combinations for the most commonly used [[feature tag]]s, which act as informal standards. However, users can create new tags to improve the style of the map or to support analyses that rely on previously unmapped attributes of the features. Short descriptions of tags that relate to particular topics or interests can be found using the [[:Category:Features|feature pages]].
+
+Most features can be described using only a small number of tags, such as a path with a classification tag such as {{tag|highway|footway}}, and perhaps also a name using {{tag|name}}. But, since this is a worldwide, inclusive map, there can be many different feature types in OpenStreetMap, almost all of them described by tags.
+
+There are [[:Category:Proposed features|proposed changes to existing tags]], [[:Category:Inactive features|inactive features]] and [[deprecated features]]. If you do not find a suitable tag in this list then feel free to make something suitable up as long as the [[verifiability|tag values will be verifiable]]. Over time, you may find that the tag name is changed to fit with some wider consensus. However, many good tags were used first and documented later. For the latest updates of tagging schemes see ''[[Changelog]]''.
+
+== Primary features ==
+{{See also|Top-level tag}}
+{{Map_Features:aerialway}}
+{{Map_Features:aeroway}}
+{{Map_Features:amenity}}
+{{Map_Features:barrier}}
+{{Map_Features:boundary}}
+{{Building typology}}<!--editable at https://wiki.openstreetmap.org/wiki/Template:Building_typology-->
+{{Map_Features:craft}}
+{{Map_Features:emergency}}
+{{Map_Features:geological}}
+{{Map_Features:healthcare}}
+{{Map_Features:highway}}
+{{Map_Features:historic}}
+{{Map_Features:landuse}}
+{{Map_Features:leisure}}
+{{Map_Features:man_made}}
+{{Map_Features:military}}
+{{Map_Features:natural}}
+{{Map_Features:office}}
+{{Map_Features:place}}
+{{Map_Features:power}}
+{{Map_Features:public_transport}}
+{{Map_Features:railway}}
+{{Map_Features:route}}
+{{Map_Features:shop}}
+{{Map_Features:telecom}}
+{{Map_Features:tourism}}
+{{Map_Features:water}}
+{{Map_Features:waterway}}
+
+== Additional properties ==
+{{Map_Features:addr}}
+{{Map_Features:annotation}}
+{{Map_Features:name}}
+{{Map_Features:properties}}
+{{Map_Features:references}}
+{{Map_Features:restrictions}}
+
+[[Category:Proposals admin]]
+[[Category:Tagging guidelines]]
+[[Category:Features]]
+[[Category:Semantics]]

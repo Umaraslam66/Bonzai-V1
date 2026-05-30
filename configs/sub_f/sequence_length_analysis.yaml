@@ -1,0 +1,219 @@
+_status: LOCKED
+lock:
+  ratified_at: "2026-05-28"
+  ratified_by: human_reviewer
+  revisit_2026_05_29:
+    trigger: "Encoder magnitude chunking (spec section 3.5) was discovered missing at T8.7 dispatch (aggregate stress L_inf = 183m vs 4.8m Halt 2 lock). Fix at commit 86f0c99. Chunking inflates per-feature token counts on segments > 32m, shifting the BP3 budget surface upward. This is a spirit-of-recheck-obligations revisit (see recheck_obligations below), not a new design - the chunking formula simply was not a named trigger at Halt 4 because it was undiscovered."
+    audit: reports/sub_f_chunked_budget_audit.yaml
+    audit_commit: "2562c89"
+    old_elbow_budget_raw_tokens: 5792
+    old_elbow_budget_padded_tokens: 5888
+    new_elbow_budget_raw_tokens: 5899
+    new_elbow_budget_padded_tokens: 6016
+    per_type_chunked_inflation_pct: {roads: 13.8, buildings: 3.41, pois: 0.0, base_landuse: 26.45}
+    emitter_faithful_verification: "scripts/sub_f/verify_chunked_budget_p999.py recomputes P99.9 with the encoder-faithful per-part Multi* costing that actually ships (audit used a whole-geom concat approximation). CONCAT P99.9 = 5899 raw (reproduces audit); SPLIT P99.9 = 5900 raw; BOTH round to padded 6016. Padded budget - the operative sequence length - is identical under both methods, so the lock holds. Per-feature cost twin cfm.data.sub_f.token_cost is pinned against the encoder (tests/data/sub_f/test_token_cost.py)."
+    resolution: "Re-lock at chunked P99.9 (5899 raw / 6016 padded). Cost (+128 tokens padded, ~2% attention FLOPs) is trivial vs the silent under-coverage on the road- and base-heavy tail cells that staying at 5888 would cause (the cheap-to-keep violation pattern). Option to move to chunked P99.99 rejected as overfitting. Reviewer-ratified disposition (option 1) recorded in the 2026-05-29 handoff."
+  halt_report: reports/2026-05-23-phase-1-sub-F-task-3c-halt.md
+  drop_report_raw: reports/sub_f_task_3c_alpha_drop_at_p999_chunked.yaml
+  drop_report_padded: reports/sub_f_task_3c_alpha_drop_at_p999_chunked_padded.yaml
+  drop_report_raw_prechunking: reports/sub_f_task_3c_alpha_drop_at_p999.yaml
+  drop_report_padded_prechunking: reports/sub_f_task_3c_alpha_drop_at_p999_padded.yaml
+  elbow_quantile: 99.9
+  elbow_budget_raw_tokens: 5899
+  elbow_budget_padded_tokens: 6016
+  elbow_rationale: "Marginal-cost-of-cut inflection at P99.9->P99.99 (6.5x jump from 4043 to 26189 tokens/pp). P99.9 is the last point before the cost cliff. RE-LOCKED 2026-05-29 (revisit_2026_05_29): budget reflects the chunked encoder formula per spec section 3.5 (commit 86f0c99) and the audit in reports/sub_f_chunked_budget_audit.yaml (commit 2562c89). The marginal-cost-of-cut framing is unchanged - P99.9 remains the last point before the P99.99 cost cliff under chunked costing; only the token magnitude moved (5792->5899 raw / 5888->6016 padded)."
+  truncation_strategy: alpha
+  truncation_strategy_rationale: "Alpha (tail-cell rejection) chosen for v1 NOT on simplicity but on not-reopening-a-lock: beta (within-cell priority tail-drop) would tension with the just-locked spec \xA75.2 feature iteration order (sub-C source-order) and BP5 canonical form (multi-part sort by lex-min vertex) - would require a Halt 5 cascade to redefine the per-feature ordering contract. Alpha drop report (companion YAML) makes the beta-upgrade decision data-driven when training-scaffold needs it."
+  retention_floors_per_type:
+    _measurement_basis: "Floors RE-LOCKED 2026-05-29 (revisit_2026_05_29) from the chunked PADDED-budget alpha cut (reports/sub_f_task_3c_alpha_drop_at_p999_chunked_padded.yaml, budget_raw=budget_padded=6016). Padded-cut basis is unchanged from the original Halt 4 lock (halt report line 328 'Padded 5,888 actual alpha cut'): the model's max sequence length IS the padded budget, so a cell is truncated only if it exceeds the padded budget. All four floors drifted UP or flat vs the original lock - the +128-token padded budget rise outpaced the chunking inflation at the tail, retaining slightly more features per type."
+    '0':
+      role: roads
+      floor: 0.9936
+      drop_set_fraction_pct: 0.644
+      vs_spec_7_5_default: -0.540pp_below_99.9_default
+      prechunking_floor: 0.9934
+      note: "Below \u00a77.5 default 99.9% by 0.54pp; within plausible stage-4 formula error (3-7 tokens per dense cell). Flag for recheck when sub-E lands. Chunked re-lock: roads carry the highest chunking inflation (+13.8%), so the +128 padded budget rise lifts roads retention only modestly (99.34->99.36); more road cells fit but chunking pushes others over."
+    '1':
+      role: buildings
+      floor: 0.9889
+      drop_set_fraction_pct: 1.106
+      vs_spec_7_5_default: -0.110pp_below_99.0_default
+      prechunking_floor: 0.9883
+      note: "Below \u00a77.5 default 99.0% by 0.11pp; within formula-error margin. Flag for recheck when sub-E lands. Chunked re-lock: modest 3.41% inflation, budget rise lifts retention 98.83->98.89."
+    '2':
+      role: pois
+      floor: 0.9027
+      drop_set_fraction_pct: 9.730
+      vs_spec_7_5_default: -8.730pp_below_99.0_default
+      prechunking_floor: 0.9018
+      note: "Heavy-tailed point distribution: POIs cluster in dense commercial cells whose total cell length exceeds the budget. The \u00a77.5 uniform 99% floor mis-specifies POIs because per-feature loss profile is fundamentally different from sparse roads/buildings (per-cell loss of dense POI clusters vs per-feature loss). Type-specific calibration locks the floor at observable retention given P99.9 budget choice. NOT 'POIs cost least' - per-type category-error correction. Chunked re-lock: points carry 0% direct chunking inflation, so the budget rise lifts POI retention 90.18->90.27 (POI-bearing cells shed length as their co-located roads no longer push the cell over budget)."
+    '3':
+      role: base_landuse
+      floor: 0.9992
+      drop_set_fraction_pct: 0.078
+      vs_spec_7_5_default: +0.92pp_above_99.0_default
+      prechunking_floor: 0.9992
+      note: "Comfortably clears \u00a77.5 default. Chunked re-lock: despite the highest inflation (+26.45%), base retention is unchanged at 99.92% - base cells are sparse and well below budget, so inflation does not push them over."
+  long_cell_diagnostic:
+    threshold_tokens: 5760
+    margin_tokens_below_padded_budget: 256
+    margin_padding_blocks_below_padded_budget: 2
+    margin_pct_of_padded_budget: 4.26
+    current_warning_band_cell_count_singapore: 7
+    current_warning_band_fraction_pct: 0.022
+    threshold_reanchored_2026_05_29: "MECHANICALLY re-anchored when the budget moved (revisit_2026_05_29). The action contract locks the diagnostic at '2 padding blocks below the padded budget'; padded budget 5888->6016 therefore moves the threshold 5632->5760 (6016 - 256). NOT a reviewer-choice re-derivation - the anchor rule is fixed, only the budget it tracks changed."
+    rationale: "Anchored in token space below the padded budget, NOT in percentile space below the elbow quantile. The percentile-space anchor (\u00a77.7 literal formula chosen_quantile - 0.5pp = P99.4 = 4096 tokens) lands 1920 tokens below the budget for our actual distribution - too far to function as early warning. Re-anchored at 2 padding blocks below the padded budget: 256-token margin >> plausible 3-7 token stage-4 formula error (37x headroom); 7 cells warned per region run is signal, not noise. 2 padding blocks chosen over 1 for more lead-time at zero cost (both are above noise floor)."
+    action_contract:
+      per_run_action: "Pipeline orchestrator logs the count + per-type composition of cells whose length is in (5760, 6016] in the region run report. Implementer: \u03b1 drop-report script (scripts/sub_f/compute_alpha_drop_report.py) called with --budget-raw=5760 --budget-padded=6016 emits the warning-band composition."
+      revisit_triggers:
+        - "warning_band_cell_count > 14 (i.e. >2x the v1 Singapore baseline of 7) in any region/release run"
+        - "warning_band_cell_count > 0.1pct of total cells in any region/release run"
+        - "sub-E measured stage-4 mean > 2 tokens/cell systematically (regardless of warning-band count)"
+        - "any 3 consecutive region/release runs show monotonically increasing warning-band cell count"
+      revisit_actions:
+        - "Re-run T3c against measured stage-4 (post-sub-E) and recompute elbow + per-type floors"
+        - "Consider elbow shift to P99.99 if per-type floors degrade materially"
+        - "Initiate \u03b2-upgrade scoping in the training-scaffold sub-project if drop set composition shows recoverable within-cell tails"
+  formula_error_residual_risk:
+    padding_slack_tokens: 117
+    plausible_per_cell_stage_4_error_tokens_range: [3, 7]
+    cell_count_in_elbow_band_5899_to_6016: 2
+    assessment: "117-token padding slack (RE-LOCKED 2026-05-29: raw 5899, padded 6016) absorbs plausible per-cell stage-4 formula error (3-7 tokens) by 17-39x margin. Only 2 cells currently lie in the (raw, padded] elbow band (5899, 6016], so density at the boundary is sparse. Stage-4 error can shift at most a small handful of cells across the boundary - within retention floor tolerance. P99.9 elbow holds without cutting one notch deeper."
+  recheck_obligations:
+    - "When sub-E cache is regenerated/restored, re-run T3c with measured stage-4 (replacing the 0.7 tokens/non-empty-cell formula). Compare elbow + per-type floors. See close-checklist."
+    - "Regenerate \u03b1 drop report alongside each region/release pipeline run. Log count + per-type composition. Feed into beta-upgrade decision input set."
+    - "Evaluate long-cell-diagnostic warning-band growth across region/release runs. If revisit triggers fire, schedule Halt-4-revisit checkpoint."
+_prechunking_analysis_note: "Every top-level analysis section below this line (budget_surface, retention_by_quantile_by_type, scaling_projection, stage_breakdown, long_cell_diagnostic_supersedes_note) is the PRE-CHUNKING surface from scripts/sub_f/compute_budget_surface.py (unchunked Case-A formula 3 + n_anchor + 2*(V-1)). It is retained for audit trail. The AUTHORITATIVE locked budget is in lock.* above (5899 raw / 6016 padded), reflecting the chunked encoder per spec section 3.5; the chunked surface lives in reports/sub_f_chunked_budget_audit.yaml. Do NOT read budget_surface[99.9] = 5792/5888 as the lock - see lock.revisit_2026_05_29. These sections are NOT re-derived (the handoff forbids re-running the surface for the mechanical re-lock); they remain the pre-chunking analysis of record."
+anchor_scheme_used: hierarchical
+budget_surface:
+- padded_length_tokens: 3584
+  padding_overhead_pct: 0.0
+  quantile: 99.0
+  sequence_length_tokens: 3584
+- padded_length_tokens: 4224
+  padding_overhead_pct: 1.1736526946107784
+  quantile: 99.5
+  sequence_length_tokens: 4175
+- padded_length_tokens: 5888
+  padding_overhead_pct: 1.6574585635359116
+  quantile: 99.9
+  sequence_length_tokens: 5792
+- padded_length_tokens: 8192
+  padding_overhead_pct: 0.5276721070069947
+  quantile: 99.99
+  sequence_length_tokens: 8149
+- padded_length_tokens: 9088
+  padding_overhead_pct: 1.3493922159027545
+  quantile: 100.0
+  sequence_length_tokens: 8967
+n_anchor: 4
+n_cells_analyzed: 31616
+n_empty_cells: 16082
+long_cell_diagnostic_supersedes_note: "Pre-lock proposed_long_cell_diagnostic_pp \
+  field (spec \u00a77.7 literal formula 'chosen_quantile - 0.5pp') was REPLACED at Halt 4 \
+  ratification (2026-05-28). The percentile-space anchor lands at P99.4 = 4096 tokens \
+  for this distribution, 1792 tokens below the budget \u2014 too far to function as early \
+  warning. See lock.long_cell_diagnostic above for the token-space re-anchor + action \
+  contract."
+retention_by_quantile_by_type:
+  99.0:
+    '0': 0.9458730741619276
+    '1': 0.8689346799029296
+    '2': 0.7053756974374394
+    '3': 0.975738603013109
+  99.5:
+    '0': 0.971664499736991
+    '1': 0.9278854791650324
+    '2': 0.7868029801877652
+    '3': 0.9910650231526772
+  99.9:
+    '0': 0.9931981566210454
+    '1': 0.9877497931306731
+    '2': 0.9000100230530219
+    '3': 0.9992173742907454
+  99.99:
+    '0': 0.9993681166899901
+    '1': 0.9990915463197504
+    '2': 0.9842303965787979
+    '3': 0.9999347811908954
+  100.0:
+    '0': 1.0
+    '1': 1.0
+    '2': 1.0
+    '3': 1.0
+retention_defaults_per_spec_7_5:
+  '0': 0.999
+  '1': 0.99
+  '2': 0.99
+  '3': 0.99
+scaling_projection:
+  by_share:
+    singapore_share_1pct:
+    - fraction_of_10K_budget: 113.33798528
+      per_cell_tokens: 3584.83
+      projected_total_tokens: 1133379.8528
+      quantile: 99.0
+    - fraction_of_10K_budget: 132.02304128
+      per_cell_tokens: 4175.83
+      projected_total_tokens: 1320230.4128
+      quantile: 99.5
+    - fraction_of_10K_budget: 183.13400435200003
+      per_cell_tokens: 5792.447
+      projected_total_tokens: 1831340.0435200003
+      quantile: 99.9
+    - fraction_of_10K_budget: 257.6545382528
+      per_cell_tokens: 8149.4983
+      projected_total_tokens: 2576545.382528
+      quantile: 99.99
+    - fraction_of_10K_budget: 283.500672
+      per_cell_tokens: 8967.0
+      projected_total_tokens: 2835006.72
+      quantile: 100.0
+    singapore_share_5pct:
+    - fraction_of_10K_budget: 566.6899264
+      per_cell_tokens: 3584.83
+      projected_total_tokens: 5666899.264
+      quantile: 99.0
+    - fraction_of_10K_budget: 660.1152064
+      per_cell_tokens: 4175.83
+      projected_total_tokens: 6601152.064
+      quantile: 99.5
+    - fraction_of_10K_budget: 915.67002176
+      per_cell_tokens: 5792.447
+      projected_total_tokens: 9156700.217600001
+      quantile: 99.9
+    - fraction_of_10K_budget: 1288.272691264
+      per_cell_tokens: 8149.4983
+      projected_total_tokens: 12882726.912640002
+      quantile: 99.99
+    - fraction_of_10K_budget: 1417.5033600000002
+      per_cell_tokens: 8967.0
+      projected_total_tokens: 14175033.600000001
+      quantile: 100.0
+  prd_cite_status: "needs_reviewer_cite_confirmation \u2014 PRD.md grep for '10K'\
+    \ / '10,000' / 'sequence length' did not return a global token-budget cite; the\
+    \ 10,000 at PRD line 61 is the BP1 frequency floor (categories with fewer than\
+    \ 10,000 global instances bucket up), not a sequence-length ceiling. The 10K projection\
+    \ here uses the implementer-prompt assumption pending reviewer correction."
+  prd_global_budget_tokens_assumed: 10000
+  singapore_cell_count: 31616
+stage_4_provenance: formula_derived_per_spec_7_2_no_sub_e_cache
+stage_breakdown:
+  stage_1:
+    provenance: MEASURED from sub-C Singapore parquet
+    source: data/processed/sub_c/2026-04-15.0/singapore
+    what: Per-cell feature counts by type
+  stage_2:
+    provenance: MEASURED from sub-C Singapore parquet (geometry WKB vertex count)
+    source: data/processed/sub_c/2026-04-15.0/singapore
+    what: Per-feature vertex counts by type
+  stage_3:
+    provenance: "DERIVED from spec \xA77.2 encoder formula (Case A; n_anchor=4, anchor=hierarchical,\
+      \ per BP2 Halt 2 lock)"
+    source: configs/sub_f/encoding_primitives.yaml
+    what: Tokens per geometry element
+  stage_4:
+    formula_tokens_per_nonempty_cell: 0.7
+    provenance: formula_derived_per_spec_7_2_no_sub_e_cache
+    source: "spec \xA77.2 formula (sub-E parquet cache absent)"
+    what: Cross-cell coordination overhead per cell

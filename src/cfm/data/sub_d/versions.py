@@ -1,6 +1,6 @@
 """Sub-D version namespace helper.
 
-The sub-D contract carries five disjoint version namespaces so that, for
+The sub-D contract carries six disjoint version namespaces so that, for
 example, a vocab-version drift can never silently match an artifact-format
 string with the same numeric value. ``compare_version`` is the single
 sanctioned equality path; validator code MUST go through it rather than
@@ -23,6 +23,7 @@ class VersionNamespace(str, Enum):
     VOCAB = "vocab"
     DERIVATION = "derivation"
     VALIDATOR = "validator"
+    SOURCE = "source"
 
 
 @dataclass(frozen=True)
