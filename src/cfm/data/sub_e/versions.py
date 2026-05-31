@@ -25,5 +25,9 @@ BOUNDARY_VOCAB_VERSION: Final[str] = "1.0"
 BOUNDARY_VOCAB_NAMESPACE: Final[VersionNamespace] = VersionNamespace.VOCAB
 
 # Derivation version: governs class-grouping + multi-crossing tie-break.
-BOUNDARY_DERIVATION_VERSION: Final[str] = "1.0"
+# 1.1: cycle-2 fix — non-road crossings excluded from the boundary-class vote
+# per spec §5.1 (was 1.0, which mis-derived MINOR_ROAD from non-road crossings).
+# Same sub-C/sub-D input now yields different boundary_class_enum (some
+# MINOR_ROAD→NONE), which is the §5.1 derivation-version bump trigger.
+BOUNDARY_DERIVATION_VERSION: Final[str] = "1.1"
 BOUNDARY_DERIVATION_NAMESPACE: Final[VersionNamespace] = VersionNamespace.DERIVATION

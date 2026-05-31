@@ -17,7 +17,7 @@ from cfm.data.sub_e.versions import (
 def test_initial_version_values() -> None:
     assert SUB_E_SCHEMA_VERSION == "1.0"
     assert BOUNDARY_VOCAB_VERSION == "1.0"
-    assert BOUNDARY_DERIVATION_VERSION == "1.0"
+    assert BOUNDARY_DERIVATION_VERSION == "1.1"
 
 
 def test_version_namespaces_use_subd_concept_enum() -> None:
@@ -29,12 +29,8 @@ def test_version_namespaces_use_subd_concept_enum() -> None:
 
 def test_compare_version_within_vocab_namespace_passes() -> None:
     """compare_version with matched-namespace refs and equal values must not raise."""
-    expected = VersionRef(
-        namespace=BOUNDARY_VOCAB_NAMESPACE, value=BOUNDARY_VOCAB_VERSION
-    )
-    actual = VersionRef(
-        namespace=BOUNDARY_VOCAB_NAMESPACE, value=BOUNDARY_VOCAB_VERSION
-    )
+    expected = VersionRef(namespace=BOUNDARY_VOCAB_NAMESPACE, value=BOUNDARY_VOCAB_VERSION)
+    actual = VersionRef(namespace=BOUNDARY_VOCAB_NAMESPACE, value=BOUNDARY_VOCAB_VERSION)
     compare_version(BOUNDARY_VOCAB_NAMESPACE, expected, actual)  # no raise
 
 
