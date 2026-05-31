@@ -70,6 +70,20 @@ def _load_unknown_slots() -> list[VocabSlot]:
     ]
 
 
+@lru_cache(maxsize=1)
+def unknown_family_tag_to_key() -> dict[str, str]:
+    """{<unknown_${key}>: key} for the BP4 unknown family.
+
+    The authority for resolving an <unknown_*> token back to its BP1 L1 key
+    (e.g. <unknown_highway> -> "highway", a road). The key lives in
+    unknown_family.yaml, NOT in the tag string; this mirrors
+    _load_unknown_slots' `<unknown_${key}>` tag construction so the resolver and
+    the tag can never drift.
+    """
+    data = yaml.safe_load((_CONFIGS / "unknown_family.yaml").read_text(encoding="utf-8"))
+    return {f"<unknown_{s['key']}>": str(s["key"]) for s in data["slots"]}
+
+
 def _load_encoding_primitive_slots() -> list[VocabSlot]:
     """BP2 encoding-primitive slots from `configs/sub_f/sentinel_inventory.yaml`
     `bp2_encoding_primitives.sub_blocks` ranges (anchor + direction + magnitude).
