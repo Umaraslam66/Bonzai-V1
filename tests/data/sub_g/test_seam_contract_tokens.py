@@ -108,6 +108,10 @@ def test_endpoint_edge_maps_coordinates_to_directions():
 
     assert _endpoint_edge(250.0, 100.0) == "E"
     assert _endpoint_edge(0.0, 100.0) == "W"
-    assert _endpoint_edge(100.0, 0.0) == "S"
-    assert _endpoint_edge(100.0, 250.0) == "N"
+    # N/S per the BP7 authority (cell_to_edge_ids: low-y edge = NORTH). These were
+    # 0.0->"S" / 250.0->"N" before the 2026-05-31 N/S convention fix — those values
+    # encoded the bug (geographic), not the authority. See
+    # reports/2026-05-31-sub-G-T11-symmetry-root-cause.md.
+    assert _endpoint_edge(100.0, 0.0) == "N"
+    assert _endpoint_edge(100.0, 250.0) == "S"
     assert _endpoint_edge(100.0, 100.0) is None

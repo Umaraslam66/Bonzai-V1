@@ -482,7 +482,8 @@ def test_encode_tile_case_c_south_entry_bref_token_present(tmp_path: Path):
     MINOR_ROAD South edge -> <bref_S_MINOR> token present as inbound bref
     (immediately after semantic tag token, before anchor).
 
-    The South edge of cell (0,0) is at y=0 in cell-local coords. In sub-E:
+    The South edge of cell (0,0) is at cell-local y=250 (the high-y edge) per
+    the BP7 authority cell_to_edge_ids(0,0).south == (0,0,1); NOT y=0. In sub-E:
     south edge of cell (0,0) is (lower_i=0, lower_j=0, axis=1, INTERNAL ->
     slot_kind=1). Verified via cell_to_edge_ids(0,0).south at T8.8 write time.
 
@@ -498,8 +499,11 @@ def test_encode_tile_case_c_south_entry_bref_token_present(tmp_path: Path):
     assert bref_s_minor_tag == "<bref_S_MINOR>"
     bref_s_minor_id = tag_to_id[bref_s_minor_tag]
 
-    # Road: first vertex on South edge (y=0), continues into cell interior.
-    road = LineString([(100.0, 0.0), (100.0, 80.0), (150.0, 150.0)])
+    # Road: first vertex on cell (0,0)'s SOUTH edge = cell-local y=250 (high-y)
+    # per cell_to_edge_ids(0,0).south == edge (0,0,1); continues into the interior.
+    # (Pre-2026-05-31 this used y=0, which only matched the then-flipped encoder
+    # N/S convention; corrected against the authority.)
+    road = LineString([(100.0, 250.0), (100.0, 170.0), (150.0, 100.0)])
 
     sub_c = tmp_path / "features.parquet"
     sub_e = tmp_path / "boundary_contract.parquet"

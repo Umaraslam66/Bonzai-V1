@@ -63,14 +63,18 @@ def parse_actual_brefs_per_cell(token_sequence: list[int]) -> list[tuple[str, st
 def _endpoint_edge(
     x: float, y: float, extent: float = _CELL_EXTENT_M, tol: float = _EDGE_TOL_M
 ) -> str | None:
+    # N/S follow the BP7 authority (cell_to_edge_ids: north = low-y / the (i,j-1)
+    # edge), NOT geographic. MUST match the sub-F encoder's _direction_of_endpoint;
+    # pinned by tests/data/sub_g/test_seam2_direction_authority.py. See
+    # reports/2026-05-31-sub-G-T11-symmetry-root-cause.md.
     if abs(x) <= tol:
         return "W"
     if abs(x - extent) <= tol:
         return "E"
     if abs(y) <= tol:
-        return "S"
-    if abs(y - extent) <= tol:
         return "N"
+    if abs(y - extent) <= tol:
+        return "S"
     return None
 
 

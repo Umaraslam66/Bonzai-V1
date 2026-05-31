@@ -505,14 +505,24 @@ def _classify_feature_for_bref(
         ox, oy = cell_origin
         x_rel = x - ox
         y_rel = y - oy
+        # Direction names follow the BP7 AUTHORITY (sub_e.rotation.cell_to_edge_ids,
+        # which the locked configs/sub_f/boundary_reference_vocab.yaml defers to):
+        # a cell's NORTH edge is the one shared with (i, j-1) = the LOW-y edge
+        # (cell-local y=0); SOUTH = the high-y edge (cell-local y=extent). This is
+        # geographically inverted (recorded v2 convention debt) but MUST match
+        # cell_to_edge_ids so the contract class looked up by direction is the edge
+        # the endpoint physically lies on. Pinned by
+        # tests/data/sub_f/test_direction_authority.py — do NOT "fix" to geographic
+        # (y=extent->N) without re-deriving sub-F and updating that authority gate.
+        # See reports/2026-05-31-sub-G-T11-symmetry-root-cause.md.
         if abs(x_rel) <= edge_eps_m:
             return "W"
         if abs(x_rel - cell_extent_m) <= edge_eps_m:
             return "E"
         if abs(y_rel) <= edge_eps_m:
-            return "S"
-        if abs(y_rel - cell_extent_m) <= edge_eps_m:
             return "N"
+        if abs(y_rel - cell_extent_m) <= edge_eps_m:
+            return "S"
         return None
 
     in_dir = _direction_of_endpoint(*coords[0])
