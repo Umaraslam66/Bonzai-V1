@@ -19,7 +19,11 @@ from cfm.data.sub_d.versions import VersionNamespace, VersionRef
 SUB_F_ARTIFACT_FORMAT_VERSION = "1.0"
 SUB_F_SCHEMA_VERSION = "1.0"
 SUB_F_VOCAB_VERSION = "1.0"
-SUB_F_DERIVATION_VERSION = "1.0"
+# 1.1: the cycle-1 N/S endpoint-direction fix (commit 98cdeb0,
+# encoder._classify_feature_for_bref) changed bref direction output for the same
+# input. Bumping the DERIVATION axis distinguishes pre/post-cycle-1 sub-F
+# artifacts so a stale 1.0 cache can never silently compare equal to a 1.1 one.
+SUB_F_DERIVATION_VERSION = "1.1"
 SUB_F_VALIDATOR_VERSION = "1.0"
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
