@@ -92,7 +92,7 @@ def _group_to_dict(g: DiagnosticGroup) -> dict:
         "value_summary": g.value_summary,
         "spec_clause_citation": g.spec_clause_citation,
     }
-    if g.hypothesis:
+    if g.hypothesis is not None:
         d["hypothesis"] = g.hypothesis
     return d
 
