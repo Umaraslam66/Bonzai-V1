@@ -14,9 +14,10 @@
 
 - **Branch:** `phase-1-sub-G-cross-artifact-validator` (off `main` @ sub-F merge). **Local
   only — NOT pushed** (per-sub-project branch discipline: push at sub-G close, not before).
-- **Code: T1–T10 complete** — the validator is fully built. **51 sub-G unit tests pass**
-  (`uv run pytest tests/data/sub_g -q` → `51 passed, 9 deselected`). The full sub-F+sub-G
-  suite is green (`338 passed` at the cycle-1 commit).
+- **Code: T1–T10 complete** — the validator is fully built. **60 sub-G unit tests pass**
+  (`uv run pytest tests/data/sub_g -q` → `60 passed` — includes the new seam-2 authority
+  test from the cycle-1 commit). The full sub-F+sub-G suite is green (`338 passed` at the
+  cycle-1 commit).
 - **T11 (real-data measurement) IN PROGRESS.** First real Singapore run (494 tiles) drove
   the sub-E→sub-F chain and surfaced two defect cycles (§2). sub-G's own validator has
   **never completed a clean run on real data**: no `_PHASE1_VALIDATED`, no
