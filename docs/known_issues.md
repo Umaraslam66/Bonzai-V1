@@ -267,3 +267,19 @@ Phase 1 sub-A's contract is verified end-to-end. Phase 1 sub-projects B1–G rea
 - Source: `src/cfm/data/overture/loader.py::_check_total_size` and `src/cfm/data/overture/backend.py::S3DuckDBBackend.build_count_query`.
 - Project memory: `~/.claude/projects/-Users-umaraslam-Projects-Bonzai-OSM/memory/project_overture_cold_fetch_slow.md`.
 - Pinning policy reminder (`docs/data/overture_pinning_policy.md`) says re-pinning invalidates caches — re-pinning Singapore today would re-incur this 8-hour cost.
+
+---
+
+## sub-F spec §3.7 `subway`/`path`/`track` "emit-as-MINOR" examples are stale after the cycle-2 sub-E non-road-exclusion fix (doc-vs-behavior erratum)
+
+**Status:** v2 erratum — documentation-vs-behavior drift, NOT a code bug. Logged 2026-06-01 during sub-G T11 cycle-3. Do **not** edit the spec mid-cascade.
+
+**What:** Sub-F design spec `docs/superpowers/specs/2026-05-23-phase-1-sub-F-micro-tokenizer-design.md` §3.7 L292 (Class assignment semantics, Halt 7) names `subway`, `path`, `pedestrian`, `track` as examples of values that "also emit as MINOR" via sub-E's default-bucket fallthrough. That text predates the sub-G T11 **cycle-2** sub-E fix (commit `99f9e43`), which brought `_derive_tile_rows` into compliance with sub-E spec §5.1: **non-road crossings are excluded from the boundary-class vote**.
+
+**The drift:** §3.7's "emits as MINOR" examples are only accurate for values whose sub-C `feature_class == road`. After cycle-2, any of these whose sub-C `feature_class != road` (e.g. a `subway` carried as rail/transit rather than highway) now correctly derives **NONE** (non-emitting) at the edge, contradicting the §3.7 example. The per-value classification has NOT been verified here — the drift is *conditional* on each value's sub-C feature_class.
+
+**Why it is not a bug:** cycle-2 is correct (§5.1 mandates non-road exclusion); the §3.7 example list is documentation that was not updated when cycle-2 landed. The encoder still faithfully passes through whatever class sub-E derives (the actual §3.7 correctness criterion — "faithful passthrough of sub-E's class per edge" — is unchanged).
+
+**Resolve at:** sub-E-v2 / sub-F-v2. Verify the sub-C `feature_class` of each of {`subway`, `path`, `pedestrian`, `track`}; update §3.7 L292's example list to name only values that remain road-classified (hence still emit MINOR).
+
+**Surfaced by:** sub-G T11 cycle-3 (the `<unknown_highway>` validator fix, commit `c9f623c`); recorded as a non-blocking note so it does not resurface later as a phantom cycle.
