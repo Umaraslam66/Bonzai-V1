@@ -1,6 +1,6 @@
 # Phase-1 sub-G — cross-artifact consistency validator (PRD stage five) — design
 
-**Status:** DRAFT v2 — brainstorm complete (9 gated decisions); v1 reviewer-approved with four sharpenings (this revision). Pending final read-through before plan-write.
+**Status:** DRAFT v3 — v2 reviewer-approved; reviewer-call OPEN #2 (gate-set) and #3 (sanity-floor numbers) resolved in this revision. OPEN #1/#4/#5 are plan-write inputs. **PLAN-WRITE AUTHORIZED.**
 **Date:** 2026-05-31.
 **Branch:** `phase-1-sub-G-cross-artifact-validator` (off `main` @ sub-F merge `9336129`).
 **Operating discipline:** sub-project-planning-protocol-v1 (six gates + five principles). Sub-G is a candidate v2 bump at close.
@@ -205,16 +205,20 @@ Seam 3 splits into two checks of different shape:
      regardless of verdict**; captures position/angle p99.9/p95 + the
      structural-bound histogram; byte-deterministic (§7). Becomes the first
      locked baseline once multi-region stability is shown.
-   - **Sanity floor (existence non-negotiable; number reviewer-call):** a level
-     below which something is decisively broken without needing a calibrated
-     threshold (e.g. position p99.9 > 50m halts as "fundamentally broken
-     encode/decode, not a calibration issue"). This makes "reported" actually
-     trigger halt-and-revisit.
+   - **Sanity floor — LOCKED cliffs (reviewer-set 2026-05-31; intuition, not
+     measurement):** position **p99.9 > 50m** OR angle **p95 > 20°** → halt as
+     "fundamentally broken encode/decode, not a calibration issue." Sized as
+     cliffs well above expected noise and well below "everything broken": 50m is
+     ~10× the sub-F canonical p99.9 of 3.7m (end-to-end expected 5–15m); 20° is
+     far above the canonical p95 ≤ 4.0° (end-to-end expected 3–8°). These are
+     sanity cliffs, **not** quality gates — the proper accuracy gate is still
+     deferred (next bullet). This makes "reported" actually trigger
+     halt-and-revisit.
    - **§8 deferral trigger:** the proper accuracy gate locks when (a) multi-region
      data exists (likely training-scaffold) **and** (b) the baseline distribution
      is shown stable across regions.
 
-> **OPEN (→ §9 #3):** the sanity-floor numbers (position/angle) are reviewer-call.
+> **RESOLVED (§9 #3):** sanity-floor cliffs locked above (position p99.9 > 50m / angle p95 > 20°).
 
 ### Decision 4 — Pipeline-run: thin chain + region gate + resume-from-`_SUCCESS`
 
@@ -416,21 +420,18 @@ Sub-G does **not** mutate any upstream artifact (read-only-on-upstream boundary)
    list of macro↔geometry invariants, each with its `signature_definition` and an
    out-of-sub-D provenance citation. (Starter set named in Decision 3a; needs
    completion + citation audit.)
-2. **The "100 tiles" gate-set — and what the chain runner runs on** *(reviewer-call
-   before plan-write; may force re-approval).* The Singapore tile count determines
-   both what `_PHASE1_VALIDATED` certifies **and** what the runner executes over.
-   Three cases:
-   - **>100 tiles:** gate is all-Singapore vs a defined-100-subset (the latter
-     borders eval-set scope — do not bleed eval-set policy into sub-G).
-   - **=100 tiles:** clean.
-   - **<100 tiles:** cannot satisfy "100 tiles" from Singapore alone — either pull
-     another region (**sub-G scope expands → surface for re-approval before
-     coding**) or interpret PRD §11 "100 tiles" as a *target, not a floor*.
-   Plan-write must answer the tile count *early* (a Step-0 read) before the
-   gate-set and runner scope lock.
-3. **Sanity-floor numbers** (seam-3) *(reviewer-call before plan-write).* Position
-   p99.9 and angle p99.9 "broken" thresholds; existence is locked, the numbers
-   are reviewer-call.
+2. **The "100 tiles" gate-set — RESOLVED (reviewer, 2026-05-31).** Gate =
+   **ALL-SINGAPORE** (not a defined-100-subset: stricter by construction, avoids
+   subset-selection bleeding into eval-set policy, and reads PRD §11 "100 tiles"
+   as a FLOOR satisfied by validating all of Singapore). Estimated ~150–180 tiles
+   (Singapore ~735 km² / 2km tiles, < 184 max due to water/island boundaries) —
+   the likely `>100` case. **Plan-write Step-0 must still COUNT actual tiles** via
+   the sub-C manifest / `extract_tiles` output: if 100–200 as expected, proceed
+   all-Singapore; **if <100, the "<100" branch fires → surface for re-approval
+   before coding** (pull another region = scope expansion).
+3. **Sanity-floor numbers** (seam-3) — **RESOLVED (reviewer, 2026-05-31):**
+   position **p99.9 > 50m** OR angle **p95 > 20°** halts as fundamentally broken
+   (see Decision 3c for the sizing rationale). Sanity cliffs, not quality gates.
 4. **Exact upstream schemas** *(plan-write Step-0 deliverable, protocol §3).* sub-E
    boundary-contract columns (`sub_e/io.py`), sub-F `cells.parquet` token grammar,
    sub-C feature/enum schemas — read before the second parser + invariants are
