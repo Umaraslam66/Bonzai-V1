@@ -65,6 +65,9 @@ def group_by_signature(diags: list[Diagnostic]) -> list[DiagnosticGroup]:
         buckets.setdefault((d.invariant_name, d.signature), []).append(d)
     groups: list[DiagnosticGroup] = []
     for (inv, sig), members in buckets.items():
+        assert all(m.spec_clause_citation == members[0].spec_clause_citation for m in members), (
+            f"mismatched spec_clause_citation within group ({inv}, {sig})"
+        )
         groups.append(
             DiagnosticGroup(
                 invariant_name=inv,

@@ -38,6 +38,12 @@ def test_groups_sorted_by_count_desc_then_invariant_asc():
     groups = group_by_signature(a + b)
     assert [g.instance_count for g in groups] == [2, 1]  # count desc first
 
+    # Equal-count tiebreak: invariant_name ascending
+    c = [Diagnostic("t1", "zzz_inv", "l", 1, "r", 2, "rel", "cite", "sig")]
+    d = [Diagnostic("t2", "aaa_inv", "l", 1, "r", 2, "rel", "cite", "sig")]
+    tied = group_by_signature(c + d)
+    assert [g.invariant_name for g in tied] == ["aaa_inv", "zzz_inv"]
+
 
 def test_render_is_byte_deterministic_and_empty_record_is_explicit():
     out_empty = render_quarantine_report(
