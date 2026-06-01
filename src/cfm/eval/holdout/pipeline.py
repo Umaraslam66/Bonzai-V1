@@ -22,6 +22,7 @@ data/processed/eval_set/<release>/ + reports/. Model-facing scoring is deferred
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,16 +56,29 @@ SEQUENCE: tuple[str, ...] = (
     "write_partition_and_marker",
 )
 
-# DECISION: v1 distributional effect size for the KS per-stratum floor = 0.15. A KS
-# gap of 0.15 between model and real per-stratum distributions is the smallest we aim
-# to resolve in v1; revisit against the slow-run populations (a stratum that cannot
-# reach this floor is reported UNDERPOWERED, never silently passed). Not a round 0.1.
-_KS_EFFECT: float = 0.15
+# DECISION: KS target gap = 0.08 (freeze sizing, 2026-06-01 PI call). N is sized to
+# resolve a per-stratum KS distributional gap of 0.08 between model and real. This is
+# an EXPLICIT, RECORDED choice (not a hidden default) on a single-region tradeoff
+# curve bounded at ~0.049 (the finest gap this region can EVER resolve - the binding
+# cell_density_bucket has the fewest cells). Chosen toward over-provisioning because
+# the freeze is WRITE-ONCE: under-provisioning is unrecoverable (can shrink, never
+# grow), over-provisioning costs ~11% training tiles that degrade all architectures
+# EQUALLY (so it does not distort the bake-off COMPARISON), and capable models on the
+# same data commonly differ by sub-0.10 gaps - exactly where discrimination matters.
+# The gap the frozen set ACTUALLY resolves is reported; the eval-harness asserts the
+# model's needed gap >= the frozen resolved gap and FAILS LOUD otherwise (-> the
+# documented second-region trigger, never silent under-power).
+KS_TARGET_GAP: float = 0.08
 
 # DECISION: leave at least half the 494-tile pool for training (residual ceiling,
 # spec §G). If per-stratum floors need more than this, the binding strata are
 # reported UNDERPOWERED rather than consuming the whole pool (degradation option 2).
 _DEFAULT_N_CAP_FRACTION: float = 0.5
+
+
+def _gap_from_cells(cells: int) -> float:
+    """Finest KS two-sample gap resolvable from ``cells`` (inverse of the KS floor)."""
+    return 1.358 * math.sqrt(2.0 / cells) if cells > 0 else float("inf")
 
 
 @dataclass
@@ -89,6 +103,13 @@ class EvalSetResult:
     per_stratum_feature_floor: dict[int, int] = field(default_factory=dict)  # to detect rho-excess
     held_out_feature_population: dict[int, int] = field(default_factory=dict)  # in selected tiles
     underpowered_feature_strata: list[int] = field(default_factory=list)
+    # KS distributional resolution (write-once sizing). target = the chosen gap N is
+    # sized to; resolved = the gap the frozen set ACTUALLY resolves (binding stratum);
+    # single_region_floor = the finest gap this region can EVER resolve (full pool).
+    ks_target_gap: float = 0.0
+    ks_resolved_gap_binding: float = 0.0
+    ks_single_region_floor: float = 0.0
+    held_out_cell_population: dict[int, int] = field(default_factory=dict)
 
 
 def co_optimize(
@@ -142,6 +163,7 @@ def generate_eval_set(
     release: str,
     region: str,
     lock: bool = False,
+    ks_target_gap: float = KS_TARGET_GAP,
     n_cap_fraction: float = _DEFAULT_N_CAP_FRACTION,
 ) -> EvalSetResult:
     """Measure + propose (lock=False) or measure + freeze (lock=True) the eval set.
@@ -196,11 +218,12 @@ def generate_eval_set(
     }
     feature_population = {b: sr.n_total for b, sr in rate.per_stratum.items()}
 
-    # Selection driver: PROVISIONAL per-stratum cell-density reference target. The KS
-    # distance is model-facing and DEFERRED (spec §7), so this is a reference-sample
-    # size target, not a binding power floor. Labelled provisional throughout.
+    # Selection driver: per-stratum cell-density reference target sized to the EXPLICIT
+    # ks_target_gap. The KS distance itself is model-facing and DEFERRED (spec §7); this
+    # sizes the write-once set to resolve a chosen gap. N is an explicit function of the
+    # recorded gap, never a hidden default.
     cell_ref_floor: dict[int, int] = {
-        b: ks_two_sample_floor(effect=_KS_EFFECT) for b in rate.per_stratum
+        b: ks_two_sample_floor(effect=ks_target_gap) for b in rate.per_stratum
     }
 
     n_cap = int(len(inventory) * n_cap_fraction)
@@ -208,6 +231,26 @@ def generate_eval_set(
     n = len(selection.selected)
     residual = len(inventory) - n
     selected_set = set(selection.selected)
+
+    # Held-out CELL populations + the KS gap the frozen set ACTUALLY resolves (the
+    # binding/coarsest stratum). single_region_floor = finest gap this region can EVER
+    # resolve using the full pool (the binding cell_density_bucket). Both reported so
+    # the eval-harness can assert model-needed-gap >= resolved gap and fail loud.
+    full_pool_cells = _cell_populations(tile_labels)
+    held_out_cells: Counter[int] = Counter()
+    for tl in tile_labels:
+        if (tl.tile_i, tl.tile_j) in selected_set:
+            held_out_cells.update(tl.cell_density_buckets)
+    resolved_binding = (
+        max(_gap_from_cells(held_out_cells[b]) for b in held_out_cells)
+        if held_out_cells
+        else float("inf")
+    )
+    single_region_floor = (
+        max(_gap_from_cells(c) for c in full_pool_cells.values())
+        if full_pool_cells
+        else float("inf")
+    )
 
     # Held-out feature populations (verify D's rate-detection power in the SELECTED set,
     # so the vacuous pass cannot hide in the sample size - the 2026-06-01 review point).
@@ -248,6 +291,10 @@ def generate_eval_set(
         per_stratum_feature_floor=feature_floor,
         held_out_feature_population=dict(held_out_features),
         underpowered_feature_strata=underpowered_feature,
+        ks_target_gap=ks_target_gap,
+        ks_resolved_gap_binding=resolved_binding,
+        ks_single_region_floor=single_region_floor,
+        held_out_cell_population=dict(held_out_cells),
     )
 
     if lock:
@@ -270,6 +317,9 @@ def generate_eval_set(
                     "ceiling_overall": ceiling.overall,
                     "rho_bref_regime": RHO_BREF_REGIME,
                     "delta_floor_bref": DELTA_FLOOR_BREF,
+                    "ks_target_gap": ks_target_gap,
+                    "ks_resolved_gap_binding": resolved_binding,
+                    "ks_single_region_floor": single_region_floor,
                 }
             ),
             encoding="utf-8",
