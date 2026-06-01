@@ -26,7 +26,7 @@ from pathlib import Path
 import yaml
 
 from cfm.data.sub_d.enums import SlotKind
-from cfm.data.sub_d.io import read_macro_core_parquet
+from cfm.data.sub_d.io import MacroCoreRow, read_macro_core_parquet
 from cfm.data.sub_d.macro_vocab import load_macro_vocab
 
 #: v1 conditioning dimensions with no real Singapore variation - UNSCORED-stated,
@@ -65,10 +65,18 @@ def valid_cell_density_bucket_ids(vocab_path: Path) -> set[int]:
     return {int(b["token_id"]) for b in vocab["locked_buckets"]["cell_density"]}
 
 
-def read_tile_labels(tile_dir: Path, *, tile_i: int, tile_j: int) -> TileLabels:
-    """Aggregate one tile's conditioning labels from sub-D artifacts on disk."""
-    rows = read_macro_core_parquet(tile_dir / "macro_core.parquet")
+def _derive_tile_conditioning(
+    rows: list[MacroCoreRow], cond: dict, *, tile_i: int, tile_j: int
+) -> TileLabels:
+    """The shared conditioning derivation (trigger-2 ONE SOURCE).
 
+    Both the eval (via ``read_tile_labels``) and the model conditioning (via
+    ``cfm.data.training.conditioning.derive_tile_conditioning``) resolve to THIS
+    function object — fork it and the training-scaffold identity test fails. The
+    derivation extends through to the exact quantities both consumers compare on
+    (the returned ``TileLabels``); any model-side encoding is a separate tier-2
+    transform OUTSIDE this compared surface.
+    """
     cell_density = tuple(
         int(r.cell_density_bucket)
         for r in rows
@@ -88,11 +96,7 @@ def read_tile_labels(tile_dir: Path, *, tile_i: int, tile_j: int) -> TileLabels:
         dominant_zoning_class=Counter(zoning).most_common(1)[0][0] if zoning else None,
         modal_road_skeleton_class=(Counter(skeleton).most_common(1)[0][0] if skeleton else None),
     )
-
-    ec = yaml.safe_load((tile_dir / "effective_conditioning.yaml").read_text(encoding="utf-8"))
-    cond = ec.get("conditioning", {})
     pdb = cond.get("population_density_bucket")
-
     return TileLabels(
         tile_i=int(tile_i),
         tile_j=int(tile_j),
@@ -103,3 +107,15 @@ def read_tile_labels(tile_dir: Path, *, tile_i: int, tile_j: int) -> TileLabels:
         admin_region=cond.get("admin_region"),
         sub_c_morphology_class=cond.get("morphology_class"),
     )
+
+
+def read_tile_labels(tile_dir: Path, *, tile_i: int, tile_j: int) -> TileLabels:
+    """Aggregate one tile's conditioning labels from sub-D artifacts on disk.
+
+    File I/O only; the derivation is delegated to ``_derive_tile_conditioning``
+    (the trigger-2 single source shared with the model conditioning).
+    """
+    rows = read_macro_core_parquet(tile_dir / "macro_core.parquet")
+    ec = yaml.safe_load((tile_dir / "effective_conditioning.yaml").read_text(encoding="utf-8"))
+    cond = ec.get("conditioning", {})
+    return _derive_tile_conditioning(rows, cond, tile_i=tile_i, tile_j=tile_j)
