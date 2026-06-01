@@ -84,6 +84,25 @@ def unknown_family_tag_to_key() -> dict[str, str]:
     return {f"<unknown_{s['key']}>": str(s["key"]) for s in data["slots"]}
 
 
+ROAD_L1_KEY = "highway"  # the BP1 L1 key denoting a road (LineString) feature
+
+
+def semantic_tag_to_l1_key(semantic_tag: str) -> str:
+    """The single authority for a feature's BP1 L1 key (road == ``ROAD_L1_KEY``).
+
+    `<key=value>` tags carry the key inline (`<highway=residential>` -> "highway").
+    BP4 `<unknown_${key}>` tags carry the key in the unknown-family vocab, NOT the
+    tag string, so resolve those via `unknown_family_tag_to_key`
+    (`<unknown_highway>` -> "highway"). Used by BOTH the encoder's bref-emission
+    gate (encode_cell) and the validator's non-road / road-cell legs so neither
+    re-determines road-ness with a local parse — the bug class behind sub-G T11
+    cycles 3 (validator) and 4 (encoder).
+    """
+    if "=" in semantic_tag:
+        return semantic_tag.split("=", 1)[0].lstrip("<")
+    return unknown_family_tag_to_key().get(semantic_tag, semantic_tag)
+
+
 def _load_encoding_primitive_slots() -> list[VocabSlot]:
     """BP2 encoding-primitive slots from `configs/sub_f/sentinel_inventory.yaml`
     `bp2_encoding_primitives.sub_blocks` ranges (anchor + direction + magnitude).

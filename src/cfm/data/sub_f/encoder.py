@@ -26,7 +26,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import LinearRing
 
 from cfm.data.sub_f.boundary_contract import resolve_bref_tag
-from cfm.data.sub_f.vocab import vocab_tag_to_id
+from cfm.data.sub_f.vocab import ROAD_L1_KEY, semantic_tag_to_l1_key, vocab_tag_to_id
 
 # BP2 Halt 2 locked values — read here as module-level constants for fast
 # access in encoder hot paths. Source of truth is configs/sub_f/encoding_primitives.yaml.
@@ -567,12 +567,24 @@ def encode_cell(
     for geom, semantic_tag in features:
         canon = canonicalize_geometry(geom)
 
+        # §1.4: only road (highway-keyed) features emit boundary-ref tokens.
+        # Resolve the L1 key via the shared vocab authority so <unknown_highway>
+        # still counts as road, while <natural=*> and other non-road LineStrings
+        # do not (sub-G T11 cycle-4: a natural LineString clipped to a road edge
+        # emitted a spurious <bref>). Same authority the validator's non-road leg
+        # uses, so the two never re-determine road-ness with a local parse.
+        is_road = semantic_tag_to_l1_key(semantic_tag) == ROAD_L1_KEY
+
         # Multi-part: encode each part separately per spec section 3.2 implicit
         # multi-part handling (one EncodedFeature per part).
         gt = canon.geom_type
         if gt in ("MultiLineString", "MultiPolygon"):
             for part in canon.geoms:
-                inbound, outbound = _classify_feature_for_bref(part, cell_edges, cell_origin)
+                inbound, outbound = (
+                    _classify_feature_for_bref(part, cell_edges, cell_origin)
+                    if is_road
+                    else (None, None)
+                )
                 ef = encode_feature(
                     part,
                     semantic_tag=semantic_tag,
@@ -588,7 +600,11 @@ def encode_cell(
                 tokens.extend(ef.tokens)
                 feature_count += 1
         else:
-            inbound, outbound = _classify_feature_for_bref(canon, cell_edges, cell_origin)
+            inbound, outbound = (
+                _classify_feature_for_bref(canon, cell_edges, cell_origin)
+                if is_road
+                else (None, None)
+            )
             ef = encode_feature(
                 canon,
                 semantic_tag=semantic_tag,

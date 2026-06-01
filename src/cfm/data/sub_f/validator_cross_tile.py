@@ -59,7 +59,7 @@ import yaml
 
 from cfm.data.sub_f.boundary_contract import load_boundary_contract
 from cfm.data.sub_f.rotation import DIRECTION_ORDER
-from cfm.data.sub_f.vocab import unknown_family_tag_to_key, vocab_tag_to_id
+from cfm.data.sub_f.vocab import ROAD_L1_KEY, semantic_tag_to_l1_key, vocab_tag_to_id
 
 # Structural sentinels — must match encoder._FEATURE_TOKEN_ID /
 # _FEATURE_END_TOKEN_ID. Sourced from encoder to keep a single point of
@@ -87,9 +87,9 @@ _EMITTING_CLASSES = frozenset({"MAJOR_ROAD", "MINOR_ROAD"})
 
 # Semantic-tag key that denotes a road (LineString) feature. Only road
 # features emit brefs (spec §1.4: buildings/POIs clipped at geometry layer,
-# never at the token layer). Recovered from the semantic-tag token's tag
-# string ("key=value" form, e.g. "highway=residential").
-_ROAD_KEY = "highway"
+# never at the token layer). Aliases the shared vocab authority so the encoder's
+# emission gate and the validator's non-road leg agree on what counts as a road.
+_ROAD_KEY = ROAD_L1_KEY
 
 
 class CrossTileValidationError(ValueError):
@@ -145,28 +145,10 @@ def _split_into_feature_chunks(token_sequence: list[int]) -> list[list[int]]:
     return chunks
 
 
-def _semantic_key(sem_tag: str, unknown_tag_to_key: dict[str, str]) -> str:
-    """Resolve a feature chunk's semantic tag to its BP1 L1 key.
-
-    `<key=value>` tags carry the key inline (`<highway=residential>` ->
-    "highway"). BP4 `<unknown_${key}>` tags carry the key in the unknown-family
-    vocab, NOT the tag string, so resolve them via the BP4 authority
-    (`<unknown_highway>` -> "highway", a road). Without this an unknown-subtype
-    highway resolves to the literal `<unknown_highway>` and trips the non-road
-    leg — a false positive, since spec §3.7 makes unknown/default-MINOR highways
-    emit by design (faithful sub-E passthrough). Per-key, so `<unknown_building>`
-    still resolves to "building" and stays flagged.
-    """
-    if "=" in sem_tag:
-        return sem_tag.split("=", 1)[0].lstrip("<")
-    return unknown_tag_to_key.get(sem_tag, sem_tag)
-
-
 def _emitted_brefs_by_cell(
     cells_rows: list[dict],
     bref_decode: dict[int, tuple[str, str]],
     sem_id_to_tag: dict[int, str],
-    unknown_tag_to_key: dict[str, str],
 ) -> dict[tuple[int, int], list[tuple[str, str, str]]]:
     """Extract emitted brefs per cell.
 
@@ -184,7 +166,7 @@ def _emitted_brefs_by_cell(
             feature_key = "<malformed>"
             if len(chunk) >= 2:
                 sem_tag = sem_id_to_tag.get(chunk[1], "")
-                feature_key = _semantic_key(sem_tag, unknown_tag_to_key)
+                feature_key = semantic_tag_to_l1_key(sem_tag)
             for tok in chunk:
                 if tok in bref_decode:
                     direction, cls = bref_decode[tok]
@@ -521,7 +503,6 @@ def validate_cross_tile(sub_f_region_dir: Path, sub_e_region_dir: Path) -> None:
 
     bref_decode = _bref_id_to_dir_class()
     sem_id_to_tag = _semantic_id_to_tag()
-    unknown_tag_to_key = unknown_family_tag_to_key()
 
     # --- version-manifest consistency (leg 5) ---
     tile_provenances: dict[str, dict] = {}
@@ -550,10 +531,8 @@ def validate_cross_tile(sub_f_region_dir: Path, sub_e_region_dir: Path) -> None:
         _check_all_cells_present(tile_label, cells_table)  # leg 7: full 8x8 grid
 
         cells_rows = cells_table.to_pylist()
-        emitted_by_cell = _emitted_brefs_by_cell(
-            cells_rows, bref_decode, sem_id_to_tag, unknown_tag_to_key
-        )
-        road_cells = _road_cells(cells_rows, sem_id_to_tag, unknown_tag_to_key)
+        emitted_by_cell = _emitted_brefs_by_cell(cells_rows, bref_decode, sem_id_to_tag)
+        road_cells = _road_cells(cells_rows, sem_id_to_tag)
 
         _check_cross_reference(tile_label, emitted_by_cell, contract)
         _check_symmetry(tile_label, emitted_by_cell)
@@ -564,7 +543,6 @@ def validate_cross_tile(sub_f_region_dir: Path, sub_e_region_dir: Path) -> None:
 def _road_cells(
     cells_rows: list[dict],
     sem_id_to_tag: dict[int, str],
-    unknown_tag_to_key: dict[str, str],
 ) -> set[tuple[int, int]]:
     """Cells that contain at least one road (highway-keyed) feature.
 
@@ -579,7 +557,7 @@ def _road_cells(
             if len(chunk) < 2:
                 continue
             sem_tag = sem_id_to_tag.get(chunk[1], "")
-            key = _semantic_key(sem_tag, unknown_tag_to_key)
+            key = semantic_tag_to_l1_key(sem_tag)
             if key == _ROAD_KEY:
                 out.add(cell)
                 break

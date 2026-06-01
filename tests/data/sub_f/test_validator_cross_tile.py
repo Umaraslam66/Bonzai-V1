@@ -49,10 +49,9 @@ from cfm.data.sub_f.validator_cross_tile import (
     _check_symmetry,
     _emitted_brefs_by_cell,
     _semantic_id_to_tag,
-    _semantic_key,
     validate_cross_tile,
 )
-from cfm.data.sub_f.vocab import unknown_family_tag_to_key, vocab_tag_to_id
+from cfm.data.sub_f.vocab import semantic_tag_to_l1_key, vocab_tag_to_id
 
 # ===========================================================================
 # Fixtures: synthetic sub-E contract, cells.parquet, provenance.yaml
@@ -746,23 +745,20 @@ def test_bp1_class_mapping_major_set_is_nonempty_and_minor_default():
 # ===========================================================================
 
 
-def test_semantic_key_resolves_unknown_family_to_bp1_key():
-    """Cycle-3 guard: the feature_key resolver maps BP4 <unknown_*> tokens to
-    their BP1 L1 key, not the literal token.
+def test_semantic_tag_to_l1_key_resolves_unknown_family():
+    """Cycle-3/4 guard: the SHARED vocab authority maps BP4 <unknown_*> tokens to
+    their BP1 L1 key, not the literal token. Used by BOTH the validator non-road
+    leg and the encoder emission gate.
 
     <unknown_highway> (a highway with unknown subtype — 9748 SG features,
     unknown_family.yaml id=210 key:highway) MUST resolve to "highway" so the
-    non-road-emission leg does not false-positive a road. Per-key, NOT a blanket
-    unknown-skip: <unknown_healthcare> must still resolve to "healthcare" so a
-    genuine non-road-emits-bref stays catchable.
-
-    RED pre-fix: the old inline `... if "=" in sem_tag else sem_tag` returned the
-    literal <unknown_highway>.
+    non-road leg does not false-positive a road AND the encoder still emits for
+    it. Per-key, NOT a blanket unknown-skip: <unknown_healthcare> must still
+    resolve to "healthcare" so a genuine non-road-emits-bref stays catchable.
     """
-    m = unknown_family_tag_to_key()
-    assert _semantic_key("<highway=residential>", m) == "highway"
-    assert _semantic_key("<unknown_highway>", m) == "highway"
-    assert _semantic_key("<unknown_healthcare>", m) == "healthcare"
+    assert semantic_tag_to_l1_key("<highway=residential>") == "highway"
+    assert semantic_tag_to_l1_key("<unknown_highway>") == "highway"
+    assert semantic_tag_to_l1_key("<unknown_healthcare>") == "healthcare"
 
 
 def test_unknown_highway_chunk_passes_non_road_emission_leg():
@@ -778,9 +774,7 @@ def test_unknown_highway_chunk_passes_non_road_emission_leg():
     t = vocab_tag_to_id()
     seq = [t["<feature>"], t["<unknown_highway>"], t["<bref_S_MINOR>"], t["<feature_end>"]]
     row = {"cell_i": 5, "cell_j": 4, "token_sequence": seq}
-    emitted = _emitted_brefs_by_cell(
-        [row], _bref_id_to_dir_class(), _semantic_id_to_tag(), unknown_family_tag_to_key()
-    )
+    emitted = _emitted_brefs_by_cell([row], _bref_id_to_dir_class(), _semantic_id_to_tag())
     assert emitted == {(5, 4): [("S", "MINOR_ROAD", "highway")]}
     # Must NOT raise — the road resolves correctly.
     _check_non_road_non_emission("tile=test", emitted)

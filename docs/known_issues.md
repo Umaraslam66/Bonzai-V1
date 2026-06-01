@@ -283,3 +283,17 @@ Phase 1 sub-A's contract is verified end-to-end. Phase 1 sub-projects B1–G rea
 **Resolve at:** sub-E-v2 / sub-F-v2. Verify the sub-C `feature_class` of each of {`subway`, `path`, `pedestrian`, `track`}; update §3.7 L292's example list to name only values that remain road-classified (hence still emit MINOR).
 
 **Surfaced by:** sub-G T11 cycle-3 (the `<unknown_highway>` validator fix, commit `c9f623c`); recorded as a non-blocking note so it does not resurface later as a phantom cycle.
+
+---
+
+## sub-F spec §1.4 / §8 non-emission rule enumerates "buildings/POIs" but should name non-road LineStrings too (doc-completeness erratum)
+
+**Status:** v2 erratum — spec wording is incomplete, not wrong. Logged 2026-06-01 during sub-G T11 cycle-4. Do **not** edit the spec mid-cascade; the encoder gate already implements the correct principle.
+
+**What:** §1.4 L59 states the operative principle — *"Token layer represents roads only for cross-cell references"* — but its examples and the §8 L803 non-road-non-emission check are framed around **buildings/POIs** (polygons/points clipped at the geometry layer). They do **not** explicitly name **non-road LineStrings** (e.g. `natural=coastline`, waterways), which are LineStrings (so not clipped like polygons) yet non-road (so must not emit brefs).
+
+**Why it surfaced:** sub-G T11 cycle-4 found the sub-F encoder emitting `<bref>` for `natural` LineStrings clipped to active road edges (4,862 emissions / 224 tiles, 100% `natural`). The encoder's emission gate had no road-key check — it emitted for any LineString. The fix (commit below) gates emission on the feature's L1 key == `highway` via the shared `vocab.semantic_tag_to_l1_key` authority, which **implements §1.4's roads-only principle** for the LineString case the enumeration omitted.
+
+**Resolve at:** sub-F-v2. Reword §1.4 / §8 so the non-emission rule reads "only highway-keyed features emit `<bref>`; all non-road features (buildings, POIs, **and non-road LineStrings**) emit zero `<bref>`" — matching the encoder gate and the validator's highway-only `_check_non_road_non_emission`.
+
+**Surfaced by:** sub-G T11 cycle-4 (the encoder road-key emission gate).
