@@ -68,12 +68,20 @@ def test_validate_tile_seeded_density_mismatch():
     assert any(d.invariant_name == "density_bucket_matches_footprint" for d in diags)
 
 
+def _err(core, full=None, angle=1.0):
+    return {
+        "position_core_m": core,
+        "position_full_m": full if full is not None else core,
+        "angle_core_deg": angle,
+    }
+
+
 def test_finalize_writes_marker_when_clean(tmp_path):
     res = finalize(
         region="singapore",
         release="2026-04-15.0",
         all_diags=[],
-        all_errors=[{"position_err_m": 1.0, "angle_err_deg": 1.0}],
+        all_errors=[_err(1.0)],
         output_dir=tmp_path,
         volatile=_VOLATILE,
     )
@@ -89,14 +97,7 @@ def test_finalize_withholds_marker_on_quarantine(tmp_path):
     d = Diagnostic(
         "tile=i0_j0", "density_bucket_matches_footprint", "l", 0, "r", 3, "rel", "cite", "sig"
     )
-    res = finalize(
-        "singapore",
-        "2026-04-15.0",
-        [d],
-        [{"position_err_m": 1.0, "angle_err_deg": 1.0}],
-        tmp_path,
-        _VOLATILE,
-    )
+    res = finalize("singapore", "2026-04-15.0", [d], [_err(1.0)], tmp_path, _VOLATILE)
     assert res.passed is False
     assert not (tmp_path / "_PHASE1_VALIDATED").exists()
     # report always written, even on failure (diffable iterations)
@@ -104,15 +105,31 @@ def test_finalize_withholds_marker_on_quarantine(tmp_path):
 
 
 def test_finalize_sanity_floor_breach_blocks_marker(tmp_path):
-    # position p99.9 > 50m -> sanity breach -> no marker even with zero per-tile diags.
-    res = finalize(
-        "singapore",
-        "2026-04-15.0",
-        [],
-        [{"position_err_m": 60.0, "angle_err_deg": 1.0}],
-        tmp_path,
-        _VOLATILE,
-    )
+    # CORE position p99.9 > 50m -> sanity breach -> no marker even with zero diags.
+    res = finalize("singapore", "2026-04-15.0", [], [_err(60.0)], tmp_path, _VOLATILE)
     assert res.sanity_floor_violated is True
     assert res.passed is False
     assert not (tmp_path / "_PHASE1_VALIDATED").exists()
+
+
+def test_finalize_gates_on_core_not_full(tmp_path):
+    """Reviewer 2026-06-01: the floor gates on CORE. A huge FULL (the v1-unencoded
+    bref crossing residual) with a small CORE must NOT trip the floor -- else the
+    PRD §11 gate could never pass on a real region with crossing roads."""
+    res = finalize(
+        "singapore", "2026-04-15.0", [], [_err(core=3.0, full=300.0)], tmp_path, _VOLATILE
+    )
+    assert res.sanity_floor_violated is False
+    assert res.passed is True
+    assert (tmp_path / "_PHASE1_VALIDATED").exists()
+    baseline = (tmp_path / "_PHASE1_ACCURACY_BASELINE.yaml").read_text()
+    assert "position_full_p99_9: 300.0" in baseline  # full still reported + visible
+    assert "core_excludes" in baseline
+
+
+def test_finalize_angle_core_breach_blocks_marker(tmp_path):
+    res = finalize(
+        "singapore", "2026-04-15.0", [], [_err(core=1.0, angle=30.0)], tmp_path, _VOLATILE
+    )
+    assert res.sanity_floor_violated is True
+    assert res.passed is False

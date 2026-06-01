@@ -121,12 +121,20 @@ def finalize(
     output_dir: Path,
     volatile: dict[str, str],
 ) -> ValidationResult:
-    """Group + write reports (every run) + apply sanity floor + gate."""
-    pos = [e["position_err_m"] for e in all_errors]
-    ang = [e["angle_err_deg"] for e in all_errors]
-    pos_p999 = _percentile(pos, 99.9)
-    ang_p95 = _percentile(ang, 95.0)
-    sanity_violated = pos_p999 > _SANITY_POS_P999_M or ang_p95 > _SANITY_ANGLE_P95_DEG
+    """Group + write reports (every run) + apply sanity floor + gate.
+
+    The sanity floor gates on the CORE accuracy distribution (excludes the
+    v1-unencoded outbound bref vertex by construction identity; reviewer 2026-06-01)
+    so it means "broken encode/decode," not the designed crossing-road info-loss.
+    The FULL distribution is still reported (render_accuracy_baseline) so the bref
+    residual stays visible. Angle is defined only on count-matched features.
+    """
+    pos_core = [e["position_core_m"] for e in all_errors]
+    pos_full = [e["position_full_m"] for e in all_errors]
+    ang_core = [e["angle_core_deg"] for e in all_errors if e.get("angle_core_deg") is not None]
+    pos_core_p999 = _percentile(pos_core, 99.9)
+    ang_core_p95 = _percentile(ang_core, 95.0)
+    sanity_violated = pos_core_p999 > _SANITY_POS_P999_M or ang_core_p95 > _SANITY_ANGLE_P95_DEG
     structural_breaches = sum(
         1 for d in all_diags if d.invariant_name == "decoded_vertex_within_cell_bound"
     )
@@ -134,19 +142,22 @@ def finalize(
     diags = list(all_diags)
     if sanity_violated:
         reasons = []
-        if pos_p999 > _SANITY_POS_P999_M:
-            reasons.append(f"position p99.9 {pos_p999:.1f}m > {_SANITY_POS_P999_M}m")
-        if ang_p95 > _SANITY_ANGLE_P95_DEG:
-            reasons.append(f"angle p95 {ang_p95:.1f}deg > {_SANITY_ANGLE_P95_DEG}deg")
+        if pos_core_p999 > _SANITY_POS_P999_M:
+            reasons.append(f"position_core p99.9 {pos_core_p999:.1f}m > {_SANITY_POS_P999_M}m")
+        if ang_core_p95 > _SANITY_ANGLE_P95_DEG:
+            reasons.append(f"angle_core p95 {ang_core_p95:.1f}deg > {_SANITY_ANGLE_P95_DEG}deg")
         diags.append(
             Diagnostic(
                 tile_id=f"region={region}",
                 invariant_name="accuracy_sanity_floor",
-                artifact_left="seam3 accuracy (region p-values)",
-                observed_left={"position_p99_9": pos_p999, "angle_p95": ang_p95},
+                artifact_left="seam3 core accuracy (region p-values)",
+                observed_left={
+                    "position_core_p99_9": pos_core_p999,
+                    "angle_core_p95": ang_core_p95,
+                },
                 artifact_right="sanity floor",
                 observed_right={"position": _SANITY_POS_P999_M, "angle": _SANITY_ANGLE_P95_DEG},
-                expected_relationship="region accuracy within sanity cliffs",
+                expected_relationship="region core accuracy within sanity cliffs",
                 spec_clause_citation="sub-G design §3c sanity floor",
                 signature="; ".join(reasons),
             )
@@ -154,7 +165,9 @@ def finalize(
 
     groups = group_by_signature(diags)
     quarantine_yaml = render_quarantine_report(groups, region, release, VALIDATOR_VERSION)
-    baseline_yaml = render_accuracy_baseline(pos, ang, region, release, structural_breaches)
+    baseline_yaml = render_accuracy_baseline(
+        pos_core, pos_full, ang_core, region, release, structural_breaches
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "quarantine_report.yaml").write_text(quarantine_yaml, encoding="utf-8")

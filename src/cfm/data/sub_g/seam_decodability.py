@@ -5,17 +5,36 @@ GATE (quarantinable, spec Decision 3c): every cell's token_sequence splits on
 must be OGC-valid (provenance OUTSIDE sub-F) and within a loose structural vertex
 bound (250m lattice + margin).
 
-MEASUREMENT (reported region-level, NOT a per-tile gate): per-feature position
-error (max vertex distance to ORIGINAL sub-C geometry — Decision 3c baseline =
-original, not the canonical intermediate) and angle error (max abs segment-
-bearing difference). The validator (T8) aggregates these into p99.9/p95 for the
-_PHASE1_ACCURACY_BASELINE and applies the sanity floor.
+MEASUREMENT (reported region-level, NOT a per-tile gate): per-FEATURE round-trip
+error vs the CANONICAL ORIGINAL sub-C geometry (Decision 3c baseline = original;
+canonicalize first because the decoder emits canonical-order vertices). Two
+position numbers per feature:
 
-DEFERRED (diagnostic refinement, not gating): the per-stage DECOMPOSITION of the
-error (canonicalization vs direction-quantization vs encode/decode, protocol §5)
-is NOT implemented here — it has multiple valid attribution schemes and only the
-end-to-end position+angle is needed for the baseline + sanity floor. Re-add in
-the baseline-analysis when the accuracy gate is locked (sub-G design §8 trigger).
+  position_full_m  — symmetric vertex Hausdorff over ALL decoded vertices vs the
+                     original. INCLUDES the v1-by-design unencoded outbound
+                     bref edge-crossing vertex; reported, NOT gated.
+  position_core_m  — same, but EXCLUDING that bref-crossing vertex. The sanity
+                     floor gates on CORE (reviewer 2026-06-01): the bref vertex
+                     carries no encoded position (decoder.py:13-22, v2-scoped per
+                     spec §1.4), so gating on it would conflate a designed v1
+                     info-loss with "broken encode/decode" and fire on every real
+                     region forever. The exclusion is by CONSTRUCTION IDENTITY
+                     (the token body ends in a bref -> Case B/D outbound), NEVER
+                     by error magnitude — see _has_outbound_bref.
+
+  angle_core_deg   — max segment-bearing error vs the canonical original, defined
+                     ONLY where decoded and canonical vertex counts match (no
+                     chunking subdivision -> 1:1 segment correspondence); None
+                     otherwise (caller skips it from the angle distribution).
+
+Pairing: encode_cell splits a Multi* sub-C row into one feature block PER PART
+(encoder.py:578-601), so decoded blocks > sub-C rows in a cell. The accuracy loop
+walks sub-C features and advances the decoded pointer by #parts of
+canonicalize(orig) — NOT a positional decoded[k] <-> sub_c[k] match (that drift
+was the 318m/180deg first-measurement artifact; sub-G T11 H1, 2026-06-01).
+
+The full vs canonical-intermediate per-stage DECOMPOSITION (protocol §5) remains
+DEFERRED to the baseline-analysis when the accuracy gate locks (design §8).
 """
 
 from __future__ import annotations
@@ -23,15 +42,18 @@ from __future__ import annotations
 import math
 from itertools import pairwise
 
-from shapely.geometry import shape
+from shapely.geometry import LineString, Point, shape
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 from shapely.wkb import loads as wkb_loads
 
-from cfm.data.sub_f.decoder import decode_feature
+from cfm.data.sub_f.decoder import _is_bref_token, decode_feature
+from cfm.data.sub_f.encoder import canonicalize_geometry
 from cfm.data.sub_g.diagnostics import Diagnostic
 
 _FEATURE, _FEATURE_END = 509, 510
 _VERTEX_BOUND_M = 250.0 + 50.0  # cell extent + margin; loose structural bound
+_MIN_ANGLE_SEG_M = 2.0  # segments shorter than this have noisy bearings (structural)
 
 
 def split_cell_into_features(token_sequence: list[int]) -> list[list[int]]:
@@ -72,45 +94,104 @@ def _decoded_coords(geom: dict) -> list[tuple[float, float]]:
     return [(x, y) for x, y in geom["coordinates"]]
 
 
-def _original_coords(geom: BaseGeometry) -> list[tuple[float, float]]:
-    if geom.geom_type == "Point":
+def _part_coords(geom: BaseGeometry) -> list[tuple[float, float]]:
+    """Vertices of a single-part canonical geometry (Point / LineString / Polygon
+    exterior). Callers pass already-split Multi* parts."""
+    gt = geom.geom_type
+    if gt == "Point":
         return [(geom.x, geom.y)]
-    if geom.geom_type == "Polygon":
+    if gt == "Polygon":
         return list(geom.exterior.coords)
-    if geom.geom_type in ("LineString", "LinearRing"):
-        return list(geom.coords)
-    # Multi*: take the first part (positional match mirrors encode_cell's split;
-    # full multi-part matching is a baseline-analysis refinement). Recurse so the
-    # part goes through the per-type dispatch above — a MultiPolygon's first part
-    # is a Polygon, whose flat `.coords` is undefined in shapely (NotImplementedError);
-    # the recursion routes it to `.exterior.coords`.
-    return _original_coords(geom.geoms[0])
+    return list(geom.coords)  # LineString / LinearRing
 
 
-def _segment_bearings(coords: list[tuple[float, float]]) -> list[float]:
-    bearings: list[float] = []
-    for (x0, y0), (x1, y1) in pairwise(coords):
-        bearings.append(math.degrees(math.atan2(y1 - y0, x1 - x0)))
-    return bearings
+def _canon_parts(canon: BaseGeometry) -> list[BaseGeometry]:
+    """Parts of a canonical geometry in the order encode_cell emits them
+    (it iterates ``canon.geoms`` for Multi*)."""
+    if canon.geom_type.startswith("Multi"):
+        return list(canon.geoms)
+    return [canon]
 
 
-def _accuracy_record(decoded: dict, sub_c_feature: dict) -> dict:
-    """Max vertex position error (m) + max segment-bearing error (deg) vs ORIGINAL
-    sub-C geometry. Positional vertex match over the common prefix (Decision 3c).
+def _shape(coords: list[tuple[float, float]]) -> BaseGeometry:
+    return Point(coords[0]) if len(coords) == 1 else LineString(coords)
+
+
+def _sym_hausdorff(a: BaseGeometry, b: BaseGeometry) -> float:
+    return max(a.hausdorff_distance(b), b.hausdorff_distance(a))
+
+
+def _has_outbound_bref(block: list[int]) -> bool:
+    """True iff this feature's token BODY ends in a bref token (Case B/D outbound).
+
+    Construction identity (encoder.py:438-456 + decoder.py:104-134): the ONLY
+    v1-unencoded geometry vertex is the OUTBOUND crossing vertex; the encoder
+    replaces the last real vertex with the outbound bref and the decoder appends a
+    placeholder as decoded[-1]. An INBOUND bref (Case C/D) carries its position via
+    the anchor (coords[0]) and is NOT an exclusion. This is a token-structure fact,
+    NOT an error-magnitude test (see module docstring; reviewer guard 2026-06-01).
     """
-    orig = wkb_loads(bytes(sub_c_feature["geometry"]))
-    dec = _decoded_coords(decoded)
-    src = _original_coords(orig)
-    n = min(len(dec), len(src))
-    pos_err = max((math.dist(dec[i], src[i]) for i in range(n)), default=0.0)
+    body = block[1:-1]  # strip <feature> / <feature_end>
+    return len(body) >= 1 and _is_bref_token(body[-1])
 
-    db, sb = _segment_bearings(dec), _segment_bearings(src)
-    m = min(len(db), len(sb))
-    angle_err = 0.0
-    for i in range(m):
-        diff = abs(db[i] - sb[i]) % 360.0
-        angle_err = max(angle_err, min(diff, 360.0 - diff))
-    return {"position_err_m": pos_err, "angle_err_deg": angle_err}
+
+def _segment_bearing_err(
+    dec: list[tuple[float, float]], orig: list[tuple[float, float]]
+) -> float | None:
+    """Max abs segment-bearing difference (deg, undirected), defined ONLY when the
+    decoded and canonical-original vertex counts match (1:1 segment correspondence,
+    i.e. no chunking subdivision). Returns None when undefined. Segments shorter
+    than _MIN_ANGLE_SEG_M are skipped (noisy bearings)."""
+    if len(dec) != len(orig) or len(dec) < 2:
+        return None
+    worst = 0.0
+    for (da, db), (oa, ob) in zip(pairwise(dec), pairwise(orig), strict=True):
+        if math.dist(da, db) < _MIN_ANGLE_SEG_M:
+            continue
+        d_bear = math.degrees(math.atan2(db[1] - da[1], db[0] - da[0]))
+        o_bear = math.degrees(math.atan2(ob[1] - oa[1], ob[0] - oa[0]))
+        diff = abs(d_bear - o_bear) % 360.0
+        worst = max(worst, min(diff, 360.0 - diff))
+    return worst
+
+
+def _feature_accuracy(
+    decoded_dicts: list[dict],
+    has_outbound: list[bool],
+    canon_parts: list[BaseGeometry],
+) -> dict:
+    """Geometry-aware round-trip error of one (possibly multi-part) feature vs its
+    canonical original. ``decoded_dicts[i]`` / ``has_outbound[i]`` correspond to
+    ``canon_parts[i]`` (canonical part order = encode_cell emission order).
+
+    Returns {position_core_m, position_full_m, angle_core_deg|None}. Core excludes
+    the v1-unencoded outbound bref vertex (last vertex of both decoded placeholder
+    and the true exit crossing) by construction identity, never by magnitude.
+    """
+    dec_full, orig_full, dec_core, orig_core = [], [], [], []
+    angles: list[float] = []
+    for dd, out, cp in zip(decoded_dicts, has_outbound, canon_parts, strict=True):
+        dco = _decoded_coords(dd)
+        oco = _part_coords(cp)
+        dec_full.append(_shape(dco))
+        orig_full.append(_shape(oco))
+        dco_c = dco[:-1] if (out and len(dco) > 1) else dco
+        oco_c = oco[:-1] if (out and len(oco) > 1) else oco
+        if dco_c and oco_c:
+            dec_core.append(_shape(dco_c))
+            orig_core.append(_shape(oco_c))
+            a = _segment_bearing_err(dco_c, oco_c)
+            if a is not None:
+                angles.append(a)
+
+    def _union(shapes: list[BaseGeometry]) -> BaseGeometry:
+        return shapes[0] if len(shapes) == 1 else unary_union(shapes)
+
+    return {
+        "position_full_m": _sym_hausdorff(_union(dec_full), _union(orig_full)),
+        "position_core_m": _sym_hausdorff(_union(dec_core), _union(orig_core)) if dec_core else 0.0,
+        "angle_core_deg": max(angles) if angles else None,
+    }
 
 
 def check_decodability(
@@ -121,15 +202,21 @@ def check_decodability(
 ) -> tuple[list[Diagnostic], list[dict]]:
     """Returns (gate_diagnostics, per_feature_accuracy_records).
 
-    Accuracy records are matched positionally: decoded[k] <-> sub_c_features[k]
-    (encode_tile preserves sub-C row order).
+    The GATE runs per decoded block (independent). ACCURACY pairs each sub-C
+    feature with the #parts decoded blocks it produced (encode_cell splits Multi*),
+    then measures geometry-aware error vs the canonical original.
     """
     diags: list[Diagnostic] = []
     errors: list[dict] = []
-    for k, ftokens in enumerate(split_cell_into_features(token_sequence)):
+    blocks = split_cell_into_features(token_sequence)
+
+    # --- GATE: decode each block once; validity + structural bound ---
+    decoded: list[dict | None] = []
+    for k, ftokens in enumerate(blocks):
         try:
             geom = decode_feature(ftokens)
         except Exception as exc:  # decode failure is a gate failure
+            decoded.append(None)
             diags.append(
                 Diagnostic(
                     tile_id=tile_id,
@@ -144,6 +231,7 @@ def check_decodability(
                 )
             )
             continue
+        decoded.append(geom)
 
         if geom["type"] in ("Polygon", "LineString") and not shape(geom).is_valid:
             diags.append(
@@ -175,6 +263,21 @@ def check_decodability(
                 )
             )
 
-        if k < len(sub_c_features):
-            errors.append(_accuracy_record(geom, sub_c_features[k]))
+    # --- ACCURACY: pair each sub-C feature with its #parts decoded blocks ---
+    di = 0
+    for f in sub_c_features:
+        canon = canonicalize_geometry(wkb_loads(bytes(f["geometry"])))
+        parts = _canon_parts(canon)
+        grp_blocks = blocks[di : di + len(parts)]
+        grp_decoded = decoded[di : di + len(parts)]
+        di += len(parts)
+        if len(grp_decoded) < len(parts) or any(g is None for g in grp_decoded):
+            continue  # incomplete trailing feature or a part failed to decode
+        errors.append(
+            _feature_accuracy(
+                grp_decoded,
+                [_has_outbound_bref(b) for b in grp_blocks],
+                parts,
+            )
+        )
     return diags, errors
