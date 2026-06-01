@@ -53,6 +53,11 @@ def phase1_validated_marker(release: str, region: str) -> Path:
     return sub_g_region_dir(release, region) / "_PHASE1_VALIDATED"
 
 
+def macro_vocab_path() -> Path:
+    """Locked sub-D macro vocab (one source for density/skeleton/zoning buckets)."""
+    return _repo_root() / "configs" / "macro_plan" / "v1" / "macro_plan_vocab.yaml"
+
+
 def eval_set_dir(release: str) -> Path:
     return _data_processed() / "eval_set" / release
 
