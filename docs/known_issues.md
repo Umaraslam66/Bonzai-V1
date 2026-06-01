@@ -300,14 +300,21 @@ Phase 1 sub-A's contract is verified end-to-end. Phase 1 sub-projects B1–G rea
 
 ---
 
-## OPEN ITEM (sub-G close): POI alpha-drop rate is ~10× the other feature types
+## RESOLVED (sub-G close, 2026-06-01): POI alpha-drop rate is ~10× the other feature types — confirmed density-correlation artifact, ACCEPTED
 
-**Status:** open item for sub-G close — advisory, NOT a blocker. Logged 2026-06-01 from the first real-data run of the sub-F alpha-drop warning-band diagnostic.
+**Status:** confirmed + accepted at sub-G close — advisory, never a blocker. Logged 2026-06-01 from the first real-data run of the sub-F alpha-drop warning-band diagnostic; confirmed the same day by a dropped-cell × POI-density cross-tab (sub-G T11 H3 follow-up).
 
-**What:** The alpha-drop warning-band report (`reports/sub_f_task_3c_warning_band_singapore.yaml`, budget (5760, 6016]) on Singapore dropped 36/31,616 cells (0.114%). Per feature-type fraction-in-dropped-cells: road (fc=0) **0.76%**, building (fc=1) **1.51%**, base (fc=3) **0.13%** — but **POI (fc=2) 10.69%** (15,991 / 149,655). POIs are an order of magnitude over-represented in the dropped (high-budget warning-band) cells.
+**What:** The alpha-drop warning-band report (`reports/sub_f_task_3c_warning_band_singapore.yaml`, budget_raw 5760) on Singapore dropped 36/31,616 cells (0.114%; drop rule = cell token length > 5760). Per feature-type fraction dropped: road (fc=0) **0.76%**, building (fc=1) **1.51%**, base (fc=3) **0.13%** — but **POI (fc=2) 10.69%** (15,991 / 149,655).
 
-**One-line hypothesis:** POIs cluster in dense city-centre cells, which are exactly the high-token-budget cells that land in the warning band — so this is a density-correlation artifact, not a POI-specific over-drop. Alternative to rule out: a real POI-specific cost/over-drop in the budget accounting.
+**Verdict: density-correlation artifact, NOT a POI-specific over-drop or budget-accounting bug. Accepted.** A read-only cross-tab (reproduced the official 36-cell / 15,991-POI aggregate exactly = count lineage) shows:
 
-**Resolve at:** sub-G close. Confirm the hypothesis by cross-tabulating dropped-cell membership against cell density (POI count per cell) before signing off; if it is density-correlated, note and accept; if not, investigate the budget accounting.
+- **POIs cost the 7-token floor** (a Point hits `token_cost.chunked_per_feature_tokens` `n<2` branch = `_STRUCTURAL_TOKENS(3) + n_anchor(4)`). No per-POI cost inflation; the drop rule is purely `total cell tokens > 5760`, type-agnostic.
+- **Dropped cells are the densest cells, full stop:** POIs/cell median **430** (mean 444, max 975) vs retained median **0** (mean 4.2); total features/cell median **671** vs retained **0**. ~100× POI density, ~25× total-feature density.
+- **The drop is not POI-targeted:** 9 of 36 dropped cells have POIs < 50% of features; the `(tile 24,8,*)` cluster is dropped on **building** density (~2–4 POIs, 350–393 buildings each). Building-dense cells with near-zero POIs are dropped by the same rule.
+- **POI count alone does not drive drops:** retained cells exist with up to **593 POIs** (under budget); of the top-40 cells by POI count, only 20 are dropped — total density decides, not POI count.
 
-**Surfaced by:** sub-G T11 cascade-4 (first run of the alpha-drop diagnostic on real data, after the tooling fix made it importable).
+So POIs are over-represented in the drop set only because POIs concentrate in the densest city-centre cells, which are exactly the cells that exceed the per-cell token budget. In the most POI-saturated dropped cells, POIs are 75–81% of the cell's tokens — hundreds of correctly-costed (7-token) POIs, a real density fact about those cells.
+
+**Accepted because:** the per-cell budget (P99.9, Halt-4 lock 2026-05-29) deliberately rejects the extreme density tail (0.114% of cells); the loss is the densest urban cores, acceptable for v1 (the budget tradeoff was locked with this understood). No code change. If a future region needs the densest cores retained, raise the per-cell budget or split dense cells — not a POI-specific fix.
+
+**Surfaced by:** sub-G T11 cascade-4 (first run of the alpha-drop diagnostic on real data). **Confirmed by:** sub-G T11 H3 follow-up cross-tab (2026-06-01).
