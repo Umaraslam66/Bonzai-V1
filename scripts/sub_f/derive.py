@@ -28,8 +28,12 @@ from pathlib import Path
 
 # iCloud-safe sys.path inject — mirrors scripts/derive_boundary_contracts.py
 # (parents[2] because this script sits one level deeper, under scripts/sub_f/).
+# Inject the repo ROOT as well as src/: the post-derive alpha-drop diagnostic
+# imports `scripts.sub_f.compute_alpha_drop_report` (a namespace package that
+# only resolves with the repo root on sys.path).
 _REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO / "src"))
+sys.path.insert(0, str(_REPO))
 
 from cfm.data.sub_f.pipeline import PipelineConfig, derive_region  # noqa: E402
 
