@@ -1,9 +1,10 @@
-# Sub-project planning protocol v2
+# Sub-project planning protocol v3
 
-**Status:** active, derived from Phase 1 sub-E experience (2026-05-20 close) + sub-G close (2026-06-01).
-**Scope:** all remaining Phase 1 sub-projects (eval-set generation, tokenizer fix, training scaffold) and future sub-projects within Bonzai-OSM.
+**Status:** active, derived from Phase 1 sub-E experience (2026-05-20 close) + sub-G close (2026-06-01) + eval-set-generation close (2026-06-01).
+**Scope:** all remaining Phase 1 sub-projects (tokenizer fix, training scaffold) and future sub-projects within Bonzai-OSM.
 **Source memory entries:** `feedback_external_source_of_truth_gate.md` records the sub-E defect class and the six-gate framework. `feedback_structural_exclusion_not_magnitude.md` + `feedback_gate_must_distinguish_regimes.md` record the sub-G known-limitation-exclusion discipline that §9 operationalizes. This protocol translates "thing we learned" into "thing the next sub-project will do."
 **v2 delta:** adds §9 (construction-identity exclusion with regime-distinguishing guard), derived from sub-G T11 H1+H3 — the mechanism that kept two known-limitation exclusions from becoming silent gate weakenings.
+**v3 delta:** adds §10 (three principles from eval-set-generation close — write-once vs provisional sizing, relative-not-absolute per-stratum thresholds, detection-power in the correct unit), each caught at a freeze gate before the lock landed.
 
 ## Why this protocol exists
 
@@ -303,9 +304,66 @@ The drill that characterized H3 reproduced the gate's invalid set bit-identicall
 
 Any validator gate or floor that must exempt a designed info-loss, a v1/v2-scoped limitation, or any known-but-accepted artifact property. Phase 1 examples beyond sub-G: tokenizer round-trip exclusions for deferred fields; training-eval gates that must exempt known-degenerate inputs. This section operationalizes memories `feedback_structural_exclusion_not_magnitude` and `feedback_gate_must_distinguish_regimes`.
 
+## 10. Three principles from eval-set-generation close
+
+These three were each caught at a **freeze gate** — the point of committing a write-once artifact — *before* the lock landed. They are not §9 restatements: §9 is about exempting a known limitation from a gate; these are about how thresholds, sizing, and power interact with permanence and per-stratum structure.
+
+### 10.1 A write-once artifact must not be sized by a provisional / expected-to-change parameter
+
+**When a decision produces an artifact that can later be SHRUNK but never GROWN (a locked held-out set, a frozen vocab, any "locked at project start, never regenerated" lock), it must NOT be sized by a parameter you have labelled provisional or expect to re-derive later. Size it by a constraint justifiable TODAY; record the derived property the artifact actually achieves; and defer the provisional check to the consumer that CAN evaluate it, failing loud there.**
+
+The asymmetry is the whole point: under-provisioning a write-once artifact is unrecoverable, over-provisioning merely costs something gradual and bounded. The error directions are not symmetric, so the sizing should be biased toward over-provisioning, NOT toward the expected-value midpoint — and definitely not pinned to a number you already know is a placeholder.
+
+#### Worked example (eval-set generation)
+
+The held-out set's N was initially driven by a KS effect size (0.15) that gated nothing yet (the model-facing KS distance is deferred) and was explicitly "revisit when the bake-off runs." Freezing N against it would have locked the eval set to a provisional number: if the bake-off later needed a finer architecture-distinguishing gap, the set needed to be LARGER — impossible under write-once. The freeze gate caught it. Resolution: (a) the KS-resolvability ceiling is actually a *single-region pool property* (~0.049, the finest gap the data can ever resolve), not a tunable knob; (b) size N by an explicit, today-justifiable target gap (a recorded PI choice on a bounded tradeoff curve, biased toward over-provisioning per the asymmetry); (c) record the gap the frozen set ACTUALLY resolves; (d) make the eval-harness assert `needed-gap ≥ resolved-gap` and fail loud (→ documented second-region trigger), never silent under-power.
+
+#### Pattern (operationalization)
+
+1. **At any freeze/lock, list every parameter feeding the artifact's SIZE or SHAPE.** For each, ask: is it provisional, deferred-to-evaluate, or expected to change?
+2. **If yes, do not let it bind the lock.** Re-derive the size from a constraint measurable/justifiable today (a resource ceiling, a population floor you can compute now, a stated tradeoff the owner signs off on).
+3. **Record the derived property** the artifact achieves (not just the input target) in the lock marker.
+4. **Hand the provisional check to the consumer** that can finally evaluate it, with a fail-loud assertion and a named escalation (here: extract a second region). Silent under-provisioning is the failure; a loud known-limitation is acceptable.
+
+### 10.2 A uniform ABSOLUTE threshold gives non-uniform RELATIVE discrimination across strata — use relative-to-base-rate with a near-zero floor
+
+**A single absolute threshold applied across strata with different base rates discriminates UNEVENLY: it is strict where the base rate is high and vacuous where the base rate is low (or vice-versa, depending on the metric's sign). When the per-stratum quantity is a rate/proportion and the strata have materially different base rates, express the threshold as relative-to-base-rate (`excess > ρ·base`), with a small ABSOLUTE floor (`max(ρ·base, δ_floor)`) so genuinely near-zero strata don't get an absurdly tight guard.**
+
+This generalizes past the bref-rate to any per-stratum threshold over heterogeneous strata. It is the threshold-layer cousin of the §2 threshold-pairing and the distributional-vacuous-pass: stratifying *where you measure* does nothing if the *trip threshold* stays global.
+
+#### Worked example (eval-set generation)
+
+The over-emission guard used an absolute δ=0.03 against per-stratum faithful bref-rates of 2.3–6.8%. That gave relative tolerances of +44% (sparse) to +129% (dense): a model could MORE THAN DOUBLE the densest stratum's degenerate-stub rate and still pass — the dense-bucket guard was vacuous. The δ-review gate caught it before freeze. Fix: `max(ρ·faithful, δ_floor)` with ρ=0.5 (uniform +50% relative discrimination; per-stratum absolute thresholds 0.034→0.012 that track each base rate) and δ_floor=0.005 (binds no real stratum here; only backstops faithful<1%). The regime-distinguishing guard (a doubling of the dense stratum, which the absolute threshold waved through) now trips — and is asserted to NOT trip under the old absolute form, so the test names the exact bug it fixes.
+
+#### Pattern (operationalization)
+
+1. **For any per-stratum threshold, list the strata's base rates.** If they differ materially, an absolute threshold has a per-stratum relative-tolerance spread — compute it (`threshold / base_rate` per stratum).
+2. **If the spread is wide, switch to relative-to-base-rate** with a small absolute floor; verify `δ_floor < ρ·base` for every meaningful-base stratum (so the relative term governs where it must) and that the floor only takes over for near-zero strata.
+3. **Pair it with a regime-distinguishing guard** that fires under the new (relative) form and is asserted NOT to fire under the old (absolute) form — the test names the bug.
+
+### 10.3 Verify detection power in the CORRECT UNIT, or the vacuous pass relocates into the sample size
+
+**A per-stratum power floor must be computed and verified in the unit the statistic is actually estimated over. Fixing a vacuous threshold (10.2 / §2) is not enough: if the sample size that powers the check is measured in the wrong unit, an under-powered stratum passes silently — the vacuous pass simply moves from the threshold into the sample size. Identify the Bernoulli/observation unit of the metric, size the floor in THAT unit, and verify the achieved sample (in that unit) clears the floor per stratum on the actual selected set.**
+
+This is the one most likely to bite silently, because everything *looks* handled — the threshold is principled, the strata are covered — while the detection sample is quietly too small.
+
+#### Worked example (eval-set generation)
+
+The per-stratum floors were initially conflated into a single "cells" unit. But the over-emission RATE is estimated per **feature** (each feature is a Bernoulli collapse/not), while the cell-density distributional reference is per **cell**. Sizing the rate-detection floor in cells would have measured the wrong thing. Separating them surfaced a finding that *changed the design*: feature populations are abundant (≈873k; per-stratum floors 211–646 features vs tens of thousands available), so the rate-detection floor is NOT binding — contradicting the spec's "D's stratified floor is the binding one." What actually drove N was the cell-density reference. The check was made explicit: verify held-out **feature** counts per stratum ≥ the per-feature floor on the selected set (`underpowered_feature_strata == []`), separately from the per-cell reference target.
+
+#### Pattern (operationalization)
+
+1. **Name the observation unit of each metric** (per-feature? per-cell? per-tile? per-edge?). Different metrics in the same pipeline often have different units.
+2. **Size each per-stratum floor in its own unit**, and **verify the achieved count in that unit on the actual selected/frozen set**, not on the full pool and not in a proxy unit.
+3. **Treat a unit mismatch as a candidate silent under-power** — and re-check whether the *binding* constraint is what you assumed (here it wasn't; the measured binding constraint differed from the spec's stated one — experiments win).
+
+### When this applies
+
+§10.1 at every write-once lock (eval set, frozen vocab, locked tokenizer schema, any "locked-and-never-regenerated" artifact). §10.2 at any per-stratum/per-class threshold over heterogeneous base rates (tokenizer per-class accuracy floors, training per-stratum loss gates). §10.3 at any per-stratum power/sample-size floor (perplexity-gap sign-test power, round-trip accuracy floors). This section records the eval-set-generation freeze-gate lessons; source memory `feedback_diagnostic_threshold_design` is the nearest prior relative.
+
 ## Closing notes
 
-These six gates + six principles are the consolidated discipline as of sub-G close. They are not exhaustive — the next sub-project may surface a seventh gate or a seventh principle that this protocol does not anticipate. If it does, add it here with a worked example and operationalization, the same way this protocol records sub-E's and sub-G's lessons.
+These six gates + six principles + §9 + §10's three freeze-gate principles are the consolidated discipline as of eval-set-generation close. They are not exhaustive — the next sub-project may surface a new gate or principle that this protocol does not anticipate. If it does, add it here with a worked example and operationalization, the same way this protocol records sub-E's, sub-G's, and eval-set-generation's lessons.
 
 The protocol's purpose is institutional compounding: each sub-project's lessons should reduce the next sub-project's defect surface, not relearn from zero. Sub-D's `feedback_test_weakening_to_pass`, sub-B2's `feedback_subagent_branch_pattern`, sub-C's `feedback_pyarrow_hive_partition_inference`, sub-E's six-gate framework + five principles, and now sub-G's §9 known-limitation-exclusion discipline are all part of the same compounding capital.
 
@@ -319,5 +377,6 @@ Each sub-project close is a potential bump point. The version increments when th
 
 - **v1** (sub-E close, 2026-05-20): six gates + five principles.
 - **v2** (sub-G close, 2026-06-01): adds §9 construction-identity exclusion with regime-distinguishing guard.
+- **v3** (eval-set-generation close, 2026-06-01): adds §10 — (10.1) write-once artifacts must not be sized by a provisional/expected-to-change parameter; (10.2) uniform absolute thresholds discriminate non-uniformly across strata → relative-to-base-rate with a near-zero floor; (10.3) verify detection power in the correct unit or the vacuous pass relocates into the sample size.
 
-Anticipated bump points: eval-set-generation close, tokenizer-fix close, training-scaffold close, end of Phase 1.
+Anticipated bump points: tokenizer-fix close, training-scaffold close, end of Phase 1.

@@ -61,7 +61,7 @@ The PRD does not anticipate every choice. When you hit one:
 - Commit messages are imperative and short on the first line, with optional detail after a blank line.
 - Never commit large files (>50MB). Use `.gitignore` and store large artifacts in `data/` (gitignored) or in object storage.
 - Never commit secrets, API keys, or compute credentials. Use environment variables and `.env.example` for documentation.
-- Branch off `main` for any non-trivial work. Open a PR even when working alone — it forces a written summary of what changed.
+- Branch off `main` for any non-trivial work (per-sub-project `phase-1-sub-{letter}-{slug}` branches; commit task-by-task). This project is **single-developer and local-first**: merge to `main` locally at sub-project end and push — a PR is optional, not required. The written-summary discipline a PR would otherwise force is satisfied instead by the per-sub-project `reports/` summary plus conventional commit messages.
 
 ## Tooling defaults
 
@@ -82,7 +82,7 @@ Always ask before:
 - Changing the tokenizer schema once it's locked.
 - Modifying `PRD.md` (propose the change, get confirmation, then commit).
 - Changing the eval suite or eval set once locked.
-- Pushing to `main` directly (always go through a PR).
+- Merging/pushing a sub-project to `main` before its full test suite is green and its `reports/` summary is written. (Local merge → push at sub-project end is the norm and is fine once those two hold; a PR is optional. Never force-push or rewrite `main` history without asking.)
 
 You can act without asking for:
 
