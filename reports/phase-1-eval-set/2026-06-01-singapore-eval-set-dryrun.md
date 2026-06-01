@@ -1,95 +1,91 @@
 # Eval-set generation — Singapore dry-run measurement (NOT FROZEN)
 
-**Date:** 2026-06-01 · **Status:** DRY-RUN — measured + proposed, **manifest NOT frozen** · **Freeze blocked on:** the δ review (item 1 below).
-**Code commit:** `8e1c024` (branch `phase-1-eval-set-generation`) · **Spec:** `docs/superpowers/specs/2026-06-01-eval-set-generation-design.md` · **Plan:** `docs/superpowers/plans/2026-06-01-eval-set-generation.md`
+**Date:** 2026-06-01 · **Status:** DRY-RUN — measured + proposed, **manifest NOT frozen** · **δ review:** RESOLVED (relative form, below) · **Freeze pending:** final review of these v2 numbers.
+**Code commit:** `48614ee` (branch `phase-1-eval-set-generation`) · **Spec:** `docs/superpowers/specs/2026-06-01-eval-set-generation-design.md` · **Plan:** `docs/superpowers/plans/2026-06-01-eval-set-generation.md`
 
 ## How to reproduce
 
 ```bash
 uv run python -c "from cfm.eval.holdout import pipeline, paths; \
 r=pipeline.generate_eval_set(release=paths.DEFAULT_RELEASE, region=paths.DEFAULT_REGION, lock=False); \
-print(r.n, r.residual, r.ceiling_overall, r.per_stratum_bref_rate, r.underpowered_cell_density_strata)"
+print(r.n, r.residual, r.ceiling_overall, r.per_stratum_bref_rate, r.underpowered_feature_strata)"
 ```
 
-Data snapshot: `data/processed/{sub_c,sub_d,sub_f}/2026-04-15.0/singapore/` (494 tiles, sub-G `_PHASE1_VALIDATED`). Runtime ≈ 11 s (decodes all 494 tiles' round-tripped-real geometry).
+Data snapshot: `data/processed/{sub_c,sub_d,sub_f}/2026-04-15.0/singapore/` (494 tiles, sub-G `_PHASE1_VALIDATED`). Runtime ≈ 12 s (decodes all 494 tiles' round-tripped-real geometry).
 
-## Config (the inputs that determined the result)
+## Config
 
-| Parameter | Value | Where | Spec? |
+| Parameter | Value | Where | Basis |
 |---|---|---|---|
-| release / region | `2026-04-15.0` / `singapore` | `paths.py` | yes |
-| δ (`DELTA_BREF_REGIME`) | **0.03** | `sizing.py` | chosen (spec leaves to impl) |
-| KS effect size (`_KS_EFFECT`) | **0.15** | `pipeline.py` | chosen |
-| residual cap (`n_cap_fraction`) | **0.50** | `pipeline.py` | chosen |
+| release / region | `2026-04-15.0` / `singapore` | `paths.py` | spec |
+| **ρ (`RHO_BREF_REGIME`)** | **0.5** | `sizing.py` | relative over-emission boundary (below) |
+| **δ_floor (`DELTA_FLOOR_BREF`)** | **0.005** | `sizing.py` | near-zero backstop (below) |
+| KS effect size (`_KS_EFFECT`) | 0.15 | `pipeline.py` | provisional; gates nothing yet (deferred) |
+| residual cap (`n_cap_fraction`) | 0.50 | `pipeline.py` | did not bind |
 
 ## Measurement
 
 | Quantity | Value |
 |---|---|
-| **Proposed held-out N** | **53 tiles** |
-| Training residual (494 − N) | **441** (~89%) |
-| Round-tripped-real geometric-validity ceiling (overall) | **0.967992** (≈3.2% bref-placeholder collapse — v1 tokenizer limitation, consistent with H3) |
-| Underpowered cell-density strata | **none** |
+| **Proposed held-out N** | **53 tiles** (441 training residual, ~89%) |
+| Round-tripped-real geometric-validity ceiling | **0.967992** (≈3.2% bref-placeholder collapse — v1 tokenizer limitation, consistent with H3) |
+| Underpowered strata (rate-detection / cell-reference) | **none / none** |
 
-| cell_density_bucket | faithful bref-rate | cell population (of 494 tiles) | cell floor |
-|---|---|---|---|
-| 0 (sparsest) | 6.79% | 8538 | 271 |
-| 1 | 3.82% | 2504 | 164 |
-| 2 | 2.85% | 4476 | 164 |
-| 3 (densest) | 2.33% | 1531 | 164 |
+| cell_density_bucket | faithful bref-rate | over-emit threshold (abs) | **relative tol** | feature pop (pool) | feature floor | held-out features |
+|---|---|---|---|---|---|---|
+| 0 (sparsest) | 6.79% | 0.0340 | **+50%** | 76,013 | 211 | 10,138 |
+| 1 | 3.82% | 0.0191 | **+50%** | 126,201 | 388 | 17,713 |
+| 2 | 2.85% | 0.0143 | **+50%** | 451,555 | 524 | 54,292 |
+| 3 (densest) | 2.33% | 0.0116 | **+50%** | 219,689 | 646 | 55,780 |
 
-All populations clear their floors; the co-optimization met every floor at N=53. **The spec's deep feasibility tension (can a single-region 494-tile pool power every stratum AND leave a viable training set?) is answered YES by measurement.** Numbers are rough, not round (rough-numbers heuristic).
+Total features across the pool: **873,458**.
 
-## The three chosen numbers — justified independently (NOT on joint feasibility)
+## The chosen numbers — justified independently (NOT on joint feasibility)
 
-Joint feasibility ("they produced a clean N=53") is *not* a justification — a δ/effect/cap triple can always be found to fit N. Each number is interrogated on its own merits.
+### 1. The over-emission threshold — δ review RESOLVED: relative-to-base-rate
 
-### 1. δ = 0.03 — **OPEN, blocks freeze**
+The first dry-run used an **absolute** δ=0.03. Against the measured per-stratum faithful rates (2.3–6.8%) that gave **per-stratum relative tolerances of +44%/+79%/+105%/+129%** — the dense-bucket guard was vacuous: a model could **more than double** the bucket-3 degenerate rate (2.33%→4.66%, +2.33pp < 3pp) and still pass. That is the per-stratum-vacuous-pass pattern one level up, in the threshold.
 
-δ is THE regime-distinguishing threshold with three consumers (D's faithful-vs-over-emitting boundary, G's δ-relaxation bound, C's R2 tolerance — one number). The claim it must earn: *"this is the rate-excess that distinguishes a model that learned the bref limitation from one over-emitting degenerate stubs."*
+**Fix (form approved 2026-06-01):** `over_emission_threshold(faithful) = max(ρ·faithful, δ_floor)`.
 
-**An absolute 0.03 does not hold that meaning uniformly across strata.** Against the measured per-stratum faithful rates:
+- **ρ = 0.5** — a model is over-emitting iff its per-stratum bref-rate exceeds the faithful rate by **>50% relative**. The discrimination is now **uniform across strata** (the table's relative-tol column is a flat +50%), while the **absolute threshold varies per stratum** (0.0340→0.0116), tracking each base rate. The dense-bucket doubling that absolute-0.03 waved through now trips (regime-distinguishing guard `test_GD2_GUARD_dense_bucket_doubling_trips_under_relative_but_absolute_missed_it`). ρ is set on meaning, not to fit N (it does not move N — see item 3). It is **revisitable toward the data-supported ~0.25** once the model's natural over-emission variation is observed (model side deferred, spec §7); the data supports a tighter ρ because feature power is abundant.
+- **δ_floor = 0.005** — a backstop for **genuinely near-zero strata only**. Verified: `δ_floor < ρ·faithful` for every current bucket (min ρ·faithful = 0.5×0.0233 = 0.01163 > 0.005), so the relative term governs **including the dense bucket**; δ_floor would bind only below ~1% faithful (no current bucket).
 
-| bucket | faithful | δ=0.03 trips only at | relative tolerance |
-|---|---|---|---|
-| 0 | 6.79% | 9.79% | **+44%** |
-| 1 | 3.82% | 6.82% | +79% |
-| 2 | 2.85% | 5.85% | +105% |
-| 3 | 2.33% | 5.33% | **+129%** |
-
-A model can **more than double** the dense-bucket (bucket 3) degenerate-stub rate and still sit "within tolerance." Since D's purpose is *distribution-matching* ("learned the limitation" = reproduces the faithful rate), a rate-doubling has clearly **not** learned the limitation — yet the absolute guard waves it through. This is the per-stratum-vacuous-pass pattern one level up: G-D2 stratifies *where* the rate is measured (per `cell_density_bucket`), but the *trip threshold* stayed a global absolute 0.03, so the dense-bucket guard is relatively lax.
-
-**Recommendation (resolve BEFORE freeze):** make δ **relative-to-base-rate** (trip if `model_rate > faithful_rate · (1 + ρ)`) with an **absolute floor** for near-zero strata (so a stratum with faithful≈0 doesn't get an infinitely tight guard). E.g. trip if `model_rate − faithful_rate > max(ρ·faithful_rate, δ_floor)`. This makes "learned vs over-emitting" consistent across strata. Choosing ρ (and δ_floor) is the review item; it will change the per-stratum floors slightly and therefore possibly the selection — which is exactly why it must precede the write-once lock.
+**Per-stratum POWER check (the review's deepest point):** detecting a rate excess is per-**feature** (each feature is a Bernoulli collapse/not). Feature populations are enormous (76k–452k per stratum; the densest bucket has the *most* features, not the fewest). The feature floor to detect a 50%-relative excess is 211–646 features/stratum; the held-out set carries **10,138–55,780** — ≥15× margin in every stratum. So the vacuous pass **cannot** move into the sample size: `underpowered_feature_strata == []`, verified on the selected set, not assumed.
 
 ### 2. KS effect size = 0.15 — provisional; gates nothing yet
 
-Used only to size the per-stratum cell floor. The model-vs-baseline KS/Wasserstein **distance is deferred** (no model yet — spec §7), so 0.15 currently gates **no verdict**; it only influences N. The principled basis it *will* need: tie it to the smallest distributional gap between two architectures that would change a bake-off ranking — if 0.15 is coarser than that gap, the substrate can't distinguish the architectures it exists to compare. **Re-derive against observed architecture-to-architecture gaps when the bake-off runs.** For now: provisional sizing input.
+Sizes the per-stratum **cell-density reference target** only. The model-vs-baseline KS/Wasserstein **distance is deferred** (no model — spec §7), so 0.15 currently gates no verdict. Re-derive against observed architecture-to-architecture distributional gaps when the bake-off runs.
 
-### 3. residual cap = 50% — **did not bind; moot for this result**
+### 3. residual cap = 50% — did not bind; moot
 
-The cap (247 tiles) is a ceiling that pushes N down only when floors demand many tiles. N=53 is ~11% of the pool, far below 247, and all floors were met without approaching it. **The cap played no role in N=53.** It remains a sensible guardrail for future regions/parameters but is not load-bearing here.
+N=53 is ~11% of the pool, far below the 247-tile cap. The cap played no role.
+
+## A measured finding that contradicts the spec (experiments win)
+
+The spec calls D's stratified floor "the binding one." **Measurement shows it is NOT binding:** D's rate-detection floor is per-feature and features are abundant (floors 211–646 vs tens of thousands available). What actually drives N=53 is the **provisional cell-density reference target** (a uniform ~164-cell/stratum sample for the *deferred* KS scoring), not D's power floor. Reported honestly; the spec's expectation was based on a pre-measurement guess about the binding constraint.
 
 ## Status & next step
 
-- **NOT FROZEN.** No `holdout_manifest.yaml`, no `_EVAL_SET_LOCKED` written.
-- **Blocker:** resolve δ (item 1) — relative/per-stratum threshold + chosen ρ/floor. This may shift the per-stratum floors and the selection.
-- After δ is settled: re-run the dry-run, confirm the numbers, then freeze with `generate_eval_set(..., lock=True)` (write-once).
+- **NOT FROZEN.** No `holdout_manifest.yaml`, no `_EVAL_SET_LOCKED`.
+- δ review **resolved** (relative form; uniform relative discrimination; per-stratum thresholds + feature power both adapt to base rate — no new uniform-hides-variation problem).
+- **Freeze when approved:** `generate_eval_set(..., lock=True)` (write-once). N=53, ρ=0.5, δ_floor=0.005.
 
 ## Deferred to the eval-harness / training-scaffold successor (spec §7)
 
-Model-scoring orchestration · simulation-viability execution (model + CARLA) · the tokenizer-on-**model** side of R2 · the Wasserstein/KS **distance** computation against model output · the training loader's actual holdout exclusion (it calls **this** manifest + `lineage_audit.audit_no_holdout_leak`, one source).
+Model-scoring orchestration · simulation-viability execution · the tokenizer-on-**model** side of R2 · the Wasserstein/KS **distance** against model output · the training loader's actual holdout exclusion (calls **this** manifest + `lineage_audit.audit_no_holdout_leak`, one source).
 
 ## Spec-coverage checklist
 
-| Spec | Implemented (commit `8e1c024`) |
+| Spec | Implemented (commit `48614ee`) |
 |---|---|
-| A — scope boundary (R2 real-side in / model-side deferred) | task headers + `degeneracy.py` docstring |
-| B — region partition + generalization UNSCORED | `manifest.py` region-keyed + `lineage_audit` region-scaling test; generalization not scored |
+| A — scope (R2 real-side in / model-side deferred) | task headers + `degeneracy.py` |
+| B — region partition + generalization UNSCORED | `manifest.py` region-keyed + `lineage_audit` region-scaling |
 | C — core/full baselines + ceiling + gap | `baselines.py` |
 | §2 — one shared bref-rate | `bref_rate.py` (identity-locked to sub-G, `is`-asserted) |
-| D — per-instance exclude + G-D1/G-D2 | `degeneracy.py` (**δ refinement open, item 1**) |
+| D — per-instance exclude + G-D1/G-D2 | `degeneracy.py` (relative threshold; dense-doubling guard) |
 | E — labels one-source + morphology collision + density-aggregate | `labels.py` (Gate-6 vocab cross-ref) |
 | F — lock + G-F1..F4 + manifest | `manifest.py` + `lineage_audit.py` |
-| G — per-stratum floors + ordered degradation + single δ | `sizing.py` + `pipeline.co_optimize` (**δ open**) |
+| G — per-stratum floors + ordered degradation + single (ρ, δ_floor) | `sizing.py` + `pipeline.co_optimize` |
 
-47 eval-set tests pass (incl. the slow real-data dry-run); full project suite 958 passed, 1 pre-existing xfail, no regressions.
+47 eval-set tests pass (incl. the slow real-data dry-run); full project suite 960 passed, 1 pre-existing xfail, no regressions.
