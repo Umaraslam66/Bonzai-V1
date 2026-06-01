@@ -57,3 +57,33 @@ def test_structural_bound_flags_far_vertex():
 
     far = {"type": "LineString", "coordinates": [[0.0, 0.0], [10000.0, 0.0]]}
     assert _max_abs_coord(far) > _VERTEX_BOUND_M
+
+
+def test_original_coords_handles_multipolygon():
+    """sub-G T11 cycle-5: _original_coords must handle a MultiPolygon original
+    (real multi-part building in Singapore) by recursing the first part through
+    the per-type dispatch (-> Polygon.exterior.coords), NOT calling Polygon.coords
+    (shapely NotImplementedError: 'the polygon does not [have coords]').
+
+    RED pre-fix: `list(geom.geoms[0].coords)` raised on the Polygon part.
+    """
+    from shapely.geometry import MultiPolygon, Polygon
+
+    from cfm.data.sub_g.seam_decodability import _original_coords
+
+    first = Polygon([(0, 0), (0, 10), (10, 10), (10, 0), (0, 0)])
+    second = Polygon([(20, 20), (20, 30), (30, 30), (20, 20)])
+    mp = MultiPolygon([first, second])
+    assert _original_coords(mp) == list(first.exterior.coords)
+
+
+def test_original_coords_multilinestring_unchanged():
+    """Regression guard: the recursion preserves the documented first-part
+    behavior for MultiLineString (geoms[0] is a LineString)."""
+    from shapely.geometry import LineString, MultiLineString
+
+    from cfm.data.sub_g.seam_decodability import _original_coords
+
+    first = LineString([(0, 0), (5, 5)])
+    mls = MultiLineString([first, LineString([(10, 10), (15, 15)])])
+    assert _original_coords(mls) == list(first.coords)

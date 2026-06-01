@@ -80,8 +80,11 @@ def _original_coords(geom: BaseGeometry) -> list[tuple[float, float]]:
     if geom.geom_type in ("LineString", "LinearRing"):
         return list(geom.coords)
     # Multi*: take the first part (positional match mirrors encode_cell's split;
-    # full multi-part matching is a baseline-analysis refinement).
-    return list(geom.geoms[0].coords)
+    # full multi-part matching is a baseline-analysis refinement). Recurse so the
+    # part goes through the per-type dispatch above — a MultiPolygon's first part
+    # is a Polygon, whose flat `.coords` is undefined in shapely (NotImplementedError);
+    # the recursion routes it to `.exterior.coords`.
+    return _original_coords(geom.geoms[0])
 
 
 def _segment_bearings(coords: list[tuple[float, float]]) -> list[float]:

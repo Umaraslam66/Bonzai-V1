@@ -297,3 +297,17 @@ Phase 1 sub-A's contract is verified end-to-end. Phase 1 sub-projects B1–G rea
 **Resolve at:** sub-F-v2. Reword §1.4 / §8 so the non-emission rule reads "only highway-keyed features emit `<bref>`; all non-road features (buildings, POIs, **and non-road LineStrings**) emit zero `<bref>`" — matching the encoder gate and the validator's highway-only `_check_non_road_non_emission`.
 
 **Surfaced by:** sub-G T11 cycle-4 (the encoder road-key emission gate).
+
+---
+
+## OPEN ITEM (sub-G close): POI alpha-drop rate is ~10× the other feature types
+
+**Status:** open item for sub-G close — advisory, NOT a blocker. Logged 2026-06-01 from the first real-data run of the sub-F alpha-drop warning-band diagnostic.
+
+**What:** The alpha-drop warning-band report (`reports/sub_f_task_3c_warning_band_singapore.yaml`, budget (5760, 6016]) on Singapore dropped 36/31,616 cells (0.114%). Per feature-type fraction-in-dropped-cells: road (fc=0) **0.76%**, building (fc=1) **1.51%**, base (fc=3) **0.13%** — but **POI (fc=2) 10.69%** (15,991 / 149,655). POIs are an order of magnitude over-represented in the dropped (high-budget warning-band) cells.
+
+**One-line hypothesis:** POIs cluster in dense city-centre cells, which are exactly the high-token-budget cells that land in the warning band — so this is a density-correlation artifact, not a POI-specific over-drop. Alternative to rule out: a real POI-specific cost/over-drop in the budget accounting.
+
+**Resolve at:** sub-G close. Confirm the hypothesis by cross-tabulating dropped-cell membership against cell density (POI count per cell) before signing off; if it is density-correlated, note and accept; if not, investigate the budget accounting.
+
+**Surfaced by:** sub-G T11 cascade-4 (first run of the alpha-drop diagnostic on real data, after the tooling fix made it importable).
