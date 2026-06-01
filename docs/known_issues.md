@@ -6,6 +6,33 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #12 — Eval-set is FROZEN; three load-bearing carry-forward triggers for the training-scaffold / eval-harness phase
+
+- **Filed:** 2026-06-01 (eval-set-generation close)
+- **Severity:** medium (not a defect — these are trigger conditions the successor MUST honor, or eval numbers become invalid or silently under-powered)
+- **Status:** open obligations on the successor sub-project (training scaffold + eval harness)
+- **Affects:** `src/cfm/eval/holdout/*`, the frozen `data/processed/eval_set/2026-04-15.0/holdout_manifest.yaml` + `_EVAL_SET_LOCKED`
+
+### Context
+
+The Singapore held-out set is locked write-once: 132 tiles, KS target gap 0.08 (resolves 0.076), ρ=0.5, δ_floor=0.005, ceiling 0.968. Full record: `reports/phase-1-eval-set/2026-06-01-singapore-eval-set-FROZEN.md`.
+
+### Triggers the successor MUST honor
+
+1. **Holdout exclusion (one source):** the training data loader MUST call `cfm.eval.holdout.lineage_audit.audit_no_holdout_leak(manifest, training_reachable)` against the frozen manifest, fail-closed on absent lineage (G-F4). A contaminated holdout invalidates every eval number undetectably.
+2. **Eval-harness fail-loud on resolution:** when models exist, assert the bake-off's needed architecture-distinguishing gap is **≥ 0.076** (the frozen set's resolved gap). Finer → the **second-region extraction trigger** (the deferred B-decision), NEVER silent under-power. The single-region hard floor is **0.049** — finer is categorically a second-region need, not an N-tuning knob.
+3. **Conditioning vector (one source):** the model's conditioning MUST consume the same sub-C/sub-D quantities `cfm.eval.holdout.labels` reads (`population_density_bucket`, `cell_density_bucket`, the `morphology_stratum` = sub-D `road_skeleton_class`+`zoning_class` — NOT sub-C's constant `morphology_class`), or conditioning-compliance scoring is apples-to-oranges.
+
+### Owed deferred items (spec §7)
+
+The tokenizer-on-**model** side of R2, the Wasserstein/KS **distance** computation against model output, simulation-viability execution, and model-scoring orchestration are all deferred to the eval-harness. `ρ` is tunable down to ~0.25 once the model's natural over-emission variation is observed (does not move N).
+
+### Tracking
+
+- Source: `reports/phase-1-eval-set/2026-06-01-singapore-eval-set-FROZEN.md`; protocol §10 (`docs/protocols/sub-project-planning-protocol-v3.md`) records the freeze-gate principles this close earned.
+
+---
+
 ## #11 — Layer-3 subset selector skips sparse-side dimensions (negated-positive-score interaction with eligibility guard)
 
 - **Filed:** 2026-05-19 (Phase 1 sub-D Gate 2B review)
