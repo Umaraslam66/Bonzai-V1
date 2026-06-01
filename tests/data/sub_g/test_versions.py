@@ -63,6 +63,7 @@ def test_accuracy_baseline_records_core_and_full_percentiles():
         region="singapore",
         release="2026-04-15.0",
         structural_bound_breaches=0,
+        bref_collapse_excluded=27958,
     )
     assert "position_core_p99_9" in out
     assert "position_core_p95" in out
@@ -71,6 +72,9 @@ def test_accuracy_baseline_records_core_and_full_percentiles():
     assert "n_features" in out
     assert "n_angle_features" in out
     assert "core_excludes" in out  # self-documents the structural exclusion
+    # sub-G T11 H3: the OGC-validity gate's construction-identity exclusion is
+    # reported (not silently dropped) and cross-references the position_full residual.
+    assert "ogc_bref_collapse_excluded_from_gate: 27958" in out
 
 
 def test_accuracy_baseline_handles_empty():

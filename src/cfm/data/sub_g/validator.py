@@ -90,10 +90,16 @@ def validate_tile(
     skeleton_by_edge: dict[tuple[int, int, int], int | None],
     cell_contracts: dict[tuple[int, int], dict[str, str]],
     tokens_by_cell: dict[tuple[int, int], list[int]],
-) -> tuple[list[Diagnostic], list[dict]]:
-    """Run all three seams on one tile's in-memory artifacts. Pure (no I/O)."""
+) -> tuple[list[Diagnostic], list[dict], int]:
+    """Run all three seams on one tile's in-memory artifacts. Pure (no I/O).
+
+    Third return is ``n_bref_collapse``: decoded blocks excluded from the
+    OGC-validity gate as the v1-by-design outbound-bref placeholder collapse
+    (sub-G T11 H3); reported in the accuracy baseline, not gated.
+    """
     diags: list[Diagnostic] = []
     errors: list[dict] = []
+    n_bref_collapse = 0
 
     # Seam 1 (macro <-> geometry).
     diags += check_density(tile_id, features_by_cell, area_by_cell, density_by_cell)
@@ -107,10 +113,11 @@ def validate_tile(
         actual = parse_actual_brefs_per_cell(tokens)
         diags += check_cell_bijection(tile_id, cell, expected, actual)
 
-        d, e = check_decodability(tile_id, cell, tokens, cell_features)
+        d, e, nbc = check_decodability(tile_id, cell, tokens, cell_features)
         diags += d
         errors += e
-    return diags, errors
+        n_bref_collapse += nbc
+    return diags, errors, n_bref_collapse
 
 
 def finalize(
@@ -120,6 +127,7 @@ def finalize(
     all_errors: list[dict],
     output_dir: Path,
     volatile: dict[str, str],
+    bref_collapse_count: int = 0,
 ) -> ValidationResult:
     """Group + write reports (every run) + apply sanity floor + gate.
 
@@ -166,7 +174,7 @@ def finalize(
     groups = group_by_signature(diags)
     quarantine_yaml = render_quarantine_report(groups, region, release, VALIDATOR_VERSION)
     baseline_yaml = render_accuracy_baseline(
-        pos_core, pos_full, ang_core, region, release, structural_breaches
+        pos_core, pos_full, ang_core, region, release, structural_breaches, bref_collapse_count
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +239,7 @@ def validate_region(
     """
     all_diags: list[Diagnostic] = []
     all_errors: list[dict] = []
+    all_bref_collapse = 0
     tile_dirs = sorted(sub_f_region_dir.glob("tile=*"))
     _log.info("sub-G validating %d tiles in %s", len(tile_dirs), sub_f_region_dir)
 
@@ -247,7 +256,7 @@ def validate_region(
         cell_contracts = build_cell_contracts(contract_rows)
         tokens_by_cell = read_sub_f_cells(sub_f_tile / "cells.parquet")
 
-        d, e = validate_tile(
+        d, e, nbc = validate_tile(
             tile,
             features_by_cell,
             area_by_cell,
@@ -259,5 +268,6 @@ def validate_region(
         )
         all_diags += d
         all_errors += e
+        all_bref_collapse += nbc
 
-    return finalize(region, release, all_diags, all_errors, output_dir, volatile)
+    return finalize(region, release, all_diags, all_errors, output_dir, volatile, all_bref_collapse)

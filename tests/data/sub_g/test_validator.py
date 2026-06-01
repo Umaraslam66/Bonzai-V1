@@ -40,7 +40,7 @@ def test_macro_targets_splits_cell_and_edge_slots():
 
 
 def test_validate_tile_clean_empty_tile():
-    diags, errors = validate_tile(
+    diags, errors, _nbc = validate_tile(
         tile_id="tile=i0_j0",
         features_by_cell={(0, 0): []},
         area_by_cell={(0, 0): 1000.0},
@@ -55,7 +55,7 @@ def test_validate_tile_clean_empty_tile():
 
 
 def test_validate_tile_seeded_density_mismatch():
-    diags, _errors = validate_tile(
+    diags, _errors, _nbc = validate_tile(
         tile_id="tile=i0_j0",
         features_by_cell={(0, 0): []},
         area_by_cell={(0, 0): 1000.0},
@@ -133,3 +133,22 @@ def test_finalize_angle_core_breach_blocks_marker(tmp_path):
     )
     assert res.sanity_floor_violated is True
     assert res.passed is False
+
+
+def test_finalize_reports_bref_collapse_count_without_blocking(tmp_path):
+    """sub-G T11 H3: the OGC-validity gate excludes the v1 outbound-bref placeholder
+    collapse by construction identity. The excluded COUNT must be reported in the
+    baseline (same crossing roads as the position_full residual) AND must NOT block
+    the _PHASE1_VALIDATED marker -- consistent with H1's report-not-gate call."""
+    res = finalize(
+        "singapore",
+        "2026-04-15.0",
+        [],
+        [_err(1.0)],
+        tmp_path,
+        _VOLATILE,
+        bref_collapse_count=27958,
+    )
+    assert res.passed is True  # the excluded family does not block the marker
+    baseline = (tmp_path / "_PHASE1_ACCURACY_BASELINE.yaml").read_text()
+    assert "ogc_bref_collapse_excluded_from_gate: 27958" in baseline

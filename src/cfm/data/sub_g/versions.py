@@ -71,6 +71,7 @@ def render_accuracy_baseline(
     region: str,
     release: str,
     structural_bound_breaches: int,
+    bref_collapse_excluded: int = 0,
 ) -> str:
     """Render _PHASE1_ACCURACY_BASELINE.yaml (written every run; spec Decision 3c).
 
@@ -80,6 +81,14 @@ def render_accuracy_baseline(
     residual on crossing roads stays visible (reviewer guard 2026-06-01). Angle is
     defined only where decoded/canonical vertex counts match (no chunking), so
     ``n_angle_features`` <= ``n_features``.
+
+    ``bref_collapse_excluded`` (sub-G T11 H3, reviewer 2026-06-01) is the count of
+    decoded geometries excluded from the OGC-validity GATE by construction identity:
+    V=2 crossing roads with no interior vertex whose v1-unencoded exit vertex
+    collapses the decoded LineString to zero length [anchor, anchor]. These are the
+    SAME crossing roads as the ``position_full`` residual above -- one v1 limitation
+    surfacing in two seams (accuracy + decodability). Reported here, NOT gated;
+    consistent with the core/full split's report-not-gate call.
     """
     body = {
         "run_metadata": {
@@ -101,5 +110,12 @@ def render_accuracy_baseline(
         "angle_core_p99_9": _percentile(angle_core, 99.9),
         "angle_core_p95": _percentile(angle_core, 95.0),
         "structural_bound_breaches": structural_bound_breaches,
+        "ogc_bref_collapse_excluded_from_gate": bref_collapse_excluded,
+        "ogc_bref_collapse_note": (
+            "V=2 crossing roads whose v1-unencoded outbound bref vertex collapses the "
+            "decoded LineString to zero length; excluded from the decodability gate by "
+            "construction identity (NOT magnitude), v2-scoped per decoder.py:13-22; "
+            "same roads as position_full residual (sub-G T11 H3, consistent with H1)"
+        ),
     }
     return canonicalize_yaml(body)

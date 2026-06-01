@@ -35,7 +35,7 @@ def test_check_decodability_passes_on_valid_roundtrip():
     ef = encode_feature(
         LineString([(10.0, 10.0), (30.0, 10.0)]), semantic_tag="highway=residential"
     )
-    diags, _errors = check_decodability(
+    diags, _errors, _ = check_decodability(
         tile_id="tile=i0_j0", cell=(0, 0), token_sequence=ef.tokens, sub_c_features=[]
     )
     assert diags == []  # decodes to a valid LineString within the cell bound
@@ -45,7 +45,7 @@ def test_check_decodability_measures_core_position_error_against_canonical_origi
     line = LineString([(10.0, 10.0), (30.0, 10.0)])
     ef = encode_feature(line, semantic_tag="highway=residential")
     sub_c = [{"feature_class": 0, "geometry": _wkb(line), "source_feature_id": "r"}]
-    diags, errors = check_decodability(
+    diags, errors, _ = check_decodability(
         tile_id="tile=i0_j0", cell=(0, 0), token_sequence=ef.tokens, sub_c_features=sub_c
     )
     assert diags == []
@@ -119,7 +119,7 @@ def test_check_decodability_pairs_multipart_feature_blocks():
         {"feature_class": 0, "geometry": _wkb(m), "source_feature_id": "m"},
         {"feature_class": 2, "geometry": _wkb(p), "source_feature_id": "p"},
     ]
-    _diags, errors = check_decodability(
+    _diags, errors, _ = check_decodability(
         tile_id="tile=i0_j0", cell=(0, 0), token_sequence=enc.tokens, sub_c_features=sub_c
     )
     assert len(errors) == 3  # one accuracy record per sub-C feature, not per block
@@ -133,7 +133,7 @@ def test_check_decodability_subdivided_long_road_is_geometry_faithful():
     line = LineString([(10.0, 10.0), (200.0, 10.0)])  # 190m single segment, chunked
     ef = encode_feature(line, semantic_tag="highway=primary")
     sub_c = [{"feature_class": 0, "geometry": _wkb(line), "source_feature_id": "r"}]
-    _diags, errors = check_decodability(
+    _diags, errors, _ = check_decodability(
         tile_id="tile=i0_j0", cell=(0, 0), token_sequence=ef.tokens, sub_c_features=sub_c
     )
     assert len(errors) == 1
@@ -149,7 +149,7 @@ def test_check_decodability_angle_robust_to_polygon_canonicalization():
     sq = Polygon([(10.0, 10.0), (30.0, 10.0), (30.0, 30.0), (10.0, 30.0), (10.0, 10.0)])
     enc = encode_cell([(sq, "building=yes")], cell_edges={})
     sub_c = [{"feature_class": 1, "geometry": _wkb(sq), "source_feature_id": "b"}]
-    _diags, errors = check_decodability(
+    _diags, errors, _ = check_decodability(
         tile_id="tile=i0_j0", cell=(0, 0), token_sequence=enc.tokens, sub_c_features=sub_c
     )
     assert len(errors) == 1
@@ -163,3 +163,61 @@ def test_structural_bound_flags_far_vertex():
 
     far = {"type": "LineString", "coordinates": [[0.0, 0.0], [10000.0, 0.0]]}
     assert _max_abs_coord(far) > _VERTEX_BOUND_M
+
+
+# ---- H3 (2026-06-01): OGC-validity gate excludes the v1 outbound-bref placeholder
+# collapse by CONSTRUCTION IDENTITY, reported (not gated), with a guard that genuine
+# degeneracy still fires. sub-G T11 H3; consistent with H1's report-not-gate call. ----
+
+# Real Singapore tile=i10_j10 cell (0,0) block: <feature> tag anchor x4
+# <outbound_bref 1506> <feature_end>. A 2-vertex crossing road with NO interior
+# vertex -> decode appends the v1-unencoded exit-vertex placeholder onto the anchor
+# -> [(0.0,195.5),(0.0,195.5)], an OGC-invalid (zero-length) LineString.
+_BREF_COLLAPSE_BLOCK = [509, 41, 300, 323, 363, 369, 1506, 510]
+# SAME anchor, but a SYNTHETIC magnitude-0 inner pair (m=443=_MAGNITUDE_BASE-1, dir
+# token 511=bin 0) and NO outbound bref -> decodes to the IDENTICAL zero-length
+# [(0.0,195.5),(0.0,195.5)]. Construction identity differs (no bref) -> the gate
+# MUST still quarantine it. (Unreachable from a real encoder; only corrupt tokens.)
+_DEGENERATE_NO_BREF_BLOCK = [509, 41, 300, 323, 363, 369, 511, 443, 510]
+_OGC_SIG = "decoded geometry not OGC-valid"
+
+
+def test_check_decodability_excludes_bref_placeholder_collapse_from_gate():
+    diags, _errors, n_bref_collapse = check_decodability(
+        tile_id="tile=i0_j0",
+        cell=(0, 0),
+        token_sequence=_BREF_COLLAPSE_BLOCK,
+        sub_c_features=[],
+    )
+    # Excluded from the blocking gate by construction identity (NOT magnitude)...
+    assert [d for d in diags if d.signature == _OGC_SIG] == []
+    # ...but counted, so the reported baseline still surfaces the v1-bref family.
+    assert n_bref_collapse == 1
+
+
+def test_check_decodability_GATE_FIRES_on_degenerate_without_outbound_bref():
+    """GUARD (reviewer 2026-06-01): the bref exclusion must NOT blind the gate to
+    genuine degeneracy. An IDENTICAL zero-length [anchor,anchor] LineString that did
+    NOT come from an outbound bref MUST still quarantine -> proves the exclusion is
+    by CONSTRUCTION IDENTITY, never a bare zero-length / magnitude test."""
+    diags, _errors, n_bref_collapse = check_decodability(
+        tile_id="tile=i0_j0",
+        cell=(0, 0),
+        token_sequence=_DEGENERATE_NO_BREF_BLOCK,
+        sub_c_features=[],
+    )
+    assert len([d for d in diags if d.signature == _OGC_SIG]) == 1  # gate still fires
+    assert n_bref_collapse == 0
+
+
+def test_is_bref_placeholder_collapse_predicate_is_construction_identity():
+    from cfm.data.sub_g.seam_decodability import _is_bref_placeholder_collapse
+
+    zero_len = {"type": "LineString", "coordinates": [[0.0, 195.5], [0.0, 195.5]]}
+    # bref + zero-length collapse -> excluded.
+    assert _is_bref_placeholder_collapse(_BREF_COLLAPSE_BLOCK, zero_len) is True
+    # SAME degenerate geom, NO outbound bref -> NOT excluded (gate would still fire).
+    assert _is_bref_placeholder_collapse(_DEGENERATE_NO_BREF_BLOCK, zero_len) is False
+    # bref present but geom is non-degenerate (>=2 distinct) -> NOT excluded (tightness).
+    two_distinct = {"type": "LineString", "coordinates": [[0.0, 195.5], [10.0, 195.5]]}
+    assert _is_bref_placeholder_collapse(_BREF_COLLAPSE_BLOCK, two_distinct) is False
