@@ -72,6 +72,28 @@ Tests under `tests/training/`, `tests/models/`, `tests/inference/`, `tests/eval/
 
 ---
 
+## Plan amendment 2026-06-01 — dependency split (Task 0 added)
+
+**Discovered at execution:** `torch`, `lightning`, and `pydantic` are absent AND undeclared in `pyproject.toml` (the project is data-pipeline-only so far). Adding the training stack is the FIRST training-dependency decision — load-bearing (CPU-local vs CUDA-Leonardo build, version pins, `training` optional-extra) and a reproducibility/comparability artifact (the bake-off's 12 runs must share an identical torch/lightning version — a tier-1-flavored lock). It is **decided separately by the PI**, then materialized as **Task 0** below — never `uv add`-ed ad hoc between tasks.
+
+**Dependency boundary (falls exactly on local-validatable / Leonardo-only):**
+- **Runnable now, dependency-free** (present env + real 494-tile Singapore data): **Tasks 1, 2, 3, 4, 11** (and `slice_metrics` core in 10). Execution order respects the precondition gate: **`1 → (2, 3) → 4 → 11`, Task 1 SETTLED before Task 2.**
+- **Blocked on Task 0** (need torch + lightning + pydantic; also validate meaningfully only on 4×A100 — e.g. bit-identical 4→4 resume can't be tested at `devices=1`): **Tasks 5, 6, 7, 8, 9, 12** and the Lightning-dependent test in **Task 10** (`test_holdout_not_monitored`).
+
+### Task 0: Training-dependency setup (BLOCKED on PI dependency decision)
+
+**Gate:** reproducibility (pinned versions = a tier-1-flavored comparability lock shared across all bake-off runs).
+**Files:** Modify `pyproject.toml` (add a `training` optional-extra); `uv.lock`.
+
+- [ ] **Step 1:** PI decides the dependency strategy: torch build (CPU for local dev + CUDA matching Leonardo's A100 for runs), exact version pins for `torch` / `lightning` / `pydantic`, and the `training` extra structure. Record the decision (it is a comparability lock, not a task detail).
+- [ ] **Step 2:** Add the pinned deps under `[project.optional-dependencies] training = [...]` in `pyproject.toml`.
+- [ ] **Step 3:** `uv sync --extra training` (+ `--extra dev`); confirm `uv run python -c "import torch, lightning, pydantic"` succeeds.
+- [ ] **Step 4:** Commit `pyproject.toml` + `uv.lock` with the recorded pin rationale.
+
+**Tasks 5, 6, 7, 8, 9, 12 and Task 10's `test_holdout_not_monitored` are BLOCKED until Task 0 completes.**
+
+---
+
 ### Task 1: Verify #4 on the live sub-F path → close (Branch A) or fix-and-revalidate (Branch B)
 
 **Gate:** 6 (external-source cross-reference) + §9 (construction-identity, reported-not-gated).
