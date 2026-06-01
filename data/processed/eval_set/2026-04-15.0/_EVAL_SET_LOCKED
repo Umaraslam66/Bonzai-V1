@@ -1,0 +1,10 @@
+ceiling_overall: 0.9679915920399149
+delta_floor_bref: 0.005
+ks_resolved_gap_binding: 0.07597388563779359
+ks_single_region_floor: 0.04908255618864769
+ks_target_gap: 0.08
+n_held_out: 132
+region: singapore
+release: 2026-04-15.0
+rho_bref_regime: 0.5
+training_residual: 362

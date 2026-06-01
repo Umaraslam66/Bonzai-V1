@@ -1,0 +1,534 @@
+manifest_schema_version: '1.0'
+manifest_sha256: 2b4da67de8de41b8dcfe2656609206a70564d2a70d1e0cfe7c1cd8f11be693c4
+regions:
+  singapore:
+    partition_path: holdout/region=singapore
+    tiles:
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 5fbafad3d8613b09dba84a4be2351c732ff31265ca94bf16930281ec6857ea13
+      tile_i: 1
+      tile_j: 7
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 036931308866bc0d0c699916f6b3142aabbbadd48fd5a8f9bd923ddedca1a39e
+      tile_i: 1
+      tile_j: 8
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: fcc5f83a2308971f9eef515a6e885f7fddf49cf4b6c1f37f84c055f700eae5b3
+      tile_i: 1
+      tile_j: 9
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 8b80dafd0b68350c5995b757d1c59cc8da8cca7571615d90a46afdd2f7af9c8a
+      tile_i: 1
+      tile_j: 10
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: bb6df8744339f6b70f7b162cb972b779ae89624b2496bbee404a9fa183dbebaa
+      tile_i: 1
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 7d474cc69fef42d5676d0b08b892548471aceec813f8c313c26350f4377fd88c
+      tile_i: 1
+      tile_j: 12
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 356bc32a1e36a0d634bb9207080f7bbf664776538331dde0791a7b45739df62e
+      tile_i: 1
+      tile_j: 13
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 962dc71f8d921cad2258df04603e87328d153f1ef6e953abfd0b11740aae406f
+      tile_i: 1
+      tile_j: 14
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: aabf1363d0d5f34303cc82b6af6e87126b72fbf182debd3a4cd9fd0d9c145d54
+      tile_i: 1
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: a50c644349de30fa62b3b90dd7a84bc139c240796985b9710ae971c9afe736b5
+      tile_i: 1
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: a9b00bcc84c0a711ece9ea0254b60c02ba963c303b04bbd9c11a04349da4dd42
+      tile_i: 1
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: d0a47a07401399d75d39eb438636773ed6e47a4732846867cd5c66b7aeab61ba
+      tile_i: 1
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: ebdf4aa36b2b4c279929f0009d7d8e2b25854d6f4b4228b8495a412ecb86e284
+      tile_i: 1
+      tile_j: 19
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: d2b002e74f594e75eeca99d5d0ee064b1c2290a5a5c34f31a39265c33052803a
+      tile_i: 1
+      tile_j: 20
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 9e1bc9695721c339ae41f9384cc8292c4834ddbd7eec946962387ced84e86a87
+      tile_i: 1
+      tile_j: 21
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: e76c320a7a1caa0dd29722b24ed812a3d8f40e21f0b351eef2ad648f116510c7
+      tile_i: 1
+      tile_j: 22
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: e666a75d2dc5ad9d9196fbc1a1a1c562de399d45eae80dcd01371d6b30ba31b4
+      tile_i: 1
+      tile_j: 23
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 58e4ee31217a8c2fc02ede6cac328fcf129b63a8363fd893e2491e9eab6dcf16
+      tile_i: 1
+      tile_j: 24
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 3816eb57050854172508fead85ab0aa968a9b22176a66a9c0003500cf7a36376
+      tile_i: 1
+      tile_j: 25
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: e61e6c2f75ea8d3b31ac5a943d522ed93a944458085093c975b446204118ed7b
+      tile_i: 2
+      tile_j: 7
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 7997b6df30814d2a9b32841160db7ca082702ac249a481fb79b609ccba5c9563
+      tile_i: 2
+      tile_j: 8
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 0d59923157ca9b9567d32c0e9f075fc135595476e6ddb007316630dca8f58318
+      tile_i: 2
+      tile_j: 10
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 108601269dd50f921485b4da1463d9b3f1f1b9b7db83456cdca6c98de1848846
+      tile_i: 2
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: e48e2ee59e061bf5e1b88428b3c1f6330acbe86fe920e247741498477649970a
+      tile_i: 2
+      tile_j: 12
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 23068ca230fb44537437dd4a37a103210c881fd2f6ee7b73c76bd6c5faf9fe84
+      tile_i: 2
+      tile_j: 13
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 7f5acc36b762cfd50dd96c74129e468b6434e8b4045059dd89a69da245d7d9ce
+      tile_i: 2
+      tile_j: 14
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: b75c1a76f8add7547c48cea90cd83e45a927770561c39c30abecfaba6a8888ba
+      tile_i: 2
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 5953bf7574089a46971e4773fa40742a9230a654848aa2c509bb9038130e1496
+      tile_i: 2
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 4c760e040d95016fa507cfa1429a643847ee76ba4d0dfd94e65e83d3ac2c3260
+      tile_i: 2
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: b9899abd4f44a988b271da7feb2475961241825bd7fab37e8d977c56c78e8784
+      tile_i: 2
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 9d74a8dd39c763b799c7060560b6f062118fc6dc759681ee715c23660e71a73c
+      tile_i: 2
+      tile_j: 19
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 0b78c00ad3d6a8f423125d1cdf4c09a33e8ec6b9b88fd2eab9954371f08d1694
+      tile_i: 2
+      tile_j: 20
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 335b418096cf14b84b593b4210b37dd047171cf6b3c13b6607713e969c0bb795
+      tile_i: 2
+      tile_j: 21
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 597838a2027381e97762915c75a76fad8bfe162e866a3bc4d6ce6f4f6af21c8c
+      tile_i: 2
+      tile_j: 22
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: ee0e867e22bfa2c0d0fa55f3045596c0d5a82dbcf7396d00c510e277860e2fc5
+      tile_i: 2
+      tile_j: 23
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 89166d1ce65c11d06404d49db41d39d2ca124173acc6334ddd4ad22b4e092fd8
+      tile_i: 2
+      tile_j: 24
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 235b67270c450d30e5219591c25771f342ebe1e9a06d1c7df95ce354d2cffed4
+      tile_i: 2
+      tile_j: 25
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 5f3887de597259622befb9c7dd978c8f9bb7a137219d99da2d82d039defbf871
+      tile_i: 3
+      tile_j: 10
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 0e7b413649deb68475c75ac32835410708e55651d10477a96669f67580737d56
+      tile_i: 3
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: a335f2d07fc934625e7f0ec7a722146d2353b320aed72c9bbdff7c0199927515
+      tile_i: 3
+      tile_j: 13
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: c7969bb144a1acc00d66ad4deef76bad9647cda404ffb89942c8b12d5a9262d8
+      tile_i: 3
+      tile_j: 14
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 4fc23761ce711481dde1ad5423d1b15dd50979446af9675ed4304eddb47c0cac
+      tile_i: 3
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: efd7018e2f15ef2371563664636b6ddc356dc977b699d6bebc6e601bf63b10de
+      tile_i: 3
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 74bbc12a0e5c418d351d7d9b5c827a01c2ad38d30d35f72560d1b84bfbe4b505
+      tile_i: 3
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 279b35068aad5e2c314a45d8c63b4f6f636e7d78fb3b8df667bf69c0f97f9a33
+      tile_i: 3
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: eb368af0358f19708016928ff1a39aa9a697915b42c66c54878f5e3483aee89a
+      tile_i: 3
+      tile_j: 19
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 08af92be26a1f36f77004b768b7225efae2613b012ee21350d7e5caddceabaa8
+      tile_i: 3
+      tile_j: 20
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 69d72379deb524fa96204e2e234fe77ae92a46e4f736172e3db606ef589fef5c
+      tile_i: 3
+      tile_j: 21
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: e469665b3d789d574ca0d59fc92f8f8ee30835206747740b0c50f2dc65b17ee3
+      tile_i: 3
+      tile_j: 22
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: f9f03985f8f23ea27720a697a31e19c188d19a623fe7e74d72f8125985c1c2a4
+      tile_i: 3
+      tile_j: 23
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: be4974199d7241d29053e92ac3a766246b97c977069986480f421176ac85a522
+      tile_i: 3
+      tile_j: 24
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 13d6b2154e8ee18eb005a04934ad4ab42f47fc560cc817c38928d4819b830c67
+      tile_i: 3
+      tile_j: 25
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 575d60f5d1feadc0c4b3f0c0bc95f022c2219b31fe1ef2f35c888ed517015291
+      tile_i: 4
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 04dbaf7e666ce1a4def835f606949acfaa800d6dc5cec3fe085cef6e123f9a98
+      tile_i: 4
+      tile_j: 13
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 159a3dc10480308c65bbe30a0c3fd6f348057df5a7e0b350c789e6b3ac485dfe
+      tile_i: 4
+      tile_j: 14
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: dfdd8ff1b2c061522d773c31ecdb3059e1487a6858f54fa0115224ab59352c76
+      tile_i: 4
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 6aec69cedb42f5332adbc4a22cdaa0f92a3c479e96520f76e59aa9100e0ba09c
+      tile_i: 4
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: c91bb2ed6bba7de79b2cb9b21da13e07eae3f198127320e026b5104313f3bb45
+      tile_i: 4
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 9ce946ef78d810885670faabc22be5be780d52bcfee052e1d4ceba88222acd3c
+      tile_i: 4
+      tile_j: 21
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 15e00056d8552b2e206477e9c024928b594044fb25aac25b71eb6ed34d10574a
+      tile_i: 4
+      tile_j: 22
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 01634966613357e9657e57bd484b4a7114be14c6139d81a68c463314df435295
+      tile_i: 4
+      tile_j: 25
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: f50978996ca2843be599ee6a8bef289b9eba06c2e5fb768dfa85e0ed4da2c64a
+      tile_i: 5
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 617bf06d796cdfe2c2e66560eb3344ba8b57e30b0e6e1e5b84877197f01a5d2a
+      tile_i: 5
+      tile_j: 12
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 51fc1cfdbef2419c3443e0b7be8b4035f4022a1296b03d09032b936c72489f3b
+      tile_i: 5
+      tile_j: 13
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 1d0d79c742c9a78ccfa7286e62f816eadf031d4276da39bbafd5f13224bbae72
+      tile_i: 5
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 643233fd1277245e7a659b231e500b0c482660f95861151f7262d76e90427838
+      tile_i: 5
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 3ea4e7d0aedf0aba2f70b9155f4962fde3a8ab1316c95dbaf06391edce9c75e8
+      tile_i: 5
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 709ada91decc9405f776b6e3592ef77e6368fdec2fa10faed39041b76511665f
+      tile_i: 5
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 01be54c52fc8a51014f89f60df36de26dc2b82e7e6319b56e5842ad0356399a2
+      tile_i: 5
+      tile_j: 19
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: a6250329e6821ed24d7571d0cdbe1eaf8067d54a9e87b7bc69153e0ab08aaf04
+      tile_i: 5
+      tile_j: 24
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 335c292d44c4d0c0908b2701df6056cc5ac4f7fc3db9e44edfe7a6694c3ad0b7
+      tile_i: 5
+      tile_j: 25
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: e08e357520ac02d0946962edc7b574cd7fc4160a3317ad6e1237cfa38a469f84
+      tile_i: 6
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: fda4f8524119c7a750c9a4f1c0ae26dd319f09adcddf041dee3fc76dbe89fcb3
+      tile_i: 6
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 43084d1a3dc84c0abf3e13d5823c6b3af8d66d9e260421f98f62dbbab0e91238
+      tile_i: 6
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: bdc41c778d6c151ac0fcdbb01660571c8b4bc595ecbf79cf9de6c8f5ee669bb2
+      tile_i: 6
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: d6539145a6934e1534871f7358feb7c57ac47de7f4f40f9d929184f902bd2c02
+      tile_i: 6
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: d1f73dfde259903e3be79f665dafcf66d585370345f352634706c64818421e41
+      tile_i: 7
+      tile_j: 12
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: d6b25dbadd8f43254e6f56d35395c2596d20ac3784bedd406982fb79e5a7367a
+      tile_i: 7
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 4fe52bc5398329080f3d8169f32288cba04146541401445a50c1786e3ce11e7c
+      tile_i: 7
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 01f760c983e9629e71e53682fbda9b7bc7f35c77a7406ac5834879ede9693064
+      tile_i: 8
+      tile_j: 9
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: f2127fbacdee22ee77dc903247dfe45e037a0c35373dc63f0d082345963afcc3
+      tile_i: 8
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 844f208417bf8e77fe8fb0bfaf4d5bf40876feaa7c54fe629a769960f30b4a64
+      tile_i: 8
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 551886dadbdd7bb9771cdee24da8417fe52550c7d8e3b274680b701ee86f77ea
+      tile_i: 8
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 45fca1184b51c83e0b2b45229ee7b1477052f754f82b331f6b30618ae3852b93
+      tile_i: 8
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 61a196609623640a32339815c9280eea2563da76bbd5847843f22d46a5f450e2
+      tile_i: 8
+      tile_j: 19
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 78383e3ddd78e76c9bf855799ba25e57af2d8b4575332d37156d6d70070814cf
+      tile_i: 8
+      tile_j: 20
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 101a144fb0cb83ccba035cd1cd5bbf66ccaf0362aa539255be16c5e91be05694
+      tile_i: 9
+      tile_j: 14
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: ed8b7954fd3c8ba4e73332f57f65c2cb06a0d24703eb1999152613425bcf62fa
+      tile_i: 9
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 55f1bf938ae54a4782a674a893d5b7a9467013976b324af7ee3ec7de9869298a
+      tile_i: 9
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 86c92fab9439d5f726b04ea3975cfa3734a2bb5b19fdb1813e5b6b7225cc2aee
+      tile_i: 9
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: a421a84b671df4c36d5222880763859d51fe7bd901f9d2cef8e22c750898b018
+      tile_i: 9
+      tile_j: 19
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: f3a2ed0c500bf1eaf7dfd4b076c085f9f62848de1bb215ec50bd21d6ba879387
+      tile_i: 9
+      tile_j: 21
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: b69c8c41ca74dd7f58edd6b8ced84bf2512786e99da4c5b16446756a7fa155e2
+      tile_i: 9
+      tile_j: 22
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 11d1972623513a251431fa2119dfdff543c7d6cba613c22b81c52fa14580edb9
+      tile_i: 10
+      tile_j: 14
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 6973ea251cc6a7782494d5284f5b22727395d8c9a8883cc297d6b3eac8a97dd8
+      tile_i: 10
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 1e8ab5efc626bcb24fce12137265a2fadc82e10a75039ba33169364f42f823e7
+      tile_i: 10
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: ea515be11f299dd3b20fc20aeedc3345e3366939cf04540db52db6c365424a37
+      tile_i: 10
+      tile_j: 22
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 83a054dd767dc57ae01ffb0e96cd4a8c49a989f0c5f5c9641d73a93eb4c3827f
+      tile_i: 11
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: ca7703031be4440a3cf3bd5e551cee082e3c050448bde7edf454fe68a66cd6a7
+      tile_i: 11
+      tile_j: 13
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 6a869ab462ef8196b00218c353d126da071f95b2decfa53f5ceecd5ae08a9f49
+      tile_i: 11
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 8e67c21f431f28685385a37721052249642a8ff6696e086c03e3912a81fc33f0
+      tile_i: 11
+      tile_j: 21
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 20a516bb92c718241de2082ec671e5a2f40601bfdcce9c1da52f4f58c95c39d3
+      tile_i: 12
+      tile_j: 12
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: a4dc64367c8ce133845650864b482b3ea390256f1d3b0bcde2d922151c277d3c
+      tile_i: 12
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 9d9093c19ed9424bb880ef03524888fe9e99501a54e10e4aa6ddaf6b40b8cc69
+      tile_i: 12
+      tile_j: 22
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 2686c7ca2ef46d03a85e23ad6d2812109c8d6fa2cae6ab6eb9e189c3f87ed865
+      tile_i: 12
+      tile_j: 23
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 9534b014146ae9c87e6487e90bc6f65ee3e175c4231759513bf4f8c687dcb7f3
+      tile_i: 12
+      tile_j: 25
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 2cd5a787ba037ef5cb884424d99ae703a85cef3f0e44b664a7c3dea48e373cae
+      tile_i: 13
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: e9f813f8127df0922a6b1e1ce6e1537d3202ad96b740eb3b8994481b7f4003d8
+      tile_i: 13
+      tile_j: 12
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: d4c2c62e657289b948ffd1f5824421ae44486723bd7a87b9641e48087c7a41ee
+      tile_i: 13
+      tile_j: 18
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 43a446c4ba4f8e6c64eb25d14744d490a5fe181a1a6b0ed3d68cac3f815faa7e
+      tile_i: 13
+      tile_j: 20
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: b831c905515265fa4b63646bb087251edfba009548d03b2120fcbb5061ddba89
+      tile_i: 14
+      tile_j: 14
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 9f7c2b8b9f743a885751188291412d13d231ed222e3ad839194b61a2ea64071c
+      tile_i: 14
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 5791f1a3b2f894d4e77cbdbd8e5fe602300bb7815f38c5d9943f2f6ab9d5a992
+      tile_i: 15
+      tile_j: 7
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: c765d9a2f4e19c63df4dc37545bf80b183dae6dccd509487bd126d98a169fc93
+      tile_i: 15
+      tile_j: 8
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 2696a9ec496300ddf065e6c5f59590b71f967a0938ed21688382bd55b9abb081
+      tile_i: 15
+      tile_j: 9
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 4758b5e05cd6d2e1258988e09435c0262bd835d8374ba88387bbe0ef73506975
+      tile_i: 15
+      tile_j: 10
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 19cb60afeb083d0b7919157e44ce2791d1cb4b960766d51511b39f0a2a5b2619
+      tile_i: 15
+      tile_j: 14
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 20663aed227a0e5ab9e0c450867b7ecfd99055eb8aee87729be52c19d749362f
+      tile_i: 15
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 08fd899a0938902da78990477ebb85eec967d3add1f489791e51457f3b590f35
+      tile_i: 15
+      tile_j: 16
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: c62b460f0a4a028961a069187d905403259ace20d82a940ecae685be2ee96980
+      tile_i: 15
+      tile_j: 22
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: dccf16659658e8f8af8f6c648e4f41e3a7a1d69965137c447b65976f68b33821
+      tile_i: 16
+      tile_j: 7
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 564bcb55b452f9f44f9ac7a137f0b61b16167412ee8e0e5130378b72feb17a2e
+      tile_i: 16
+      tile_j: 11
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: b2ae9bdba3b4e6a9d9c35bce19a101d40dbdfa9f70515117b30dc5a04641511d
+      tile_i: 16
+      tile_j: 12
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 5e9ee4ad17f9203630a31a986d9aed15846f7da80d42ecf39c1cb801ff54e1ba
+      tile_i: 16
+      tile_j: 13
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 6d9a380023fcae246d9bac5e7a15df52b6f55cfb1e80377ae719ef610c40c640
+      tile_i: 17
+      tile_j: 17
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: c312038390e9d1e07f9d997cf14c705393d62a10f20457bb8d18b07bcc2ca806
+      tile_i: 18
+      tile_j: 19
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 5097b8cff00bc9a910a85027afdfa5644d3bdbc42e188fa1dd4421c156dad913
+      tile_i: 20
+      tile_j: 15
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 89755180eb9bee62d1dcd92bc2adf0aa4d4a3b6ac4dc47f062fa18a43c576f20
+      tile_i: 21
+      tile_j: 21
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 2626db810937fe612e677d5cc7c5838bde4b695be0512f35bb836dc2ae9c3d4a
+      tile_i: 21
+      tile_j: 23
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 321ce3d96be1d89d63fa5a46e8eb9662f31bb64de3085a604d19b499b52999c0
+      tile_i: 23
+      tile_j: 25
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 766dbd0e1f2b0e323a6a80f8b6a5fc3b2cacf37d1460b1b219994837cd49f499
+      tile_i: 24
+      tile_j: 24
+    - macro_vocab_sha256: 0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd
+      provenance_sha256: 7c10b675e70ddaefbf6dc07e512ca2014441298855498755de88a65c9438fcda
+      tile_i: 26
+      tile_j: 7
