@@ -115,3 +115,45 @@ def test_endpoint_edge_maps_coordinates_to_directions():
     assert _endpoint_edge(100.0, 0.0) == "N"
     assert _endpoint_edge(100.0, 250.0) == "S"
     assert _endpoint_edge(100.0, 100.0) is None
+
+
+# ---- sub-G T11 H2 (2026-06-01): on-edge tolerance fix + two-directional guard ----
+
+
+def _road(coords):
+    return {"feature_class": 0, "geometry": wkb_dumps(LineString(coords), byte_order=1)}
+
+
+def test_edge_tol_is_the_shared_encoder_authority():
+    """Single-source guard: sub-G's on-edge epsilon IS the encoder's constant
+    (imported, not a second hardcoded literal that could silently drift)."""
+    from cfm.data.sub_f.encoder import ON_EDGE_EPS_M
+    from cfm.data.sub_g.seam_contract_tokens import _EDGE_TOL_M
+
+    assert _EDGE_TOL_M is ON_EDGE_EPS_M
+
+
+def test_bijection_FIRES_on_genuine_dropped_bref():
+    """Anti-weakening (band edge a): a road endpoint EXACTLY on an active edge
+    whose token is ABSENT must still fire 'missing' — tightening the tolerance
+    must NOT blind the seam to a real sub-F drop."""
+    contract = {"N": "NONE", "E": "NONE", "S": "NONE", "W": "MINOR_ROAD"}
+    feats = [_road([(0.0, 125.0), (100.0, 125.0)])]  # ep on W edge (exact)
+    expected = predict_expected_brefs_per_cell(feats, contract)
+    actual = []  # sub-F dropped the W bref
+    diags = check_cell_bijection("tile=i0_j0", (0, 0), expected, actual)
+    assert len(diags) == 1
+    assert "missing" in diags[0].signature
+
+
+def test_bijection_SILENT_on_near_corner_offedge():
+    """Band edge b: the trace case (0.071, 0.0) is EXACTLY on N (y=0) but 0.071m
+    off W. With the encoder-aligned epsilon, sub-G attributes it to N (NONE), so
+    it predicts no W bref and the token's (correct) absence is NOT flagged.
+    RED at the old 0.5m (W within band -> false 'missing'); GREEN at 1e-6."""
+    contract = {"N": "NONE", "E": "NONE", "S": "NONE", "W": "MINOR_ROAD"}
+    feats = [_road([(0.071, 0.0), (100.0, 100.0)])]  # on N(NONE), 0.071 off W(active)
+    expected = predict_expected_brefs_per_cell(feats, contract)
+    actual = []  # encoder put it on N=NONE -> emitted nothing (correct)
+    diags = check_cell_bijection("tile=i0_j0", (0, 0), expected, actual)
+    assert diags == []

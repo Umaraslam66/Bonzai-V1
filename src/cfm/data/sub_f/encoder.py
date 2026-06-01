@@ -468,12 +468,21 @@ class EncodedCell:
     feature_count: int  # number of features encoded (matches cells.parquet col)
 
 
+# Float-exact on-boundary tolerance for endpoint->edge classification. sub-C's
+# clip snaps a crossing endpoint ONTO the cell edge, so "on edge" is float-exact,
+# NOT a metric band. SHARED AUTHORITY: sub-G's seam-2 bijection
+# (seam_contract_tokens._EDGE_TOL_M) imports THIS constant so the two never drift
+# to different on-edge definitions (sub-G T11 H2, 2026-06-01; the old sub-G 0.5m
+# misattributed near-corner endpoints -> 1,649 false bref-bijection mismatches).
+ON_EDGE_EPS_M = 1e-6
+
+
 def _classify_feature_for_bref(
     geom: BaseGeometry,
     cell_edges: dict[str, str],
     cell_origin: tuple[float, float] = (0.0, 0.0),
     cell_extent_m: float = 250.0,
-    edge_eps_m: float = 1e-6,
+    edge_eps_m: float = ON_EDGE_EPS_M,
 ) -> tuple[str | None, str | None]:
     """Determine inbound / outbound boundary-ref tags for one feature.
 

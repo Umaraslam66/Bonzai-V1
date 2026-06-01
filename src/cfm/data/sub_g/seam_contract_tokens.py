@@ -31,12 +31,21 @@ from shapely.geometry.base import BaseGeometry
 from shapely.wkb import loads as wkb_loads
 
 from cfm.data.sub_e.rotation import EdgeKind
+from cfm.data.sub_f.encoder import ON_EDGE_EPS_M  # SHARED on-edge authority (a constant, not logic)
 from cfm.data.sub_f.rotation import cell_edge_directions  # pure lattice geometry (cites sub-E)
 from cfm.data.sub_g.diagnostics import Diagnostic
 from cfm.data.sub_g.readers import SubEContractRow
 
 _BREF_LO, _BREF_HI = 1500, 1507
-_EDGE_TOL_M = 0.5  # absorbs canonicalization (BP5 magnitude quantum); NOT 1e-6
+# On-edge tolerance: the SAME constant the encoder's _direction_of_endpoint uses
+# (imported, not re-hardcoded) so the prediction and the emission share one
+# on-edge definition. A cell edge is a STRUCTURAL boundary (clip snaps endpoints
+# float-exact onto it), so it gets a structural epsilon, NOT a metric band. The
+# old 0.5m "absorb canonicalization" rationale was a false premise (canonicalize
+# is a LineString no-op; sub-G reads raw coords) and misattributed near-corner
+# endpoints to the wrong edge -> 1,649 false bref-bijection mismatches (sub-G T11
+# H2, 2026-06-01; see feedback_independence_misses_shared_assumptions).
+_EDGE_TOL_M = ON_EDGE_EPS_M
 _CELL_EXTENT_M = 250.0
 
 _BREF_ID_MAP: dict[int, tuple[str, str]] = {
