@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from cfm.eval.holdout import degeneracy
 from cfm.eval.holdout.bref_rate import bref_placeholder_rate
-from cfm.eval.holdout.sizing import DELTA_BREF_REGIME
+from cfm.eval.holdout.sizing import over_emission_threshold
 
 # --- per-instance exclusion fixtures ---
 _OUTBOUND_BREF_COLLAPSE = [509, 41, 300, 323, 363, 369, 1500, 510]  # body ends in bref
@@ -27,18 +27,32 @@ def test_GD1_gate_fires_on_model_emitted_degeneracy_without_bref():
     assert v is degeneracy.Verdict.MODEL_INVALID
 
 
-def test_GD2_at_threshold_just_over_trips_just_under_passes():
-    """G-D2 at the threshold (not at 2x): faithful rate r0; a model emitting just past
-    r0+delta must TRIP; just under must PASS. delta is the single DELTA_BREF_REGIME."""
-    r0 = 0.05  # round-tripped-real faithful rate in this stratum
-    over = degeneracy.over_emission_verdict(
-        model_rate=r0 + DELTA_BREF_REGIME + 0.005, faithful_rate=r0
-    )
-    under = degeneracy.over_emission_verdict(
-        model_rate=r0 + DELTA_BREF_REGIME - 0.005, faithful_rate=r0
-    )
+def test_GD2_at_threshold_relative_just_over_trips_just_under_passes():
+    """G-D2 at the threshold: the trip boundary is the RELATIVE per-stratum threshold
+    max(rho*faithful, delta_floor). Just past it must TRIP; just under must PASS."""
+    r0 = 0.04
+    thr = over_emission_threshold(r0)  # relative: 0.5*0.04 = 0.02 (above the 0.005 floor)
+    over = degeneracy.over_emission_verdict(model_rate=r0 + thr + 0.005, faithful_rate=r0)
+    under = degeneracy.over_emission_verdict(model_rate=r0 + thr - 0.005, faithful_rate=r0)
     assert over is degeneracy.RateVerdict.OVER_EMITTING
     assert under is degeneracy.RateVerdict.WITHIN_TOLERANCE
+
+
+def test_GD2_GUARD_dense_bucket_doubling_trips_under_relative_but_absolute_missed_it():
+    """REGIME-DISTINGUISHING GUARD (2026-06-01 δ review): the bug was that an ABSOLUTE
+    δ=0.03 waved through a DOUBLING of the dense bucket's rate (faithful 2.33% -> 4.66%,
+    excess 2.33pp < 3pp). The RELATIVE guard MUST fire on exactly that case - this is
+    the specific failure the new form has to catch."""
+    dense_faithful = 0.0233
+    doubled = dense_faithful * 2.0  # the model emits twice the faithful degenerate rate
+    excess = doubled - dense_faithful
+    # the OLD absolute guard would have MISSED it:
+    assert excess < 0.03
+    # the NEW relative guard FIRES on it (threshold 0.5*0.0233 = 0.01165 < excess 0.0233):
+    assert (
+        degeneracy.over_emission_verdict(model_rate=doubled, faithful_rate=dense_faithful)
+        is degeneracy.RateVerdict.OVER_EMITTING
+    )
 
 
 def test_GD2_stratified_cancellation_global_matches_but_one_stratum_diverges():

@@ -5,10 +5,23 @@ import math
 from cfm.eval.holdout import sizing
 
 
-def test_DELTA_is_a_single_justified_number_below_one():
-    # spec §6 + §G option-3: δ is a chosen, justified rate-excess, not a round default.
-    assert 0.0 < sizing.DELTA_BREF_REGIME < 1.0
-    assert sizing.DELTA_BREF_REGIME != 0.5  # not a round default (rough-numbers heuristic)
+def test_rho_is_relative_with_a_small_absolute_floor():
+    # spec §6 + δ review: the over-emission threshold is relative-to-base-rate with an
+    # absolute floor. rho in (0,1); delta_floor strictly below rho (and below every
+    # meaningful base rate) so the relative term governs where it must.
+    assert 0.0 < sizing.RHO_BREF_REGIME < 1.0
+    assert 0.0 < sizing.DELTA_FLOOR_BREF < sizing.RHO_BREF_REGIME
+
+
+def test_floor_does_not_dominate_meaningful_base_rate_but_backstops_near_zero():
+    # At the densest measured bucket (faithful 2.33%) the RELATIVE term must govern -
+    # this is exactly where the absolute-δ form went vacuous. delta_floor only takes
+    # over for genuinely near-zero strata.
+    dense_faithful = 0.0233
+    assert sizing.over_emission_threshold(dense_faithful) == sizing.RHO_BREF_REGIME * dense_faithful
+    assert sizing.DELTA_FLOOR_BREF < sizing.RHO_BREF_REGIME * dense_faithful  # floor doesn't bind
+    near_zero = 0.001
+    assert sizing.over_emission_threshold(near_zero) == sizing.DELTA_FLOOR_BREF  # floor backstops
 
 
 def test_rate_detection_floor_matches_hand_computed():
@@ -26,15 +39,15 @@ def test_ks_power_floor_is_documented_inverse_square_in_effect():
 
 def test_degradation_is_ordered_coarsen_then_underpowered_then_relax():
     order = [s.name for s in sizing.DegradationStep]
-    assert order == ["COARSEN_STRATA", "REPORT_UNDERPOWERED", "RELAX_DELTA_WITHIN_BOUND"]
+    assert order == ["COARSEN_STRATA", "REPORT_UNDERPOWERED", "RELAX_RHO_WITHIN_BOUND"]
 
 
-def test_relax_delta_only_within_regime_bound():
-    # A relaxed δ that still separates faithful-from-over-emitting (<= the bound) is OK.
-    assert sizing.relaxed_delta_is_legitimate(relaxed=sizing.DELTA_BREF_REGIME)
-    assert sizing.relaxed_delta_is_legitimate(relaxed=sizing.DELTA_BREF_REGIME - 0.001)
-    # Relaxing PAST the regime-distinguishing bound is weakening-to-pass => illegitimate.
-    assert not sizing.relaxed_delta_is_legitimate(relaxed=sizing.DELTA_BREF_REGIME + 0.001)
+def test_relax_rho_only_within_regime_bound():
+    # A relaxed rho at or below the regime bound still separates faithful-from-over-emitting.
+    assert sizing.relaxed_rho_is_legitimate(relaxed=sizing.RHO_BREF_REGIME)
+    assert sizing.relaxed_rho_is_legitimate(relaxed=sizing.RHO_BREF_REGIME - 0.01)
+    # Relaxing PAST the bound (looser) is weakening-to-pass => illegitimate.
+    assert not sizing.relaxed_rho_is_legitimate(relaxed=sizing.RHO_BREF_REGIME + 0.01)
 
 
 def test_STRUCTURAL_per_stratum_not_whole_set():

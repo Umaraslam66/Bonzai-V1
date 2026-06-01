@@ -6,14 +6,20 @@ vacuous pass at the sizing layer - so feasibility() always reports per-stratum
 infeasibility even when the whole-set N looks sufficient (threshold-pairing,
 protocol v2 §2).
 
-δ (DELTA_BREF_REGIME) is ONE number: D's regime-distinguishing rate-excess AND
-G's δ-relaxation bound (spec §6 - do NOT carry two). Defined here; imported by
-degeneracy.py. The justification below is the load-bearing rationale.
+The regime-distinguishing threshold is RELATIVE-to-base-rate with an absolute floor
+(spec §6 + the 2026-06-01 δ review): a model is over-emitting iff its per-stratum
+bref-rate exceeds the faithful rate by more than ``over_emission_threshold`` =
+``max(RHO_BREF_REGIME * faithful_rate, DELTA_FLOOR_BREF)``. This is ONE policy (D's
+faithful-vs-over-emitting boundary AND G's relaxation bound, spec §6 - do NOT carry
+two). An ABSOLUTE δ was rejected: against the measured per-stratum faithful rates
+(2.3-6.8%) an absolute 0.03 gave +44%..+129% relative tolerance, so the dense-bucket
+guard was vacuous (a model could >2x the dense-bucket rate and pass). Relative rho
+makes the discrimination uniform across strata.
 
 Graceful degradation is ORDERED (spec §G): coarsen strata -> report UNDERPOWERED
--> relax δ ONLY within the regime-distinguishing bound. Relaxing past the bound is
+-> relax rho ONLY within the regime-distinguishing bound. Relaxing past the bound is
 weakening-the-assertion-to-pass (a halt-on-validator-fail violation in a sizing
-costume) -> the honest output is UNDERPOWERED, not "passed at relaxed δ".
+costume) -> the honest output is UNDERPOWERED, not "passed at relaxed rho".
 """
 
 from __future__ import annotations
@@ -25,21 +31,42 @@ from enum import Enum
 #: z for a two-sided 95% interval (one-source for both floors below).
 _Z_0975: float = 1.95996
 
-# DECISION: δ = 0.03 (3 percentage-point rate-excess). Justification - the v1
-# round-tripped-real bref-placeholder rate is small (single-digit %); a model that
-# "learned the limitation" reproduces it within sampling noise, while a model
-# "over-emitting" degenerate stubs pushes the rate materially above it. 3pp is
-# chosen as the smallest excess reliably above the per-stratum sampling noise floor
-# at the achievable per-stratum N (re-confirmed against the real measurement in the
-# slow run, Task 11). NOT a round default (0.05/0.10 rejected as round; rough-
-# numbers heuristic). Revisit if the slow-run per-stratum noise floor exceeds 3pp.
-DELTA_BREF_REGIME: float = 0.03
+# DECISION: rho = 0.5 (relative over-emission boundary). A model is over-emitting iff
+# its per-stratum bref-rate exceeds the faithful (round-tripped-real) rate by more
+# than 50% relative. RELATIVE (not absolute) so the discrimination is UNIFORM across
+# strata: the prior absolute δ=0.03 gave +44%/+79%/+105%/+129% tolerance for buckets
+# 0/1/2/3 (faithful 6.79/3.82/2.85/2.33%) - the dense-bucket guard was vacuous (a >2x
+# rate passed). rho=0.5 trips the dense-bucket DOUBLING that exposed the bug. Powered:
+# detecting a 50% relative excess needs 53-646 features/stratum (z=1.96); the held-out
+# set has tens of thousands per stratum (>100x margin), and rho=0.5 is ~12x the
+# worst-case held-out sampling-SE so it never fires on noise. Because feature power is
+# abundant, rho does NOT move N; it is tunable toward the data-supported ~0.25 once the
+# model's natural over-emission variation is observed (model side deferred, spec §7).
+RHO_BREF_REGIME: float = 0.5
+
+# DECISION: δ_floor = 0.005 (0.5pp). Absolute backstop for GENUINELY near-zero strata
+# only. Verified constraint: δ_floor < rho·faithful for every current bucket (min
+# rho·faithful = 0.5*0.0233 = 0.01165 > 0.005), so the RELATIVE term governs exactly
+# where it must - including the dense bucket - and δ_floor binds only when faithful <
+# δ_floor/rho = 1%. 0.5pp is the rate-resolution floor: below it, per-stratum rate
+# differences sit at/under sampling resolution for realistic held-out sizes.
+DELTA_FLOOR_BREF: float = 0.005
+
+
+def over_emission_threshold(faithful_rate: float) -> float:
+    """The per-stratum rate-excess above which a model is over-emitting (spec §D).
+
+    Relative-to-base-rate with an absolute floor: ``max(rho·faithful, δ_floor)``. The
+    relative term gives a uniform discrimination across strata; the floor backstops
+    near-zero strata so the guard is never absurdly tight there.
+    """
+    return max(RHO_BREF_REGIME * faithful_rate, DELTA_FLOOR_BREF)
 
 
 class DegradationStep(Enum):
     COARSEN_STRATA = 1
     REPORT_UNDERPOWERED = 2
-    RELAX_DELTA_WITHIN_BOUND = 3
+    RELAX_RHO_WITHIN_BOUND = 3
 
 
 def rate_detection_floor(*, p: float, delta: float) -> int:
@@ -66,10 +93,11 @@ def ks_two_sample_floor(*, effect: float, alpha: float = 0.05) -> int:
     return math.ceil(2.0 * (c_alpha / effect) ** 2)
 
 
-def relaxed_delta_is_legitimate(*, relaxed: float) -> bool:
-    """A relaxed δ is legitimate iff it still separates faithful-from-over-emitting,
-    i.e. it stays at or below the regime-distinguishing bound (spec §G option 3)."""
-    return 0.0 < relaxed <= DELTA_BREF_REGIME
+def relaxed_rho_is_legitimate(*, relaxed: float) -> bool:
+    """A relaxed rho is legitimate iff it still separates faithful-from-over-emitting,
+    i.e. it stays at or below the regime-distinguishing bound (spec §G option 3). A
+    larger rho loosens the guard; relaxing past RHO_BREF_REGIME is weakening-to-pass."""
+    return 0.0 < relaxed <= RHO_BREF_REGIME
 
 
 @dataclass(frozen=True)

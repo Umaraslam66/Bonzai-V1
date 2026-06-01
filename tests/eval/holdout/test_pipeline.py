@@ -87,3 +87,9 @@ def test_dry_run_on_real_singapore_measures_substrate():
     assert result.residual == 494 - result.n
     assert 0.0 <= result.ceiling_overall <= 1.0
     assert result.per_stratum_cell_population  # measured something
+    # D's rate-detection power (features) must be satisfied in the SELECTED set - the
+    # vacuous pass must not hide in the sample size (2026-06-01 review). Measured abundant.
+    assert result.per_stratum_feature_floor and result.held_out_feature_population
+    assert result.underpowered_feature_strata == []
+    for bucket, floor in result.per_stratum_feature_floor.items():
+        assert result.held_out_feature_population.get(bucket, 0) >= floor

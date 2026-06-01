@@ -14,7 +14,10 @@ Guards are the §9 spine, regime-distinguishing:
 - G-D2: at-threshold (just-over trips, just-under passes) AND stratified (a global
   match with a per-stratum divergence must trip). Strata = cell_density_bucket.
 
-delta is the single DELTA_BREF_REGIME imported from sizing.py (one number).
+The trip threshold is RELATIVE-to-base-rate with an absolute floor
+(``sizing.over_emission_threshold`` = max(rho·faithful, δ_floor)) - one policy, the
+single (rho, δ_floor) from sizing.py. An absolute δ was rejected because it gave the
+dense bucket a vacuous +129% tolerance (2026-06-01 δ review).
 
 DEFERRED (spec §7): producing the model token stream (the tokenizer-on-MODEL side
 of R2) needs a trained model - that runs in the eval-harness successor. This module
@@ -31,7 +34,7 @@ from cfm.eval.holdout.bref_rate import (
     _bref_predicate,
     bref_placeholder_rate,
 )
-from cfm.eval.holdout.sizing import DELTA_BREF_REGIME
+from cfm.eval.holdout.sizing import over_emission_threshold
 
 # Re-export so callers read the rate through this module's R2 surface too.
 __all__ = [
@@ -72,10 +75,12 @@ class RateVerdict(Enum):
 
 
 def over_emission_verdict(*, model_rate: float, faithful_rate: float) -> RateVerdict:
-    """At-threshold rate judge: excess > delta => over-emitting (spec §D G-D2)."""
+    """At-threshold rate judge: excess > max(rho·faithful, δ_floor) => over-emitting
+    (spec §D G-D2). RELATIVE-to-base-rate so the discrimination is uniform across
+    strata (the absolute-δ form let the dense bucket tolerate a >2x rate)."""
     return (
         RateVerdict.OVER_EMITTING
-        if (model_rate - faithful_rate) > DELTA_BREF_REGIME
+        if (model_rate - faithful_rate) > over_emission_threshold(faithful_rate)
         else RateVerdict.WITHIN_TOLERANCE
     )
 
@@ -108,7 +113,9 @@ def stratified_over_emission(
         if denom
         else 0.0
     )
-    global_within = (model_rate.overall_rate - global_faithful) <= DELTA_BREF_REGIME
+    global_within = (model_rate.overall_rate - global_faithful) <= over_emission_threshold(
+        global_faithful
+    )
 
     return StratifiedOverEmissionReport(
         global_within_tolerance=global_within,

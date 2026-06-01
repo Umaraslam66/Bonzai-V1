@@ -2,7 +2,12 @@
 
 Corrected sequencing (plan decision 6): BUILD the fresh selector -> G measures
 THROUGH it -> (N, selection) -> F freezes the manifest. sub-D's #11 selector is
-untouched. delta is the single DELTA_BREF_REGIME (sizing.py).
+untouched. The over-emission threshold is relative-to-base-rate (sizing.py
+over_emission_threshold). MEASURED FINDING (2026-06-01): D's rate-detection floor is
+in FEATURES and feature populations are abundant (~873k across the pool), so it is
+NON-BINDING - contradicting the spec's "D's stratified floor is the binding one".
+What drives N is the PROVISIONAL cell-density reference target (KS distance deferred,
+spec §7). Both reported; D's feature power is verified per stratum.
 
 The freeze (holdout manifest + _EVAL_SET_LOCKED marker) is a WRITE-ONCE,
 point-of-no-return act (spec §F: "locked at the start of the project and never
@@ -32,7 +37,8 @@ from cfm.eval.holdout.labels import TileLabels, read_tile_labels
 from cfm.eval.holdout.roundtrip import decode_region_blocks
 from cfm.eval.holdout.selector import SelectionResult, _tile_stratum
 from cfm.eval.holdout.sizing import (
-    DELTA_BREF_REGIME,
+    DELTA_FLOOR_BREF,
+    RHO_BREF_REGIME,
     ks_two_sample_floor,
     rate_detection_floor,
 )
@@ -66,7 +72,9 @@ class EvalSetResult:
     n: int
     proposed_selection: list[tuple[int, int]]
     per_stratum_bref_rate: dict[int, float]
-    per_stratum_cell_floor: dict[int, int]
+    per_stratum_cell_floor: dict[
+        int, int
+    ]  # PROVISIONAL cell-density reference target (KS deferred)
     per_stratum_cell_population: dict[int, int]
     underpowered_cell_density_strata: list[int]
     ceiling_overall: float
@@ -76,6 +84,11 @@ class EvalSetResult:
     marker_written: bool
     report_path: Path | None
     degradation_log: list[str] = field(default_factory=list)
+    # D's rate-detection power (FEATURES) - measured non-binding, but verified per stratum.
+    per_stratum_feature_population: dict[int, int] = field(default_factory=dict)  # full pool
+    per_stratum_feature_floor: dict[int, int] = field(default_factory=dict)  # to detect rho-excess
+    held_out_feature_population: dict[int, int] = field(default_factory=dict)  # in selected tiles
+    underpowered_feature_strata: list[int] = field(default_factory=list)
 
 
 def co_optimize(
@@ -147,6 +160,7 @@ def generate_eval_set(
     geoms: list[dict] = []
     strata: list[int] = []
     provenance_by_tile: dict[tuple[int, int], dict] = {}
+    per_tile_stratum_features: dict[tuple[int, int], Counter[int]] = {}
 
     for entry in inventory:
         ti, tj = int(entry["tile_i"]), int(entry["tile_j"])
@@ -161,6 +175,7 @@ def generate_eval_set(
         blocks.extend(tb)
         geoms.extend(tg)
         strata.extend(ts)
+        per_tile_stratum_features[(ti, tj)] = Counter(ts)  # features per stratum, this tile
 
         prov = yaml.safe_load((tile_dir / "provenance.yaml").read_text(encoding="utf-8"))
         provenance_by_tile[(ti, tj)] = {
@@ -171,32 +186,55 @@ def generate_eval_set(
     rate = bref_placeholder_rate(blocks, geoms, strata)
     ceiling = baselines.geometric_validity_ceiling(rate)
 
-    cell_floor: dict[int, int] = {}
-    for bucket, sr in rate.per_stratum.items():
-        p = max(sr.rate, DELTA_BREF_REGIME)  # avoid a degenerate p=0 floor
-        cell_floor[bucket] = max(
-            rate_detection_floor(p=p, delta=DELTA_BREF_REGIME),
-            ks_two_sample_floor(effect=_KS_EFFECT),
-        )
+    # D's rate-detection floor is in FEATURES (each feature is a Bernoulli collapse/not)
+    # and detects a RELATIVE excess rho around the faithful rate. MEASURED non-binding:
+    # feature populations dwarf these floors. Computed + verified, not used to drive N.
+    feature_floor: dict[int, int] = {
+        b: rate_detection_floor(p=sr.rate, delta=RHO_BREF_REGIME * sr.rate)
+        for b, sr in rate.per_stratum.items()
+        if sr.rate > 0
+    }
+    feature_population = {b: sr.n_total for b, sr in rate.per_stratum.items()}
+
+    # Selection driver: PROVISIONAL per-stratum cell-density reference target. The KS
+    # distance is model-facing and DEFERRED (spec §7), so this is a reference-sample
+    # size target, not a binding power floor. Labelled provisional throughout.
+    cell_ref_floor: dict[int, int] = {
+        b: ks_two_sample_floor(effect=_KS_EFFECT) for b in rate.per_stratum
+    }
 
     n_cap = int(len(inventory) * n_cap_fraction)
-    selection = co_optimize(tile_labels, cell_floor, n_cap=n_cap)
+    selection = co_optimize(tile_labels, cell_ref_floor, n_cap=n_cap)
     n = len(selection.selected)
     residual = len(inventory) - n
+    selected_set = set(selection.selected)
+
+    # Held-out feature populations (verify D's rate-detection power in the SELECTED set,
+    # so the vacuous pass cannot hide in the sample size - the 2026-06-01 review point).
+    held_out_features: Counter[int] = Counter()
+    for key in selected_set:
+        held_out_features.update(per_tile_stratum_features.get(key, Counter()))
+    underpowered_feature = sorted(
+        b for b, floor in feature_floor.items() if held_out_features.get(b, 0) < floor
+    )
 
     degradation_log: list[str] = []
-    if selection.underpowered_cell_density_strata:
-        for bucket, sf in sorted(selection.underpowered_cell_density_strata.items()):
-            degradation_log.append(
-                f"UNDERPOWERED cell_density_bucket={bucket}: "
-                f"have {sf.available} cells, floor {sf.floor} (reported, not passed)"
-            )
+    for bucket, sf in sorted(selection.underpowered_cell_density_strata.items()):
+        degradation_log.append(
+            f"UNDERPOWERED cell-density REFERENCE (provisional) bucket={bucket}: "
+            f"have {sf.available} cells, target {sf.floor} (reported, not passed)"
+        )
+    for bucket in underpowered_feature:
+        degradation_log.append(
+            f"UNDERPOWERED rate-detection bucket={bucket}: held-out features "
+            f"{held_out_features.get(bucket, 0)} < floor {feature_floor[bucket]} (reported)"
+        )
 
     result = EvalSetResult(
         n=n,
         proposed_selection=selection.selected,
         per_stratum_bref_rate={b: sr.rate for b, sr in rate.per_stratum.items()},
-        per_stratum_cell_floor=cell_floor,
+        per_stratum_cell_floor=cell_ref_floor,
         per_stratum_cell_population=_cell_populations(tile_labels),
         underpowered_cell_density_strata=sorted(selection.underpowered_cell_density_strata),
         ceiling_overall=ceiling.overall,
@@ -206,6 +244,10 @@ def generate_eval_set(
         marker_written=False,
         report_path=None,
         degradation_log=degradation_log,
+        per_stratum_feature_population=feature_population,
+        per_stratum_feature_floor=feature_floor,
+        held_out_feature_population=dict(held_out_features),
+        underpowered_feature_strata=underpowered_feature,
     )
 
     if lock:
@@ -226,7 +268,8 @@ def generate_eval_set(
                     "n_held_out": n,
                     "training_residual": residual,
                     "ceiling_overall": ceiling.overall,
-                    "delta_bref_regime": DELTA_BREF_REGIME,
+                    "rho_bref_regime": RHO_BREF_REGIME,
+                    "delta_floor_bref": DELTA_FLOOR_BREF,
                 }
             ),
             encoding="utf-8",
