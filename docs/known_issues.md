@@ -174,12 +174,20 @@ Half a day of work. The extraction plumbing and manifest update logic are alread
 ---
 
 
-## #4 — Tokenizer `emit_unknown_token` fall-through not yet implemented (training-critical)
+## #4 — RESOLVED (training-scaffold, 2026-06-01): `emit_unknown_token` fall-through handled on the live sub-F path (superseded by cascade #7)
 
 - **Filed:** 2026-05-18 (Phase 1 sub-C closeout)
-- **Severity:** high (training-critical path)
-- **Status:** deferred — fix before Phase 2 training run; NOT a sub-D/E/F/G blocker
-- **Affects:** `src/cfm/tokenizer/encode.py:59-60`
+- **Severity:** high (training-critical path) — now RESOLVED
+- **Status:** **RESOLVED 2026-06-01 (verify-before-lock).** The obligation is met on the **live Phase-1 path**; #4 was filed against the **non-training-reachable Phase-0** tokenizer. See Resolution below.
+- **Affects (filed):** `src/cfm/tokenizer/encode.py:59-60` — the **Phase-0 proof-of-concept** tokenizer, imported **only** by `scripts/smoke.py`. Training never reaches it. It remains **knowingly unfixed** (it still hard-raises `UnsupportedFeatureClass`); that is acceptable because it is not on any training/production path.
+
+### Resolution (2026-06-01, training-scaffold Task 1)
+
+The Phase-1 micro-tokenizer is `src/cfm/data/sub_f/encoder.py`, built *after* #4 was filed. Its `_resolve_semantic_tag_to_token_id` (encoder.py:253-283, "cascade #7") already implements the fall-through #4 asked for: a non-sentinel not-in-vocab value buckets to the `<unknown_KEY>` BP4 family; it raises `KeyError` only when a key has **no** unknown-family slot (correct fail-loud on a true gap). Sub-C stores raw not-in-vocab building/POI values (`sub_c/policy.py:205`); they are turned into `key=value` semantic_tags by `_semantic_tag_from_row` (pipeline_writer.py:42, key ∈ {highway, building, amenity, natural}) and resolved via cascade #7.
+
+Verified on the real frozen Singapore sub-C output by `tests/eval/test_unknown_class_fallthrough.py` (3 assertions): (1) **88 distinct real semantic_tags, 10 route to `<unknown_KEY>`** — non-vacuous, the unknown-class regime is genuinely exercised, and none raise; (2) a key with no `<unknown_KEY>` slot still raises `KeyError` (twin: a key with a slot resolves); (3) the round-trip is a **known lossy collapse** (`building=<unknown> → <unknown_building> → generic building`, identity lost by design — a v1 limitation, reported-not-gated per protocol v3 §9).
+
+Cross-reference: spec `docs/superpowers/specs/2026-06-01-phase-1-training-scaffold-design.md` §2; memory `feedback_filed_issue_location_can_be_stale`.
 
 ### Context
 
