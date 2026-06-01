@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from cfm.eval.holdout.labels import TileLabels
 
 TileKey = tuple[int, int]
-TileStratum = tuple[int, tuple[int | None, int | None]]
+TileStratum = tuple[int, tuple[int, int]]  # None components coerced to -1 by _tile_stratum
 
 
 @dataclass(frozen=True)
@@ -46,11 +46,18 @@ class SelectionResult:
 
 
 def _tile_stratum(tl: TileLabels) -> TileStratum:
+    # None components coerce to -1 (a "no dominant zoning" / "no road skeleton" tile is
+    # a legitimate stratum) so strata are always sortable. Real Singapore tiles can have
+    # None morphology when a tile has no active CELL zoning or no INTERNAL_EDGE skeleton.
     return (
         int(tl.population_density_bucket) if tl.population_density_bucket is not None else -1,
         (
-            tl.morphology_stratum.dominant_zoning_class,
-            tl.morphology_stratum.modal_road_skeleton_class,
+            tl.morphology_stratum.dominant_zoning_class
+            if tl.morphology_stratum.dominant_zoning_class is not None
+            else -1,
+            tl.morphology_stratum.modal_road_skeleton_class
+            if tl.morphology_stratum.modal_road_skeleton_class is not None
+            else -1,
         ),
     )
 

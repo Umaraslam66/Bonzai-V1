@@ -55,6 +55,30 @@ def test_GUARD_unfillable_tile_quota_surfaces_as_underpowered():
     assert res.underpowered_tile_strata[(0, (0, 0))].available == 1
 
 
+def test_none_morphology_tile_is_groupable_and_sortable():
+    # Real-data regression: a tile with no dominant zoning / no road skeleton has None
+    # morphology components. The stratum key must coerce them (to -1) so strata stay
+    # sortable - else co_optimize's sorted({strata}) raises TypeError on real data.
+    none_tile = TileLabels(
+        tile_i=3,
+        tile_j=4,
+        population_density_bucket=None,
+        cell_density_buckets=(0,),
+        morphology_stratum=MorphologyStratum(
+            dominant_zoning_class=None, modal_road_skeleton_class=None
+        ),
+        coastal_inland_river=None,
+        admin_region=None,
+        sub_c_morphology_class="Asian-megacity",
+    )
+    strat = selector._tile_stratum(none_tile)
+    assert strat == (-1, (-1, -1))
+    # sorting a mixed set must not raise:
+    assert sorted({strat, (0, (0, 0))}) == [(-1, (-1, -1)), (0, (0, 0))]
+    res = selector.select_holdout_tiles([none_tile], {strat: 1}, cell_density_floor={0: 1})
+    assert res.selected == [(3, 4)]
+
+
 def test_consumes_labels_only_no_rederivation():
     # The selector must consume sub-D-derived TileLabels (one source) and never import
     # a sub-D derivation module (evidence / frequency_analysis). AST import-surface
