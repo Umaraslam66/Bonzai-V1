@@ -305,10 +305,39 @@ def _derive_tile_rows(
     features_by_id: dict[str, str | None] = {
         f.source_feature_id: f.class_raw for f in features if f.feature_class == _road_class_code
     }
+    all_feature_ids: set[str] = {f.source_feature_id for f in features}
     crossings_by_edge: dict[tuple[int, int, int], list[str | None]] = {}
     for c in crossings:
+        if c.source_feature_id in features_by_id:
+            # Road crossing. A road with null/unknown class_raw is present with
+            # value None and still votes → MINOR_ROAD default (derivation.py:84-85).
+            class_raw = features_by_id[c.source_feature_id]
+        elif c.source_feature_id in all_feature_ids:
+            # §5.1: a non-road crossing (water, rail, building) is EXCLUDED from
+            # the boundary-class vote entirely — an edge with only non-road
+            # crossings derives NONE, not MINOR_ROAD. (Cycle-2 fix: the prior
+            # code appended features_by_id.get(id) == None for these, which
+            # derive_boundary_class mapped to the MINOR_ROAD default bucket,
+            # producing spurious MINOR_ROAD edges that sub-F's coverage check
+            # then fired on. See
+            # reports/2026-05-31-sub-G-T11-coverage-cycle2-nonroad-edge.md.)
+            continue
+        else:
+            # Crossing references a feature_id absent from this tile's
+            # features.parquet — NOT a benign non-road skip but an unexpected
+            # data-integrity regime (sub-C/sub-E). Surface it loudly rather than
+            # silently dropping it, then exclude it from the vote.
+            log.warning(
+                "sub-E: crossing on edge (%s, %s, %s) references feature_id %s "
+                "absent from tile features.parquet; excluded from boundary-class vote",
+                c.lower_cell_i,
+                c.lower_cell_j,
+                c.axis,
+                c.source_feature_id,
+            )
+            continue
         key = (c.lower_cell_i, c.lower_cell_j, c.axis)
-        crossings_by_edge.setdefault(key, []).append(features_by_id.get(c.source_feature_id))
+        crossings_by_edge.setdefault(key, []).append(class_raw)
 
     rows: list[BoundaryContractRow] = []
     for key, scope in edge_scope.items():
@@ -316,12 +345,11 @@ def _derive_tile_rows(
         _, slot_idx = edge_slot_index[key]
         is_active_internal = scope == 0 and slot_kind_int == 1
         if is_active_internal and not lever_3_collapse:
-            # Pass all crossings (including None entries) through to
-            # derive_boundary_class. Per spec §5.1 + derivation.py:84-85,
-            # None entries map to the MINOR_ROAD default bucket; filtering
-            # them out would change semantics. Earlier draft had
-            # `if cr is not None or True` which short-circuited to always
-            # True — dead code that obscured intent.
+            # Only road crossings reach crossings_by_edge (non-road and
+            # absent-feature crossings are excluded above, per §5.1). A None
+            # entry is a road with null/unknown class_raw → MINOR_ROAD default
+            # (derivation.py:84-85). An edge with no road crossings yields an
+            # empty list → derive_boundary_class([]) == NONE (§5.1).
             class_raws = list(crossings_by_edge.get((i, j, axis), []))
             bc = int(derive_boundary_class(class_raws))
         else:

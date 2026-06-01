@@ -279,17 +279,22 @@ def _emit_alpha_drop_report(cfg: PipelineConfig) -> None:
     AFTER _SUCCESS, so a report glitch must not retroactively invalidate a
     region whose validators already passed.
     """
-    from scripts.sub_f.compute_alpha_drop_report import run_alpha_drop_report
-
     try:
+        # Import INSIDE the try: `scripts` is a namespace package that is only
+        # importable when the repo root is on sys.path (the derive CLI injects
+        # it). A failure to import the advisory report must obey this function's
+        # "logged, NOT raised" contract — it runs AFTER _SUCCESS, so it must
+        # never retroactively crash a region whose validators already passed.
+        from scripts.sub_f.compute_alpha_drop_report import run_alpha_drop_report
+
         result = run_alpha_drop_report(
             sub_c_region_dir=cfg.sub_c_region_dir,
             budget_raw=_ALPHA_DROP_BUDGET_RAW,
             budget_padded=_ALPHA_DROP_BUDGET_PADDED,
             label=f"warning_band_{cfg.region}",
         )
-    except Exception:  # pragma: no cover - advisory diagnostic; never fatal
-        log.exception(
+    except Exception:  # advisory diagnostic; never fatal (runs AFTER _SUCCESS)
+        log.exception(  # ERROR-level: a skipped close-obligation must not hide
             "alpha-drop warning-band report failed for region %s "
             "(advisory only; region derive already succeeded)",
             cfg.region,

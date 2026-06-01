@@ -7,16 +7,14 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 VOCAB_PATH = REPO_ROOT / "configs" / "macro_plan" / "v1" / "boundary_vocab.yaml"
 
-LOCKED_SUB_D_VOCAB_SHA256 = (
-    "0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd"
-)
+LOCKED_SUB_D_VOCAB_SHA256 = "0b2d9eb4c1253b12f2fe50b32ec459e8fc25cdeafa05f4dda0a47240c0c9a1fd"
 
 
 def test_boundary_vocab_loads_with_expected_structure() -> None:
     data = yaml.safe_load(VOCAB_PATH.read_text())
     assert data["boundary_vocab_schema_version"] == "1.0"
     assert data["boundary_vocab_version"] == "1.0"
-    assert data["boundary_derivation_version"] == "1.0"
+    assert data["boundary_derivation_version"] == "1.1"
     assert data["phase"] == 1
     assert data["append_only_within_phase"] is True
 

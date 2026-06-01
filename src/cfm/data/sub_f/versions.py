@@ -19,8 +19,17 @@ from cfm.data.sub_d.versions import VersionNamespace, VersionRef
 SUB_F_ARTIFACT_FORMAT_VERSION = "1.0"
 SUB_F_SCHEMA_VERSION = "1.0"
 SUB_F_VOCAB_VERSION = "1.0"
-SUB_F_DERIVATION_VERSION = "1.0"
-SUB_F_VALIDATOR_VERSION = "1.0"
+# 1.1: the cycle-1 N/S endpoint-direction fix (commit 98cdeb0,
+# encoder._classify_feature_for_bref) changed bref direction output for the same
+# input. Bumping the DERIVATION axis distinguishes pre/post-cycle-1 sub-F
+# artifacts so a stale 1.0 cache can never silently compare equal to a 1.1 one.
+SUB_F_DERIVATION_VERSION = "1.1"
+# 1.1: cycle-3 validator fix — feature_key resolution now resolves BP4
+# <unknown_*> tokens to their semantic key (vocab.unknown_family_tag_to_key),
+# so unknown-subtype highways no longer false-positive the non-road-emission
+# leg. Verdict-only change (no cells.parquet bytes change); the VALIDATOR axis
+# distinguishes a 1.0-blessed cache from a 1.1-blessed one.
+SUB_F_VALIDATOR_VERSION = "1.1"
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_OVERTURE_PIN_PATH = _REPO_ROOT / "configs" / "data" / "overture_release.yaml"
@@ -88,16 +97,12 @@ def sub_f_version_manifest() -> dict[VersionNamespace, VersionRef]:
         VersionNamespace.ARTIFACT_FORMAT: VersionRef(
             VersionNamespace.ARTIFACT_FORMAT, SUB_F_ARTIFACT_FORMAT_VERSION
         ),
-        VersionNamespace.DATA_SHAPE: VersionRef(
-            VersionNamespace.DATA_SHAPE, SUB_F_SCHEMA_VERSION
-        ),
+        VersionNamespace.DATA_SHAPE: VersionRef(VersionNamespace.DATA_SHAPE, SUB_F_SCHEMA_VERSION),
         VersionNamespace.VOCAB: VersionRef(VersionNamespace.VOCAB, SUB_F_VOCAB_VERSION),
         VersionNamespace.DERIVATION: VersionRef(
             VersionNamespace.DERIVATION, SUB_F_DERIVATION_VERSION
         ),
-        VersionNamespace.VALIDATOR: VersionRef(
-            VersionNamespace.VALIDATOR, SUB_F_VALIDATOR_VERSION
-        ),
+        VersionNamespace.VALIDATOR: VersionRef(VersionNamespace.VALIDATOR, SUB_F_VALIDATOR_VERSION),
         VersionNamespace.SOURCE: VersionRef(
             VersionNamespace.SOURCE, encode_sub_f_source_version(source_version)
         ),

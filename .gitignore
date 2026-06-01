@@ -56,3 +56,6 @@ logs/
 
 # Reports — keep tracked, but ignore scratch
 reports/_scratch/
+
+# Claude Code runtime state (locks, scheduled-task bookkeeping)
+.claude/scheduled_tasks.lock

@@ -44,10 +44,14 @@ from cfm.data.sub_f.io import CELLS_SCHEMA, CellRow, write_cells_parquet
 from cfm.data.sub_f.provenance import provenance_sha256
 from cfm.data.sub_f.validator_cross_tile import (
     CrossTileValidationError,
+    _bref_id_to_dir_class,
+    _check_non_road_non_emission,
     _check_symmetry,
+    _emitted_brefs_by_cell,
+    _semantic_id_to_tag,
     validate_cross_tile,
 )
-from cfm.data.sub_f.vocab import vocab_tag_to_id
+from cfm.data.sub_f.vocab import semantic_tag_to_l1_key, vocab_tag_to_id
 
 # ===========================================================================
 # Fixtures: synthetic sub-E contract, cells.parquet, provenance.yaml
@@ -734,3 +738,43 @@ def test_bp1_class_mapping_major_set_is_nonempty_and_minor_default():
 # The real-region BP7 cross-tile composite is now in the consolidated
 # tests/data/sub_f/test_singapore_integration.py (T13), gated fail-loud on the
 # sub-E + sub-F caches. See reports/2026-05-23-phase-1-sub-F-close-checklist.md.
+
+
+# ===========================================================================
+# Cycle-3 (sub-G T11): BP4 <unknown_*> key resolution on the non-road leg
+# ===========================================================================
+
+
+def test_semantic_tag_to_l1_key_resolves_unknown_family():
+    """Cycle-3/4 guard: the SHARED vocab authority maps BP4 <unknown_*> tokens to
+    their BP1 L1 key, not the literal token. Used by BOTH the validator non-road
+    leg and the encoder emission gate.
+
+    <unknown_highway> (a highway with unknown subtype — 9748 SG features,
+    unknown_family.yaml id=210 key:highway) MUST resolve to "highway" so the
+    non-road leg does not false-positive a road AND the encoder still emits for
+    it. Per-key, NOT a blanket unknown-skip: <unknown_healthcare> must still
+    resolve to "healthcare" so a genuine non-road-emits-bref stays catchable.
+    """
+    assert semantic_tag_to_l1_key("<highway=residential>") == "highway"
+    assert semantic_tag_to_l1_key("<unknown_highway>") == "highway"
+    assert semantic_tag_to_l1_key("<unknown_healthcare>") == "healthcare"
+
+
+def test_unknown_highway_chunk_passes_non_road_emission_leg():
+    """End-to-end (non-road-emission leg): an <unknown_highway> feature chunk
+    emitting <bref_S_MINOR> resolves to feature_key "highway", so the leg does
+    NOT fire — the exact i10_j11 cell (5,4) false positive that halted the
+    real-Singapore cascade.
+
+    Token IDs via vocab_tag_to_id (never hardcoded, per module discipline).
+    RED pre-fix: _emitted_brefs_by_cell yielded feature_key "<unknown_highway>"
+    and _check_non_road_non_emission raised.
+    """
+    t = vocab_tag_to_id()
+    seq = [t["<feature>"], t["<unknown_highway>"], t["<bref_S_MINOR>"], t["<feature_end>"]]
+    row = {"cell_i": 5, "cell_j": 4, "token_sequence": seq}
+    emitted = _emitted_brefs_by_cell([row], _bref_id_to_dir_class(), _semantic_id_to_tag())
+    assert emitted == {(5, 4): [("S", "MINOR_ROAD", "highway")]}
+    # Must NOT raise — the road resolves correctly.
+    _check_non_road_non_emission("tile=test", emitted)

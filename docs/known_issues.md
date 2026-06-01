@@ -267,3 +267,54 @@ Phase 1 sub-A's contract is verified end-to-end. Phase 1 sub-projects B1–G rea
 - Source: `src/cfm/data/overture/loader.py::_check_total_size` and `src/cfm/data/overture/backend.py::S3DuckDBBackend.build_count_query`.
 - Project memory: `~/.claude/projects/-Users-umaraslam-Projects-Bonzai-OSM/memory/project_overture_cold_fetch_slow.md`.
 - Pinning policy reminder (`docs/data/overture_pinning_policy.md`) says re-pinning invalidates caches — re-pinning Singapore today would re-incur this 8-hour cost.
+
+---
+
+## sub-F spec §3.7 `subway`/`path`/`track` "emit-as-MINOR" examples are stale after the cycle-2 sub-E non-road-exclusion fix (doc-vs-behavior erratum)
+
+**Status:** v2 erratum — documentation-vs-behavior drift, NOT a code bug. Logged 2026-06-01 during sub-G T11 cycle-3. Do **not** edit the spec mid-cascade.
+
+**What:** Sub-F design spec `docs/superpowers/specs/2026-05-23-phase-1-sub-F-micro-tokenizer-design.md` §3.7 L292 (Class assignment semantics, Halt 7) names `subway`, `path`, `pedestrian`, `track` as examples of values that "also emit as MINOR" via sub-E's default-bucket fallthrough. That text predates the sub-G T11 **cycle-2** sub-E fix (commit `99f9e43`), which brought `_derive_tile_rows` into compliance with sub-E spec §5.1: **non-road crossings are excluded from the boundary-class vote**.
+
+**The drift:** §3.7's "emits as MINOR" examples are only accurate for values whose sub-C `feature_class == road`. After cycle-2, any of these whose sub-C `feature_class != road` (e.g. a `subway` carried as rail/transit rather than highway) now correctly derives **NONE** (non-emitting) at the edge, contradicting the §3.7 example. The per-value classification has NOT been verified here — the drift is *conditional* on each value's sub-C feature_class.
+
+**Why it is not a bug:** cycle-2 is correct (§5.1 mandates non-road exclusion); the §3.7 example list is documentation that was not updated when cycle-2 landed. The encoder still faithfully passes through whatever class sub-E derives (the actual §3.7 correctness criterion — "faithful passthrough of sub-E's class per edge" — is unchanged).
+
+**Resolve at:** sub-E-v2 / sub-F-v2. Verify the sub-C `feature_class` of each of {`subway`, `path`, `pedestrian`, `track`}; update §3.7 L292's example list to name only values that remain road-classified (hence still emit MINOR).
+
+**Surfaced by:** sub-G T11 cycle-3 (the `<unknown_highway>` validator fix, commit `c9f623c`); recorded as a non-blocking note so it does not resurface later as a phantom cycle.
+
+---
+
+## sub-F spec §1.4 / §8 non-emission rule enumerates "buildings/POIs" but should name non-road LineStrings too (doc-completeness erratum)
+
+**Status:** v2 erratum — spec wording is incomplete, not wrong. Logged 2026-06-01 during sub-G T11 cycle-4. Do **not** edit the spec mid-cascade; the encoder gate already implements the correct principle.
+
+**What:** §1.4 L59 states the operative principle — *"Token layer represents roads only for cross-cell references"* — but its examples and the §8 L803 non-road-non-emission check are framed around **buildings/POIs** (polygons/points clipped at the geometry layer). They do **not** explicitly name **non-road LineStrings** (e.g. `natural=coastline`, waterways), which are LineStrings (so not clipped like polygons) yet non-road (so must not emit brefs).
+
+**Why it surfaced:** sub-G T11 cycle-4 found the sub-F encoder emitting `<bref>` for `natural` LineStrings clipped to active road edges (4,862 emissions / 224 tiles, 100% `natural`). The encoder's emission gate had no road-key check — it emitted for any LineString. The fix (commit below) gates emission on the feature's L1 key == `highway` via the shared `vocab.semantic_tag_to_l1_key` authority, which **implements §1.4's roads-only principle** for the LineString case the enumeration omitted.
+
+**Resolve at:** sub-F-v2. Reword §1.4 / §8 so the non-emission rule reads "only highway-keyed features emit `<bref>`; all non-road features (buildings, POIs, **and non-road LineStrings**) emit zero `<bref>`" — matching the encoder gate and the validator's highway-only `_check_non_road_non_emission`.
+
+**Surfaced by:** sub-G T11 cycle-4 (the encoder road-key emission gate).
+
+---
+
+## RESOLVED (sub-G close, 2026-06-01): POI alpha-drop rate is ~10× the other feature types — confirmed density-correlation artifact, ACCEPTED
+
+**Status:** confirmed + accepted at sub-G close — advisory, never a blocker. Logged 2026-06-01 from the first real-data run of the sub-F alpha-drop warning-band diagnostic; confirmed the same day by a dropped-cell × POI-density cross-tab (sub-G T11 H3 follow-up).
+
+**What:** The alpha-drop warning-band report (`reports/sub_f_task_3c_warning_band_singapore.yaml`, budget_raw 5760) on Singapore dropped 36/31,616 cells (0.114%; drop rule = cell token length > 5760). Per feature-type fraction dropped: road (fc=0) **0.76%**, building (fc=1) **1.51%**, base (fc=3) **0.13%** — but **POI (fc=2) 10.69%** (15,991 / 149,655).
+
+**Verdict: density-correlation artifact, NOT a POI-specific over-drop or budget-accounting bug. Accepted.** A read-only cross-tab (reproduced the official 36-cell / 15,991-POI aggregate exactly = count lineage) shows:
+
+- **POIs cost the 7-token floor** (a Point hits `token_cost.chunked_per_feature_tokens` `n<2` branch = `_STRUCTURAL_TOKENS(3) + n_anchor(4)`). No per-POI cost inflation; the drop rule is purely `total cell tokens > 5760`, type-agnostic.
+- **Dropped cells are the densest cells, full stop:** POIs/cell median **430** (mean 444, max 975) vs retained median **0** (mean 4.2); total features/cell median **671** vs retained **0**. ~100× POI density, ~25× total-feature density.
+- **The drop is not POI-targeted:** 9 of 36 dropped cells have POIs < 50% of features; the `(tile 24,8,*)` cluster is dropped on **building** density (~2–4 POIs, 350–393 buildings each). Building-dense cells with near-zero POIs are dropped by the same rule.
+- **POI count alone does not drive drops:** retained cells exist with up to **593 POIs** (under budget); of the top-40 cells by POI count, only 20 are dropped — total density decides, not POI count.
+
+So POIs are over-represented in the drop set only because POIs concentrate in the densest city-centre cells, which are exactly the cells that exceed the per-cell token budget. In the most POI-saturated dropped cells, POIs are 75–81% of the cell's tokens — hundreds of correctly-costed (7-token) POIs, a real density fact about those cells.
+
+**Accepted because:** the per-cell budget (P99.9, Halt-4 lock 2026-05-29) deliberately rejects the extreme density tail (0.114% of cells); the loss is the densest urban cores, acceptable for v1 (the budget tradeoff was locked with this understood). No code change. If a future region needs the densest cores retained, raise the per-cell budget or split dense cells — not a POI-specific fix.
+
+**Surfaced by:** sub-G T11 cascade-4 (first run of the alpha-drop diagnostic on real data). **Confirmed by:** sub-G T11 H3 follow-up cross-tab (2026-06-01).

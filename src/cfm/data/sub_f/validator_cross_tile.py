@@ -59,7 +59,7 @@ import yaml
 
 from cfm.data.sub_f.boundary_contract import load_boundary_contract
 from cfm.data.sub_f.rotation import DIRECTION_ORDER
-from cfm.data.sub_f.vocab import vocab_tag_to_id
+from cfm.data.sub_f.vocab import ROAD_L1_KEY, semantic_tag_to_l1_key, vocab_tag_to_id
 
 # Structural sentinels — must match encoder._FEATURE_TOKEN_ID /
 # _FEATURE_END_TOKEN_ID. Sourced from encoder to keep a single point of
@@ -87,9 +87,9 @@ _EMITTING_CLASSES = frozenset({"MAJOR_ROAD", "MINOR_ROAD"})
 
 # Semantic-tag key that denotes a road (LineString) feature. Only road
 # features emit brefs (spec §1.4: buildings/POIs clipped at geometry layer,
-# never at the token layer). Recovered from the semantic-tag token's tag
-# string ("key=value" form, e.g. "highway=residential").
-_ROAD_KEY = "highway"
+# never at the token layer). Aliases the shared vocab authority so the encoder's
+# emission gate and the validator's non-road leg agree on what counts as a road.
+_ROAD_KEY = ROAD_L1_KEY
 
 
 class CrossTileValidationError(ValueError):
@@ -166,7 +166,7 @@ def _emitted_brefs_by_cell(
             feature_key = "<malformed>"
             if len(chunk) >= 2:
                 sem_tag = sem_id_to_tag.get(chunk[1], "")
-                feature_key = sem_tag.split("=", 1)[0].lstrip("<") if "=" in sem_tag else sem_tag
+                feature_key = semantic_tag_to_l1_key(sem_tag)
             for tok in chunk:
                 if tok in bref_decode:
                     direction, cls = bref_decode[tok]
@@ -557,7 +557,7 @@ def _road_cells(
             if len(chunk) < 2:
                 continue
             sem_tag = sem_id_to_tag.get(chunk[1], "")
-            key = sem_tag.split("=", 1)[0].lstrip("<") if "=" in sem_tag else sem_tag
+            key = semantic_tag_to_l1_key(sem_tag)
             if key == _ROAD_KEY:
                 out.add(cell)
                 break

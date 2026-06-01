@@ -19,6 +19,7 @@ from cfm.data.sub_e.derivation import BoundaryClass
 from cfm.data.sub_e.pipeline import PipelineConfig, derive_region
 from cfm.data.sub_e.rotation import GRID_SIZE, EdgeKind, cell_to_edge_ids
 from cfm.data.sub_e.validator_cross_tile import validate_extraction_cross_tile
+from cfm.data.sub_e.versions import BOUNDARY_DERIVATION_VERSION, BOUNDARY_VOCAB_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CACHED_SUB_C = REPO_ROOT / "data" / "processed" / "sub_c" / "2026-04-15.0" / "singapore"
@@ -293,8 +294,8 @@ def test_layer3_empirical_gate_real_distribution(
     (golden / "layer3_boundary_class_distribution.yaml").write_text(
         yaml.safe_dump(
             {
-                "boundary_derivation_version": "1.0",
-                "boundary_vocab_version": "1.0",
+                "boundary_derivation_version": BOUNDARY_DERIVATION_VERSION,
+                "boundary_vocab_version": BOUNDARY_VOCAB_VERSION,
                 "total_active_edges": total_active,
                 "fractions": {
                     BoundaryClass(cls).name: round(frac, 6)

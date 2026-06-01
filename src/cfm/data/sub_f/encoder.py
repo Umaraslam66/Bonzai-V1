@@ -26,7 +26,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import LinearRing
 
 from cfm.data.sub_f.boundary_contract import resolve_bref_tag
-from cfm.data.sub_f.vocab import vocab_tag_to_id
+from cfm.data.sub_f.vocab import ROAD_L1_KEY, semantic_tag_to_l1_key, vocab_tag_to_id
 
 # BP2 Halt 2 locked values — read here as module-level constants for fast
 # access in encoder hot paths. Source of truth is configs/sub_f/encoding_primitives.yaml.
@@ -468,12 +468,21 @@ class EncodedCell:
     feature_count: int  # number of features encoded (matches cells.parquet col)
 
 
+# Float-exact on-boundary tolerance for endpoint->edge classification. sub-C's
+# clip snaps a crossing endpoint ONTO the cell edge, so "on edge" is float-exact,
+# NOT a metric band. SHARED AUTHORITY: sub-G's seam-2 bijection
+# (seam_contract_tokens._EDGE_TOL_M) imports THIS constant so the two never drift
+# to different on-edge definitions (sub-G T11 H2, 2026-06-01; the old sub-G 0.5m
+# misattributed near-corner endpoints -> 1,649 false bref-bijection mismatches).
+ON_EDGE_EPS_M = 1e-6
+
+
 def _classify_feature_for_bref(
     geom: BaseGeometry,
     cell_edges: dict[str, str],
     cell_origin: tuple[float, float] = (0.0, 0.0),
     cell_extent_m: float = 250.0,
-    edge_eps_m: float = 1e-6,
+    edge_eps_m: float = ON_EDGE_EPS_M,
 ) -> tuple[str | None, str | None]:
     """Determine inbound / outbound boundary-ref tags for one feature.
 
@@ -505,14 +514,24 @@ def _classify_feature_for_bref(
         ox, oy = cell_origin
         x_rel = x - ox
         y_rel = y - oy
+        # Direction names follow the BP7 AUTHORITY (sub_e.rotation.cell_to_edge_ids,
+        # which the locked configs/sub_f/boundary_reference_vocab.yaml defers to):
+        # a cell's NORTH edge is the one shared with (i, j-1) = the LOW-y edge
+        # (cell-local y=0); SOUTH = the high-y edge (cell-local y=extent). This is
+        # geographically inverted (recorded v2 convention debt) but MUST match
+        # cell_to_edge_ids so the contract class looked up by direction is the edge
+        # the endpoint physically lies on. Pinned by
+        # tests/data/sub_f/test_direction_authority.py — do NOT "fix" to geographic
+        # (y=extent->N) without re-deriving sub-F and updating that authority gate.
+        # See reports/2026-05-31-sub-G-T11-symmetry-root-cause.md.
         if abs(x_rel) <= edge_eps_m:
             return "W"
         if abs(x_rel - cell_extent_m) <= edge_eps_m:
             return "E"
         if abs(y_rel) <= edge_eps_m:
-            return "S"
-        if abs(y_rel - cell_extent_m) <= edge_eps_m:
             return "N"
+        if abs(y_rel - cell_extent_m) <= edge_eps_m:
+            return "S"
         return None
 
     in_dir = _direction_of_endpoint(*coords[0])
@@ -557,12 +576,24 @@ def encode_cell(
     for geom, semantic_tag in features:
         canon = canonicalize_geometry(geom)
 
+        # §1.4: only road (highway-keyed) features emit boundary-ref tokens.
+        # Resolve the L1 key via the shared vocab authority so <unknown_highway>
+        # still counts as road, while <natural=*> and other non-road LineStrings
+        # do not (sub-G T11 cycle-4: a natural LineString clipped to a road edge
+        # emitted a spurious <bref>). Same authority the validator's non-road leg
+        # uses, so the two never re-determine road-ness with a local parse.
+        is_road = semantic_tag_to_l1_key(semantic_tag) == ROAD_L1_KEY
+
         # Multi-part: encode each part separately per spec section 3.2 implicit
         # multi-part handling (one EncodedFeature per part).
         gt = canon.geom_type
         if gt in ("MultiLineString", "MultiPolygon"):
             for part in canon.geoms:
-                inbound, outbound = _classify_feature_for_bref(part, cell_edges, cell_origin)
+                inbound, outbound = (
+                    _classify_feature_for_bref(part, cell_edges, cell_origin)
+                    if is_road
+                    else (None, None)
+                )
                 ef = encode_feature(
                     part,
                     semantic_tag=semantic_tag,
@@ -578,7 +609,11 @@ def encode_cell(
                 tokens.extend(ef.tokens)
                 feature_count += 1
         else:
-            inbound, outbound = _classify_feature_for_bref(canon, cell_edges, cell_origin)
+            inbound, outbound = (
+                _classify_feature_for_bref(canon, cell_edges, cell_origin)
+                if is_road
+                else (None, None)
+            )
             ef = encode_feature(
                 canon,
                 semantic_tag=semantic_tag,

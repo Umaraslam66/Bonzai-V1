@@ -907,3 +907,30 @@ def test_encode_cell_canonicalizes_each_feature():
         "encode_cell must canonicalize raw inputs internally so output is "
         "invariant to source ordering — required for BP3 token-count invariance"
     )
+
+
+def test_encode_cell_emits_bref_only_for_road_features():
+    """sub-G T11 cycle-4: only road (highway-keyed) features emit <bref> tokens.
+
+    A non-road LineString clipped to endpoint on an active road edge must emit NO
+    bref — the i10_j14 (4,6) natural-coastline halt. A first-class highway AND an
+    unknown-subtype highway (<unknown_highway>, resolved to road via the shared
+    vocab authority semantic_tag_to_l1_key) on the SAME edge both still emit.
+    Per-key, so other non-road keys (healthcare) are suppressed too.
+
+    RED pre-fix: the encoder gated emission on geometry alone (no road-key check),
+    so the natural / healthcare features emitted <bref_E_MINOR>.
+    """
+    from cfm.data.sub_f.encoder import encode_cell
+    from cfm.data.sub_f.vocab import vocab_tag_to_id
+
+    cell_edges = {"N": "NONE", "E": "MINOR_ROAD", "S": "NONE", "W": "NONE"}
+    line = LineString([(100.0, 100.0), (250.0, 100.0)])  # endpoint (250,100) on the E edge
+    bref = vocab_tag_to_id()["<bref_E_MINOR>"]
+
+    # Roads emit (first-class highway no-bracket form + BP4 unknown-subtype highway).
+    assert bref in encode_cell([(line, "highway=residential")], cell_edges).tokens
+    assert bref in encode_cell([(line, "<unknown_highway>")], cell_edges).tokens
+    # Non-road LineStrings on the SAME active road edge do NOT emit (the cycle-4 gate).
+    assert bref not in encode_cell([(line, "<unknown_natural>")], cell_edges).tokens
+    assert bref not in encode_cell([(line, "<unknown_healthcare>")], cell_edges).tokens
