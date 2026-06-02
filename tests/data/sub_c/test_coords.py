@@ -12,10 +12,12 @@ from cfm.data.sub_c.coords import (
     cell_id_within_tile,
     clip_to_admin_polygon,
     densify_polygon,
+    epsg_label_from_crs,
     partition_into_tiles,
     reproject_geometry_to_svy21,
     reproject_lonlat_to_svy21,
     tile_id_from_svy21,
+    utm_epsg_for_centroid,
 )
 
 
@@ -126,3 +128,71 @@ def test_partition_into_tiles_emits_inventory_sorted_by_ij():
     assert keys == sorted(keys)  # lexicographic sort by (i, j)
     assert (0, 0) in keys
     assert (1, 1) in keys
+
+
+# --- Multi-region (Q1): centroid -> ETRS89/UTM zone selection ---------------
+# Policy (PI lock 2026-06-02): one conformal UTM zone PER CITY, chosen from the
+# city centroid, applied to all that city's tiles. Conformal (angle-preserving)
+# is required for a shape model scored on rectilinearity. ETRS89/UTM-North codes
+# are EPSG:258zz for European zones 28-38 (e.g. zone 33 -> EPSG:25833).
+
+
+def test_utm_epsg_for_centroid_berlin_is_utm33n():
+    # Berlin centroid ~13.40°E, 52.52°N -> UTM zone 33 -> ETRS89/UTM33N
+    assert utm_epsg_for_centroid(13.40, 52.52) == "EPSG:25833"
+
+
+def test_utm_epsg_for_centroid_madrid_is_utm30n():
+    # Madrid centroid ~-3.70°E, 40.42°N -> UTM zone 30 -> ETRS89/UTM30N
+    assert utm_epsg_for_centroid(-3.70, 40.42) == "EPSG:25830"
+
+
+def test_utm_epsg_for_centroid_zone_boundary_is_lower_zone_at_exact_multiple():
+    # Zone 33 covers [12.0, 18.0); half-open lower bound like the tile grid.
+    # lon exactly 12.0 -> zone 33; just below -> zone 32.
+    assert utm_epsg_for_centroid(12.0, 50.0) == "EPSG:25833"
+    assert utm_epsg_for_centroid(11.999999, 50.0) == "EPSG:25832"
+
+
+def test_utm_epsg_for_centroid_is_deterministic():
+    a = utm_epsg_for_centroid(13.40, 52.52)
+    b = utm_epsg_for_centroid(13.40, 52.52)
+    assert a == b
+
+
+def test_utm_epsg_for_centroid_rejects_non_european_longitude():
+    # Tokyo (~139.7°E) is outside the ETRS89/UTM European zone range (28-38).
+    # Refuse rather than silently emit a wrong/undefined ETRS89 code.
+    with pytest.raises(ValueError):
+        utm_epsg_for_centroid(139.69, 35.69)
+
+
+def test_utm_epsg_for_centroid_rejects_southern_hemisphere():
+    # ETRS89/UTM-North policy is for Europe (northern hemisphere).
+    with pytest.raises(ValueError):
+        utm_epsg_for_centroid(13.40, -33.92)
+
+
+# --- Multi-region (Q1): tile-dir label derived from region CRS --------------
+# The EPSG prefix in tile=EPSG{code}_iN_jM disambiguates tile indices across
+# cities in different UTM zones (Berlin i5_j3 != Madrid i5_j3). Load-bearing,
+# not cosmetic. ONE source derives the label so no module re-hardcodes it.
+
+
+def test_epsg_label_from_crs_strips_colon_for_utm():
+    assert epsg_label_from_crs("EPSG:25833") == "EPSG25833"
+
+
+def test_epsg_label_from_crs_singapore_backcompat_is_exactly_EPSG3414():
+    # The locked Singapore tile-dir label is "EPSG3414"; must not drift.
+    assert epsg_label_from_crs("EPSG:3414") == "EPSG3414"
+
+
+def test_epsg_label_from_crs_rejects_missing_authority():
+    with pytest.raises(ValueError):
+        epsg_label_from_crs("25833")
+
+
+def test_epsg_label_from_crs_rejects_non_numeric_code():
+    with pytest.raises(ValueError):
+        epsg_label_from_crs("EPSG:abc")

@@ -46,6 +46,62 @@ def reproject_geometry_to_svy21(geom: BaseGeometry) -> BaseGeometry:
     return shapely_transform(_TRANSFORMER_4326_TO_SVY21.transform, geom)
 
 
+# ---- multi-region: centroid -> conformal UTM zone selection ---------------
+# ETRS89 / UTM-North EPSG codes are 25800 + zone, defined for European zones.
+_ETRS89_UTM_MIN_ZONE: int = 28
+_ETRS89_UTM_MAX_ZONE: int = 38
+_ETRS89_UTM_NORTH_EPSG_BASE: int = 25800
+
+
+def epsg_label_from_crs(crs: str) -> str:
+    """Derive the tile-dir label from a CRS string: ``'EPSG:25833' -> 'EPSG25833'``.
+
+    The label is the EPSG prefix in ``tile=EPSG{code}_i{i}_j{j}``. It is
+    load-bearing, not cosmetic: the prefix disambiguates tile indices across
+    cities in different UTM zones (Berlin ``i5_j3`` vs Madrid ``i5_j3``). This is
+    the single source so no module re-hardcodes the literal. Backward-compat:
+    ``'EPSG:3414' -> 'EPSG3414'`` (the locked Singapore tile-dir label).
+    """
+    if not crs.startswith("EPSG:"):
+        raise ValueError(f"epsg_label_from_crs: expected 'EPSG:<code>', got {crs!r}")
+    code = crs[len("EPSG:") :]
+    if not code.isdigit():
+        raise ValueError(f"epsg_label_from_crs: non-numeric EPSG code in {crs!r}")
+    return f"EPSG{code}"
+
+
+def utm_epsg_for_centroid(lon: float, lat: float) -> str:
+    """Return the ETRS89/UTM-North EPSG string for a city *centroid*.
+
+    Multi-region policy (PI lock 2026-06-02): one conformal UTM zone PER CITY,
+    chosen from the centroid and applied to ALL of that city's tiles (even tiles
+    spilling past the 6° zone edge stay in the centroid's zone). Conformal
+    (angle-preserving) is required because the shape model is scored on
+    rectilinearity; an equal-area projection would shear right angles.
+
+    Zone = ``int((lon + 180) / 6) + 1`` (half-open lower bound, like the tile
+    grid: a lon exactly on a 6° multiple maps to the higher zone). ETRS89/UTM
+    -North codes are ``25800 + zone``, defined for European zones 28-38.
+
+    Raises ``ValueError`` for coordinates outside the ETRS89 European range
+    (southern hemisphere, or a zone outside 28-38) rather than silently emitting
+    an undefined code. Singapore uses EPSG:3414 and never calls this; this helper
+    only picks the pinned ``projected_crs`` value at region-enrollment time.
+    """
+    if lat < 0:
+        raise ValueError(
+            f"utm_epsg_for_centroid: lat={lat} is southern hemisphere; "
+            "ETRS89/UTM-North policy covers Europe (northern hemisphere) only"
+        )
+    zone = int((lon + 180.0) / 6.0) + 1
+    if not (_ETRS89_UTM_MIN_ZONE <= zone <= _ETRS89_UTM_MAX_ZONE):
+        raise ValueError(
+            f"utm_epsg_for_centroid: lon={lon} -> UTM zone {zone}, outside the "
+            f"ETRS89 European range [{_ETRS89_UTM_MIN_ZONE}, {_ETRS89_UTM_MAX_ZONE}]"
+        )
+    return f"EPSG:{_ETRS89_UTM_NORTH_EPSG_BASE + zone}"
+
+
 def tile_id_from_svy21(x: float, y: float) -> tuple[int, int]:
     """Map an SVY21 (easting, northing) point to its (tile_i, tile_j).
 
