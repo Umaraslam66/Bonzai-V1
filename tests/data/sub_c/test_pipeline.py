@@ -248,6 +248,7 @@ def _make_default_region() -> SimpleNamespace:
         themes=themes,
         admin_polygon=admin,
         geometry=SimpleNamespace(admin_polygon=admin),
+        projected_crs="EPSG:3414",
     )
     return region
 
@@ -548,14 +549,17 @@ def test_pipeline_reproject_runs_before_clip(
     calls: list[str] = []
 
     from cfm.data.sub_c import pipeline as pipeline_mod
+    from cfm.data.sub_c.coords import RegionCoords
 
-    real_reproject = pipeline_mod.reproject_geometry_to_svy21
+    # Reprojection now flows through RegionCoords.reproject_geometry (region-bound),
+    # not a module-level pipeline function — spy on the method.
+    real_reproject = RegionCoords.reproject_geometry
     real_partition = pipeline_mod.partition_into_tiles
     real_clip = pipeline_mod._clip_features_to_admin
 
-    def reproject_spy(geom):
+    def reproject_spy(self, geom):
         calls.append("reproject")
-        return real_reproject(geom)
+        return real_reproject(self, geom)
 
     def clip_spy(*args, **kw):
         calls.append("clip")
@@ -565,7 +569,7 @@ def test_pipeline_reproject_runs_before_clip(
         calls.append("partition_into_tiles")
         return real_partition(*args, **kw)
 
-    monkeypatch.setattr(pipeline_mod, "reproject_geometry_to_svy21", reproject_spy)
+    monkeypatch.setattr(RegionCoords, "reproject_geometry", reproject_spy)
     monkeypatch.setattr(pipeline_mod, "_clip_features_to_admin", clip_spy)
     monkeypatch.setattr(pipeline_mod, "partition_into_tiles", partition_spy)
 

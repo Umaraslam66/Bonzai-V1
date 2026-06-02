@@ -124,8 +124,11 @@ def validate_extraction_cross_tile(region_dir: Path) -> None:
     # compute once before the per-tile loop.
     rotation_external = _rotation_external_tuples()
 
+    # Tile-dir EPSG label from the manifest's region_crs (multi-region).
+    epsg_label = str(manifest["region_crs"]).replace(":", "")
+
     for tile in manifest["tiles"]:
-        tile_dir = region_dir / f"tile=EPSG3414_i{tile['tile_i']}_j{tile['tile_j']}"
+        tile_dir = region_dir / f"tile={epsg_label}_i{tile['tile_i']}_j{tile['tile_j']}"
         prov_path = tile_dir / "provenance.yaml"
         parquet_path = tile_dir / "boundary_contract.parquet"
         tile_coords = (tile["tile_i"], tile["tile_j"])

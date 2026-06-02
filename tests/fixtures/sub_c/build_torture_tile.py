@@ -486,4 +486,5 @@ def build_torture_region() -> SimpleNamespace:
         name="torture_tile_synthetic",
         themes=themes,
         admin_polygon=admin_polygon_4326,
+        projected_crs="EPSG:3414",
     )

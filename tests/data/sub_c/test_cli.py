@@ -173,6 +173,7 @@ def _make_default_region() -> SimpleNamespace:
         name="synthetic_region",
         themes=themes,
         admin_polygon=admin,
+        projected_crs="EPSG:3414",
     )
 
 

@@ -116,6 +116,11 @@ def derive_region(cfg: PipelineConfig) -> None:
     sub_d_manifest = yaml.safe_load((cfg.sub_d_region_dir / "manifest.yaml").read_text())
     sub_d_manifest_sha = _file_sha256(cfg.sub_d_region_dir / "manifest.yaml")
     sub_c_manifest_sha = _file_sha256(cfg.sub_c_region_dir / "manifest.yaml")
+    # region_crs propagates from sub-C through the sub-D manifest; the tile-dir
+    # EPSG label is the colon-stripped CRS (matches sub_d/pipeline.py +
+    # sub_c_reader.py). Multi-region: Singapore EPSG3414, a UTM city EPSG258xx.
+    region_crs = str(sub_d_manifest["region_crs"])
+    epsg_label = region_crs.replace(":", "")
     boundary_vocab_path = (
         Path(__file__).resolve().parents[4]
         / "configs"
@@ -133,8 +138,8 @@ def derive_region(cfg: PipelineConfig) -> None:
     for sub_d_tile in sub_d_manifest["tiles"]:
         tile_i = sub_d_tile["tile_i"]
         tile_j = sub_d_tile["tile_j"]
-        sub_d_tile_dir = cfg.sub_d_region_dir / f"tile=EPSG3414_i{tile_i}_j{tile_j}"
-        sub_c_tile_dir = cfg.sub_c_region_dir / f"tile=EPSG3414_i{tile_i}_j{tile_j}"
+        sub_d_tile_dir = cfg.sub_d_region_dir / f"tile={epsg_label}_i{tile_i}_j{tile_j}"
+        sub_c_tile_dir = cfg.sub_c_region_dir / f"tile={epsg_label}_i{tile_i}_j{tile_j}"
 
         macro_core = read_sub_d_macro_core(sub_d_tile_dir / "macro_core.parquet")
         crossings = read_sub_c_crossings(sub_c_tile_dir / "crossings.parquet")
@@ -147,7 +152,7 @@ def derive_region(cfg: PipelineConfig) -> None:
             lever_3_collapse=cfg.lever_3_collapse,
         )
 
-        out_tile_dir = cfg.output_region_dir / f"tile=EPSG3414_i{tile_i}_j{tile_j}"
+        out_tile_dir = cfg.output_region_dir / f"tile={epsg_label}_i{tile_i}_j{tile_j}"
         out_tile_dir.mkdir(parents=True, exist_ok=True)
         parquet_path = write_boundary_contract(out_tile_dir / "boundary_contract.parquet", rows)
         parquet_sha = _file_sha256(parquet_path)
@@ -220,7 +225,7 @@ def derive_region(cfg: PipelineConfig) -> None:
             sub_e_schema_version=SUB_E_SCHEMA_VERSION,
             release=cfg.release,
             region=cfg.region,
-            region_crs="EPSG:3414",
+            region_crs=region_crs,
             inputs=SubEManifestInputs(
                 sub_c_manifest_sha256=sub_c_manifest_sha,
                 sub_c_region_dir=str(cfg.sub_c_region_dir),

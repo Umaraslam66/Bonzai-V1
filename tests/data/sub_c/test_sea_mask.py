@@ -633,10 +633,15 @@ def test_apply_sea_mask_inland_water_empty_geometry_is_noop():
 # ---------------------------------------------------------------------------
 
 # Import the helpers — they are module-private but tested directly.
+from cfm.data.sub_c.coords import region_coords  # noqa: E402
 from cfm.data.sub_c.pipeline import (  # noqa: E402
     _derive_region_lookup_svy21,
     _lookup_admin_region,
 )
+
+# Singapore-region coords for the admin-region lookup tests (was an implicit
+# module-level SVY21 transformer; now an explicit region-bound RegionCoords).
+_SG_COORDS = region_coords("EPSG:3414")
 
 
 def _make_divisions_table(rows: list[dict]) -> pa.Table:
@@ -685,7 +690,7 @@ def test_derive_region_lookup_filters_subtype_region_and_country():
         },
     ]
     table = _make_divisions_table(rows)
-    lookup = _derive_region_lookup_svy21(table, country_code="SG")
+    lookup = _derive_region_lookup_svy21(table, _SG_COORDS, country_code="SG")
 
     # Should have exactly the 2 SG regions (sorted alphabetically by name).
     assert len(lookup) == 2
@@ -704,7 +709,7 @@ def test_derive_region_lookup_returns_empty_when_no_region_rows():
         },
     ]
     table = _make_divisions_table(rows)
-    lookup = _derive_region_lookup_svy21(table, country_code="SG")
+    lookup = _derive_region_lookup_svy21(table, _SG_COORDS, country_code="SG")
     assert lookup == []
 
 
@@ -762,6 +767,6 @@ def test_derive_region_lookup_sorted_alphabetically_for_determinism():
         },
     ]
     table = _make_divisions_table(rows)
-    lookup = _derive_region_lookup_svy21(table, country_code="SG")
+    lookup = _derive_region_lookup_svy21(table, _SG_COORDS, country_code="SG")
     names = [p[0] for p in lookup]
     assert names == sorted(names), f"Region lookup not alphabetically sorted: {names}"

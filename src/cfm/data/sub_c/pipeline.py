@@ -57,11 +57,12 @@ from shapely.geometry.base import BaseGeometry
 from cfm.data.sub_c.conditioning import compute_conditioning_per_tile
 from cfm.data.sub_c.coords import (
     CELL_SIZE_M,
-    SVY21_EPSG_CODE,
     TILE_SIZE_M,
+    RegionCoords,
     densify_polygon,
+    epsg_label_from_crs,
     partition_into_tiles,
-    reproject_geometry_to_svy21,
+    region_coords,
 )
 from cfm.data.sub_c.determinism import compute_sha256
 from cfm.data.sub_c.enums import FEATURE_CLASS, GEOMETRY_TYPE, encode_enum
@@ -135,6 +136,7 @@ class _RegionLike(Protocol):
 
 def _derive_region_lookup_svy21(
     divisions_theme: pa.Table,
+    coords: RegionCoords,
     country_code: str = "SG",
 ) -> list[tuple[str, BaseGeometry]]:
     """Filter the divisions theme to subtype='region' for a specific country
@@ -179,7 +181,7 @@ def _derive_region_lookup_svy21(
         if name is None or geom_wkb is None:
             continue
         geom_4326 = shapely_wkb.loads(geom_wkb)
-        geom_svy21 = reproject_geometry_to_svy21(geom_4326)
+        geom_svy21 = coords.reproject_geometry(geom_4326)
         pairs.append((str(name), geom_svy21))
 
     # Sort alphabetically for byte-determinism: two regions with the same
@@ -306,13 +308,16 @@ def extract_region(
     # Spec §7.4 + §14.5: computed once in main process; shared input.
     densified_admin_polygon_4326 = densify_polygon(region.admin_polygon, None)
 
-    # ---- 4. Reproject everything to SVY21 -------------------------------
+    # ---- 4. Reproject everything to the region's projected CRS ----------
     # Spec §7.1 + §7.3: reproject first, then clip — so the clip cut-points
-    # are exactly metric-correct in SVY21.
-    sea_polygons_svy21 = reproject_geometry_to_svy21(sea_polygons_4326)
-    inland_water_polygons_svy21 = reproject_geometry_to_svy21(inland_water_polygons_4326)
-    densified_admin_polygon_svy21 = reproject_geometry_to_svy21(densified_admin_polygon_4326)
-    themes_svy21_features = _reproject_and_extract_feature_records(policied_themes)
+    # are exactly metric-correct. One RegionCoords per city (Singapore=EPSG:3414,
+    # a European city = its conformal UTM zone). The *_svy21 names are retained
+    # for continuity but now hold projected-CRS coords for any region.
+    coords = region_coords(region.projected_crs)
+    sea_polygons_svy21 = coords.reproject_geometry(sea_polygons_4326)
+    inland_water_polygons_svy21 = coords.reproject_geometry(inland_water_polygons_4326)
+    densified_admin_polygon_svy21 = coords.reproject_geometry(densified_admin_polygon_4326)
+    themes_svy21_features = _reproject_and_extract_feature_records(policied_themes, coords)
 
     # ---- 4b. Build admin-region lookup for per-tile centroid join (Fix #2)
     # Spec §11.9: admin_region is the second-level admin division (subtype=region)
@@ -323,8 +328,13 @@ def extract_region(
     # subtype='region' in Overture's divisions theme.  If the divisions theme is
     # absent, region_lookup_svy21 is empty and all tiles get admin_region=None.
     if "divisions" in region.themes and region.themes["divisions"].num_rows > 0:
+        # DECISION: country_code is still hardcoded "SG". For a non-SG region this
+        # yields an empty admin-region lookup (all tiles admin_region=None — a
+        # graceful degradation, not a crash). Threading the region's country_code
+        # is a separate Singapore-baked param the Berlin pilot will surface;
+        # revisit when a second region needs its admin_region attribute.
         region_lookup_svy21 = _derive_region_lookup_svy21(
-            region.themes["divisions"], country_code="SG"
+            region.themes["divisions"], coords, country_code="SG"
         )
     else:
         region_lookup_svy21 = []
@@ -381,6 +391,7 @@ def extract_region(
                 inland_water_polygons_svy21_wkb=inland_water_polygons_svy21_wkb,
                 tile_admin_region=tile_admin_region,
                 output_dir=output_dir,
+                region_crs=region.projected_crs,
                 inputs_shared=inputs_shared,
                 commit_sha=commit_sha,
                 extracted_utc=extracted_utc,
@@ -415,7 +426,7 @@ def extract_region(
         sub_c_schema_version=_SUB_C_SCHEMA_VERSION,
         release=release,
         region=region.name,
-        region_crs=f"EPSG:{SVY21_EPSG_CODE}",
+        region_crs=region.projected_crs,
         admin_polygon_source=admin_polygon_source,
         admin_polygon_sha256=admin_polygon_sha256,
         densified_admin_polygon_sha256=densified_admin_polygon_sha256,
@@ -487,6 +498,7 @@ class _TileWorkerArgs:
     inland_water_polygons_svy21_wkb: bytes  # Fix #1
     tile_admin_region: str | None  # Fix #2
     output_dir: Path
+    region_crs: str  # region.projected_crs; derives tile-dir label + provenance crs
     inputs_shared: dict
     commit_sha: str
     extracted_utc: str
@@ -514,6 +526,7 @@ def _extract_one_tile(args: _TileWorkerArgs) -> TileProvenance:
         inland_water_polygons_svy21=inland_water_polygons_svy21,
         tile_admin_region=args.tile_admin_region,
         output_dir=args.output_dir,
+        region_crs=args.region_crs,
         inputs_shared=args.inputs_shared,
         commit_sha=args.commit_sha,
         extracted_utc=args.extracted_utc,
@@ -547,6 +560,7 @@ def _extract_tile(
     inland_water_polygons_svy21: BaseGeometry,
     tile_admin_region: str | None,
     output_dir: Path,
+    region_crs: str,
     inputs_shared: dict,
     commit_sha: str,
     extracted_utc: str,
@@ -562,7 +576,7 @@ def _extract_tile(
     complete (passed inline validator). Cells dropped by §9.2 sea-mask rule
     are NOT in cells.parquet, and their features are NOT in features.parquet.
     """
-    tile_dir = output_dir / f"tile=EPSG3414_i{tile_i}_j{tile_j}"
+    tile_dir = output_dir / f"tile={epsg_label_from_crs(region_crs)}_i{tile_i}_j{tile_j}"
     tile_dir.mkdir(parents=True, exist_ok=True)
 
     # ---- partition_into_cells -------------------------------------------
@@ -796,7 +810,7 @@ def _extract_tile(
         schema_version=_SCHEMA_VERSION,
         tile_i=tile_i,
         tile_j=tile_j,
-        crs=f"EPSG:{SVY21_EPSG_CODE}",
+        crs=region_crs,
         extraction={
             "commit_sha": commit_sha,
             "extracted_utc": extracted_utc,
@@ -817,6 +831,7 @@ def _extract_tile(
 
 def _reproject_and_extract_feature_records(
     policied_themes: dict[str, pa.Table],
+    coords: RegionCoords,
 ) -> list[_FeatureRecord]:
     """Decode WKB geometry from each policied theme, reproject to SVY21, and
     package as a flat list of _FeatureRecord. Order within theme is preserved
@@ -868,7 +883,7 @@ def _reproject_and_extract_feature_records(
             geom_4326 = shapely_wkb.loads(wkb_bytes)
             if geom_4326.is_empty:
                 continue
-            geom_svy21 = reproject_geometry_to_svy21(geom_4326)
+            geom_svy21 = coords.reproject_geometry(geom_4326)
             out.append(
                 _FeatureRecord(
                     geometry=geom_svy21,

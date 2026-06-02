@@ -216,4 +216,5 @@ def build_cross_tile_micro_region() -> SimpleNamespace:
         name="cross_tile_micro_synthetic",
         themes=themes,
         admin_polygon=admin_polygon_4326,
+        projected_crs="EPSG:3414",
     )

@@ -167,16 +167,19 @@ def _build_synthetic_sub_d_and_sub_c(tmp_path: Path) -> Path:
 
     # Minimal sub-C manifest + _SUCCESS.
     (sub_c / "manifest.yaml").write_text(
-        yaml.safe_dump({"region": "singapore", "tiles": sub_c_tile_records})
+        yaml.safe_dump(
+            {"region": "singapore", "region_crs": "EPSG:3414", "tiles": sub_c_tile_records}
+        )
     )
     (sub_c / "_SUCCESS").touch()
 
-    # Minimal sub-D manifest + _SUCCESS. Sub-E's pipeline reads `tiles[]` and
-    # `inputs.sub_c_region_dir`; the rest can be skeletal.
+    # Minimal sub-D manifest + _SUCCESS. Sub-E's pipeline reads `tiles[]`,
+    # `region_crs` (tile-dir label), and `inputs.sub_c_region_dir`; rest skeletal.
     (sub_d / "manifest.yaml").write_text(
         yaml.safe_dump(
             {
                 "region": "singapore",
+                "region_crs": "EPSG:3414",
                 "tiles": sub_d_tile_records,
                 "inputs": {"sub_c_region_dir": str(sub_c)},
             }

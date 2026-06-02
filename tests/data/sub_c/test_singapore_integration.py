@@ -102,6 +102,7 @@ def _build_sub_region(full_region):  # type: ignore[return]
         name=full_region.name,
         themes=full_region.themes,
         admin_polygon=sub_admin_4326,
+        projected_crs=full_region.projected_crs,
     )
 
 
