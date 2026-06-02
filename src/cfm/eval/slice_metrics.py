@@ -64,17 +64,21 @@ def _corner_angles_deg(ring: list[list[float]]) -> list[float]:
     return angles
 
 
-def _right_angle_rate(geoms: list[dict[str, Any]]) -> float:
-    """Fraction of polygon corners within tolerance of 90 degrees. 0.0 when there
-    are no polygon corners to measure."""
+def _right_angle_stats(geoms: list[dict[str, Any]]) -> tuple[float, int, int]:
+    """Return (right_angle_rate, n_polygons, n_corners). The rate is the fraction of
+    polygon corners within tolerance of 90 degrees, or 0.0 when there are no polygon
+    corners — so a 0.0 with n_polygons==0 means 'no polygons emitted' (not 'polygons
+    with no right angles'). Reporting the counts makes that distinction explicit."""
+    rings = _polygon_rings(geoms)
     total = 0
     right = 0
-    for ring in _polygon_rings(geoms):
+    for ring in rings:
         for ang in _corner_angles_deg(ring):
             total += 1
             if abs(ang - 90.0) <= _RIGHT_ANGLE_TOL_DEG:
                 right += 1
-    return right / total if total else 0.0
+    rate = right / total if total else 0.0
+    return rate, len(rings), total
 
 
 def slice_eval(
@@ -107,13 +111,16 @@ def slice_eval(
             gated_valid += 1
 
     bref = _bref_rate_fn(blocks, geoms, strata)  # shared instrument; reported-not-gated
+    right_angle_rate, n_polygons, n_corners = _right_angle_stats(geoms)
 
     return {
         "decodability_rate": n_decoded / attempted if attempted else 0.0,
         "ogc_valid_rate": gated_valid / gated_total if gated_total else 0.0,
-        "right_angle_rate": _right_angle_rate(geoms),
+        "right_angle_rate": right_angle_rate,
         "bref_collapse_rate": bref.overall_rate,  # REPORTED, never gates pass/fail
         "n_decoded": n_decoded,
         "n_attempted": attempted,
+        "n_polygons": n_polygons,  # disambiguates right_angle_rate==0.0
+        "n_corners": n_corners,
         "scope": "per-cell; tile-coherence UNSCORED",
     }

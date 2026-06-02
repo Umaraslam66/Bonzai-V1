@@ -48,6 +48,16 @@ def test_square_is_valid_with_right_angles():
     assert r["ogc_valid_rate"] == 1.0
     assert r["right_angle_rate"] == 1.0  # all 4 corners ~90 degrees
     assert r["bref_collapse_rate"] == 0.0
+    assert r["n_polygons"] == 1 and r["n_corners"] == 4  # disambiguates a 0.0 rate
+
+
+def test_right_angle_rate_zero_disambiguated_by_polygon_count():
+    """A LineString-only cell -> right_angle_rate 0.0 with n_polygons==0, i.e.
+    'no polygons emitted', NOT 'polygons without right angles'."""
+    line = {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}
+    r = S.slice_eval([_SQUARE_BLOCK], [line], [1])
+    assert r["right_angle_rate"] == 0.0
+    assert r["n_polygons"] == 0 and r["n_corners"] == 0
 
 
 def test_bref_collapse_excluded_from_ogc_valid_denominator():
