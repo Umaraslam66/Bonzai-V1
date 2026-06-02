@@ -63,18 +63,18 @@ Tasks 1–3 (eval machinery) and Tasks 6 (conditioning) may be built in parallel
 
 - [ ] **Step 1: Write the failing test for building-token detection**
 
-The building-token authority is the `B_` tag prefix (sub-F `vocab.py`; `semantic_tag_to_l1_key`, `ROAD_L1_KEY="highway"`). Detection must be by the vocab tag, not a magic id range.
+**CONTRACT CORRECTION (verified 2026-06-02 against the real sub-F vocab — §15 regime-transfer catch).** The exploration agent reported a `B_` tag prefix; that is the *raw Phase-0* `vocab_phase1.yaml` scheme, NOT the sealed sub-F vocab. `vocab_tag_to_id()` has **zero `B_` tags** — its building tags are `<key=value>` form with **L1 key `building`** (77 tags incl. the unknown-family `<unknown_building>`), exactly parallel to `ROAD_L1_KEY="highway"`. The authority is `semantic_tag_to_l1_key(tag) == "building"` (verified: 77 ids, raises on none of the 686 tags, zero road overlap). Detect by the L1 key, never a string prefix.
 
 ```python
 # tests/eval/test_emergence.py
-from cfm.data.sub_f.vocab import vocab_tag_to_id
-from cfm.eval.emergence import sequence_has_building_tokens, building_token_ids
+from cfm.data.sub_f.vocab import vocab_tag_to_id, semantic_tag_to_l1_key
+from cfm.eval.emergence import sequence_has_building_tokens, building_token_ids, BUILDING_L1_KEY
 
-def test_building_token_ids_are_the_B_prefixed_tags():
+def test_building_token_ids_are_the_building_l1_key_tags():
     vocab = vocab_tag_to_id()
-    expected = {i for tag, i in vocab.items() if tag.startswith("B_")}
+    expected = {i for tag, i in vocab.items() if semantic_tag_to_l1_key(tag) == BUILDING_L1_KEY}
     assert building_token_ids() == expected
-    assert len(expected) > 0  # non-vacuous: building tags exist
+    assert len(expected) == 77  # verified count against the sealed sub-F vocab
 
 def test_sequence_with_a_building_token_is_detected():
     a_building_id = min(building_token_ids())
@@ -95,15 +95,20 @@ from __future__ import annotations
 
 from functools import cache
 
-from cfm.data.sub_f.vocab import vocab_tag_to_id
+from cfm.data.sub_f.vocab import semantic_tag_to_l1_key, vocab_tag_to_id
 
-_BUILDING_TAG_PREFIX = "B_"  # sub-F building feature-class tags; authority = vocab tag, not id range
+# Authority for "is this a building feature token": the BP1 L1 key, parallel to
+# ROAD_L1_KEY="highway". Covers building=* / building=<value> AND the unknown-family
+# <unknown_building>. Verified against the sealed sub-F vocab (77 ids). NOT a string prefix.
+BUILDING_L1_KEY = "building"
 
 
 @cache
 def building_token_ids() -> frozenset[int]:
-    """Token ids whose sub-F tag is a building feature-class tag (``B_`` prefix)."""
-    return frozenset(i for tag, i in vocab_tag_to_id().items() if tag.startswith(_BUILDING_TAG_PREFIX))
+    """Token ids whose sub-F tag resolves to the ``building`` BP1 L1 key."""
+    return frozenset(
+        i for tag, i in vocab_tag_to_id().items() if semantic_tag_to_l1_key(tag) == BUILDING_L1_KEY
+    )
 
 
 def sequence_has_building_tokens(tokens: list[int]) -> bool:
