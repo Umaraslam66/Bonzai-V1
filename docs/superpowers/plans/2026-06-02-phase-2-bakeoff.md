@@ -8,7 +8,7 @@
 
 **Architecture:** A shared, identity-locked scaffold (embedding + value-bearing conditioning prefix + sub-F vocab head 1508 + training harness + eval) with a swappable backbone. Three backbones differ only in their sequence-mixing layers (+ diffusion's quarantined loss/generation/mask). Decision axis = a per-feature geometry-realism KS distance on decoded output (architecture-agnostic; NLL is an AR-family-only diagnostic). Eval (autoregressive generation) is the binding cost; training is ~7.6× under the PRD envelope.
 
-**Tech Stack:** PyTorch 2.5.1+cu121, Lightning 2.6.5, pydantic 2.13.4 (the locked comparability stack); `mamba-ssm`/`causal-conv1d` (new, verify-before-lock); `scipy.stats` (new, eval-only, pinned but OUT of the training comparability lock — mirrors the tensorboard precedent); Slurm `boost_usr_prod` / `AIFAC_P02_222` on 4×A100 nodes.
+**Tech Stack:** PyTorch 2.5.1+cu121, Lightning 2.6.5, pydantic 2.13.4 (the locked comparability stack); `mamba-ssm`/`causal-conv1d` (new, verify-before-lock); `shapely` (already a dep) for geometry; the per-feature KS statistic is hand-rolled (no scipy — see Task 2 Step 8); Slurm `boost_usr_prod` / `AIFAC_P02_222` on 4×A100 nodes.
 
 **Spec:** `docs/superpowers/specs/2026-06-02-phase-2-bakeoff-design.md` (this plan implements its §14 task matrix; task→spec mapping noted per task).
 
@@ -282,48 +282,15 @@ def test_ks_distance_is_zero_for_identical_distributions_and_grows_with_divergen
 
 - [ ] **Step 7: Run to verify fail** — FAIL (module missing).
 
-- [ ] **Step 8: Implement `realism.py`** with shapely area/length extraction and `scipy.stats.ks_2samp(...).statistic`:
+- [ ] **Step 8: Implement `realism.py`** with shapely area/length extraction and a **hand-rolled two-sample KS statistic** (`D = max_x |F_gen(x) - F_ref(x)|` via `bisect` over the empirical CDFs). **DECISION (refinement during execution): NO scipy dependency** — the existing codebase computes KS quantities without scipy (`holdout/sizing.py`'s `1.358·√(2/n)`), the statistic is ~10 lines, and adding scipy would be a new heavyweight dependency to install on Leonardo. Default-to-simplicity + codebase precedent. (Empty either sample → 1.0, maximally far.)
 
-```python
-# src/cfm/eval/realism.py
-from __future__ import annotations
-
-from enum import Enum
-
-from scipy.stats import ks_2samp
-from shapely.geometry import shape
-
-
-class FeatureMetric(Enum):
-    BUILDING_AREA = "building_area_m2"
-    ROAD_LENGTH = "road_length_m"
-
-
-def feature_samples(geoms: list[dict], *, metric: FeatureMetric) -> list[float]:
-    out: list[float] = []
-    for g in geoms:
-        geom = shape(g)
-        if metric is FeatureMetric.BUILDING_AREA and geom.geom_type in ("Polygon", "MultiPolygon"):
-            out.append(float(geom.area))
-        elif metric is FeatureMetric.ROAD_LENGTH and geom.geom_type in ("LineString", "MultiLineString"):
-            out.append(float(geom.length))
-    return out
-
-
-def ks_distance(generated: list[float], reference: list[float]) -> float:
-    """Two-sample KS statistic in [0, 1]; 0 = identical distributions. Decision-axis y (§7)."""
-    if not generated or not reference:
-        return 1.0  # no overlap to compare -> maximally far
-    return float(ks_2samp(generated, reference).statistic)
-```
-
-- [ ] **Step 9: Add `scipy` to `pyproject.toml`** (eval-only; pin it; do NOT add to `env_lock._EXPECTED` — it is not a training-comparability dependency, mirroring the tensorboard-out-of-lock precedent). Run `uv sync --extra dev`.
+- [ ] **Step 9: (no dependency change)** — KS is hand-rolled, so `pyproject.toml`/`uv.lock` are untouched and there is no Leonardo install to manage. The tensorboard-out-of-lock precedent is moot here (nothing added to `env_lock._EXPECTED`).
 
 - [ ] **Step 10: Run + commit**
 
 ```bash
 uv run pytest tests/eval/test_realism.py -v
-git add src/cfm/eval/realism.py tests/eval/test_realism.py pyproject.toml uv.lock
+git add src/cfm/eval/realism.py tests/eval/test_realism.py
 git commit -m "feat(bakeoff): per-feature geometry-realism KS distance (building-area, road-length)"
 ```
 
