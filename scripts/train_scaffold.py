@@ -68,20 +68,36 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
 
 
 def _generate_and_score(
-    model: ScaffoldLit, cfg: ScaffoldConfig, *, n_cells: int, max_new: int
+    model: ScaffoldLit,
+    cfg: ScaffoldConfig,
+    *,
+    n_cells: int,
+    max_new: int,
+    emergence_floor_per_cell: float | None = None,
 ) -> dict:
     """Generate cells from the conditioning prefix, decode via the sealed decoder,
     and score the per-cell slice metrics (decoded / attempted; OGC validity; 90-corner;
-    bref-collapse via the shared instrument). One real per-cell number for the loop."""
+    bref-collapse via the shared instrument). One real per-cell number for the loop.
+
+    Diagnostic instrumentation (bake-off Task 4): counts building-token presence in the
+    GENERATED streams (the §5 stage-1 truncation discriminator -- did the model emit
+    building-class tokens at all, vs they didn't close into polygons), and passes
+    ``n_cells`` + ``emergence_floor_per_cell`` so slice_eval emits the §2 emergence verdict.
+    """
+    from cfm.eval.emergence import sequence_has_building_tokens
+
     prefix = build_conditioning_prefix()
     blocks: list[list[int]] = []
     geoms: list[dict] = []
     strata: list[int] = []
     n_attempted = 0
+    n_cells_with_building_tokens = 0
     for i in range(n_cells):
         tokens = generate_cell_tokens(
             model.model, prefix=prefix, max_new=max_new, seed=cfg.seed + i
         )
+        if sequence_has_building_tokens(tokens):
+            n_cells_with_building_tokens += 1
         cell_blocks = split_cell_into_features(tokens)
         n_attempted += len(cell_blocks)
         for block in cell_blocks:
@@ -90,7 +106,19 @@ def _generate_and_score(
                 blocks.append(block)
                 geoms.append(decoded)
                 strata.append(0)  # single stratum: conditioning is value-agnostic in slice v1
-    return slice_eval(blocks, geoms, strata, n_attempted_blocks=n_attempted)
+    metrics = slice_eval(
+        blocks,
+        geoms,
+        strata,
+        n_attempted_blocks=n_attempted,
+        n_cells=n_cells,
+        emergence_floor_per_cell=emergence_floor_per_cell,
+    )
+    # stage-1 truncation discriminator: NO building tokens => never tried / truncated;
+    # building tokens present but n_polygons low => didn't close (a different cause).
+    metrics["n_cells_generated"] = n_cells
+    metrics["n_cells_with_building_tokens"] = n_cells_with_building_tokens
+    return metrics
 
 
 def run_smoke(devices: int = 4) -> dict:
@@ -214,21 +242,12 @@ def _cost(cfg: ScaffoldConfig, *, fit_seconds: float, steps: int) -> dict:
 
 
 def _param_count(cfg: ScaffoldConfig) -> int:
-    from cfm.data.sub_f.vocab import vocab_tag_to_id
-    from cfm.data.training.conditioning import conditioning_field_to_id
-    from cfm.models.micro_ar import MicroAR, MicroARConfig
+    # Use the ONE backbone factory so the count matches the real model (value-bearing
+    # embedding span = conditioning_id_span(), not the 8-field count -- the build_backbone
+    # sizing, Task 7). Reconstructing MicroAR by hand here would drift.
+    from cfm.models.backbone import build_backbone
 
-    n_subf = max(vocab_tag_to_id().values()) + 1
-    m = MicroAR(
-        MicroARConfig(
-            d_model=cfg.d_model,
-            n_layers=cfg.n_layers,
-            n_heads=cfg.n_heads,
-            n_subf_vocab=n_subf,
-            n_cond=len(conditioning_field_to_id()),
-            max_len=cfg.max_len + len(conditioning_field_to_id()),
-        )
-    )
+    m = build_backbone(cfg.backbone, cfg)
     return sum(p.numel() for p in m.parameters())
 
 
@@ -239,6 +258,8 @@ def run_short(
     max_time: str | None = None,
     eval_cells: int = 64,
     eval_max_new: int = 512,
+    emergence_floor_per_cell: float | None = None,
+    ckpt_every_n_steps: int | None = None,
 ) -> dict:
     """The real pre-deadline run (Leonardo 4xA100). Trains for cfg.max_steps (or until
     ``max_time`` wall-clock, used by the scale-up probe), evals once, writes the
@@ -254,7 +275,7 @@ def run_short(
 
     dm = _datamodule(cfg, build=build_shards)
     lit = maybe_compile(ScaffoldLit(cfg), cfg)
-    trainer = build_trainer(cfg, max_time=max_time)
+    trainer = build_trainer(cfg, max_time=max_time, ckpt_every_n_steps=ckpt_every_n_steps)
     t0 = time.time()
     trainer.fit(lit, dm)
     fit_seconds = time.time() - t0
@@ -264,7 +285,20 @@ def run_short(
     if not trainer.is_global_zero:
         return {"trained_steps": int(trainer.global_step)}
     cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step))
-    metrics = _generate_and_score(lit, cfg, n_cells=eval_cells, max_new=eval_max_new)
+    # Time the eval EXPLICITLY: autoregressive generation is the binding bake-off cost,
+    # so price it rather than assume it is free (the eval-cost reframe).
+    e0 = time.time()
+    metrics = _generate_and_score(
+        lit,
+        cfg,
+        n_cells=eval_cells,
+        max_new=eval_max_new,
+        emergence_floor_per_cell=emergence_floor_per_cell,
+    )
+    eval_seconds = time.time() - e0
+    cost["eval_seconds"] = round(eval_seconds, 1)
+    cost["eval_node_h"] = round(eval_seconds / 3600.0, 4)
+    cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, eval_cells), 6)
     report = _write_report(cfg, metrics, trained_steps=int(trainer.global_step), cost=cost)
     logger.info("wrote %s", report)
     return {
@@ -315,6 +349,19 @@ def main() -> None:
         action="store_true",
         help="DDP: manifest already built by the sbatch preamble; ranks only read it",
     )
+    parser.add_argument(
+        "--emergence-floor",
+        type=float,
+        default=None,
+        help="emergence floor (polys/active-cell) for the §2 verdict; diagnostic: 1.96 "
+        "(0.25x the real holdout density 7.85)",
+    )
+    parser.add_argument(
+        "--ckpt-every-n-steps",
+        type=int,
+        default=None,
+        help="save step-interval checkpoints (diagnostic: for the emergence-vs-step trajectory)",
+    )
     args = parser.parse_args()
     if args.smoke:
         print(json.dumps(run_smoke(devices=args.devices)))
@@ -340,6 +387,8 @@ def main() -> None:
         max_time=args.max_time,
         eval_cells=args.eval_cells,
         eval_max_new=args.eval_max_new,
+        emergence_floor_per_cell=args.emergence_floor,
+        ckpt_every_n_steps=args.ckpt_every_n_steps,
     )
     print(json.dumps(result, default=str))
 

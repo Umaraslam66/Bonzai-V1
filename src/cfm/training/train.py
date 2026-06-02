@@ -68,6 +68,7 @@ def build_trainer(
     limit_train_batches: int | float | None = None,
     default_root_dir: str | None = None,
     max_time: str | None = None,
+    ckpt_every_n_steps: int | None = None,
 ) -> L.Trainer:
     """Construct the Trainer. ``accelerator="cpu"`` (tests / login node) downgrades
     precision to fp32 and strategy to single-process; the real run uses cfg's
@@ -90,6 +91,17 @@ def build_trainer(
         monitor="val_loss",  # internal val split ONLY; never the holdout
     )
     callbacks: list[Callback] = [checkpoint]
+    if ckpt_every_n_steps:
+        # Step-interval checkpoints (save ALL) for the diagnostic's emergence-vs-step
+        # trajectory: evaluated post-hoc (Task 4 trajectory follow-on), so generation
+        # never runs mid-DDP-training (avoids the rank-0-only-work hazard).
+        callbacks.append(
+            ModelCheckpoint(
+                every_n_train_steps=ckpt_every_n_steps,
+                save_top_k=-1,
+                filename="step{step}",
+            )
+        )
     if cfg.devices > 1:
         callbacks.append(WorldSizeGuard(cfg.devices))  # non-vacuous DDP guard
 
