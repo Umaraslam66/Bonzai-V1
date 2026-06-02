@@ -40,6 +40,9 @@ trap 'echo "USR1: wall-clock approaching; resubmitting for across-job resume"; s
 # Pre-build the manifest ONCE (single process) before the DDP ranks read it (no write race).
 python -c "from cfm.data.training.build_shards import build_training_shards as b; b('2026-04-15.0','singapore')"
 
+# TODO(Task 12): --config is NOT wired yet (no per-run yaml loader on the CLI; see the
+# xfail in tests/training/test_cli_contract.py). Task 12 either adds a --config loader OR
+# expands this to individual --d-model/--n-layers/... flags like bakeoff_diagnostic.sbatch.
 # The per-run config (configs/experiments/bakeoff-$BACKBONE-$SCALE.yaml) carries r-derived
 # max_steps, the locked recipe, grad_accum, and the $WORK checkpoint dir; run_short resumes
 # from resume_ckpt_path() and checkpoints to work_checkpoint_dir(BACKBONE, SCALE).

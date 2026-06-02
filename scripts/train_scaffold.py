@@ -309,11 +309,15 @@ def run_short(
     }
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO)
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Phase-1 training scaffold runner")
     parser.add_argument("--smoke", action="store_true", help="tiny loop-closing smoke")
     parser.add_argument("--devices", type=int, default=4, help="DDP devices (Leonardo node = 4)")
+    parser.add_argument(
+        "--backbone",
+        default=None,
+        help="bake-off backbone: transformer-ar (default) | mamba-hybrid | discrete-diffusion",
+    )
     parser.add_argument(
         "--max-steps", type=int, default=None, help="override ScaffoldConfig.max_steps"
     )
@@ -362,12 +366,18 @@ def main() -> None:
         default=None,
         help="save step-interval checkpoints (diagnostic: for the emergence-vs-step trajectory)",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    args = _build_parser().parse_args()
     if args.smoke:
         print(json.dumps(run_smoke(devices=args.devices)))
         return
     overrides: dict = {"devices": args.devices, "accelerator": _accelerator_for(args.devices)}
     for flag, key in [
+        ("backbone", "backbone"),
         ("max_steps", "max_steps"),
         ("max_len", "max_len"),
         ("d_model", "d_model"),
