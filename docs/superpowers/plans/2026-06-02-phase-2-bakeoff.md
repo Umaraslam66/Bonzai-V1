@@ -387,7 +387,11 @@ def test_last_place_tie_does_not_fire_the_seam():
 
 - [ ] **Step 5: Implement `check_decision_resolvable`** — compute the gap between the best (`ranked_scores[0]`) and second-best (`ranked_scores[1]`) only; raise `DecisionUnresolvable` if `< binding_gap`. Ignore all other pairs.
 
-- [ ] **Step 6: Failing test — feed REAL pairwise gaps + escalate via the existing seam.** Wire `check_decision_resolvable` to also call the existing `cfm.eval.resolution.assert_resolution_sufficient(needed_gap=winner_runnerup_gap, ...)` so the second-region/floor escalation messages (already built) fire with the right `needed_gap`. Test that a winner-runner-up gap below the marker's resolved gap raises the existing `InsufficientResolutionError` with the second-region message.
+- [ ] **Step 6: 3-tier escalation, native to the per-feature unit (DECISION, locked with PI).** The bake-off's generated eval is NOT write-once (unlike the eval-set), so a too-fine gap has a cheap escalation before second-region: **generate more eval cells** (tightens `1.358·√(2/n)`). Escalation tiers, with the **fixed holdout-reference feature count** as the tier-2/3 floor (KS is two-sample; the reference can't be enlarged, so as generated→∞ the gap asymptotes to `1.358/√(n_ref)`):
+  - `gap ≥ current binding gap` → **RESOLVED** (decide).
+  - `floor ≤ gap < binding` → **GENERATE_MORE_CELLS**: compute the n_cells that resolves THIS gap **once** (`n_features = ⌈2·(1.358/gap)²⌉`, `n_cells = ⌈n_features/features_per_cell⌉`) — **not a loop**; and tier-2 generation **reuses the §4 locked eval content** (same conditioning/seeds/holdout — "more of the same," never a faster variant), or the tightened gap measures a different distribution than the one being ranked.
+  - `gap < floor` → **SECOND_REGION** (fundamental — no number of generated cells beats the fixed reference). **Termination guard:** if the n_cells a tier-2 gap would need implies a gap already below the floor, skip generation and go straight to tier 3 (don't burn eval budget chasing an unreachable gap).
+  - `check_decision_resolvable` owns the per-feature gate **natively** — it does NOT call the per-cell `assert_resolution_sufficient` (that compares against the per-cell 0.076 marker — the §8 unit-inheritance trap). `assert_resolution_sufficient` stays the frozen-SET representativeness seam, a different question.
 
 - [ ] **Step 7: Run + commit**
 
