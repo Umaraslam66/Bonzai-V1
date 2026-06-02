@@ -67,6 +67,7 @@ def build_trainer(
     max_epochs: int | None = None,
     limit_train_batches: int | float | None = None,
     default_root_dir: str | None = None,
+    max_time: str | None = None,
 ) -> L.Trainer:
     """Construct the Trainer. ``accelerator="cpu"`` (tests / login node) downgrades
     precision to fp32 and strategy to single-process; the real run uses cfg's
@@ -74,7 +75,9 @@ def build_trainer(
 
     ``max_epochs`` (+ optional ``limit_train_batches``) switches from the default
     step-budget to an epoch budget — used by the bit-identical resume check, which
-    resumes at an epoch boundary."""
+    resumes at an epoch boundary. ``max_time`` ("DD:HH:MM:SS") wall-clock-bounds the
+    run regardless of step count — the scale-up probe uses it so it always yields a
+    per-step cost number rather than timing out mid-step."""
     L.seed_everything(cfg.seed, workers=True)
 
     on_gpu = cfg.accelerator == "gpu"
@@ -96,6 +99,7 @@ def build_trainer(
         devices=cfg.devices,
         strategy=strategy,
         precision=precision,
+        max_time=max_time,
         max_steps=-1 if epoch_mode else cfg.max_steps,
         max_epochs=max_epochs,
         limit_train_batches=limit_train_batches,

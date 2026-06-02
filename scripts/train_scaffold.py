@@ -17,6 +17,7 @@ import json
 import logging
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import torch
@@ -132,11 +133,14 @@ def _git_commit() -> str:
         return "unknown"
 
 
-def _write_report(cfg: ScaffoldConfig, metrics: dict, *, trained_steps: int) -> Path:
+def _write_report(
+    cfg: ScaffoldConfig, metrics: dict, *, trained_steps: int, cost: dict | None = None
+) -> Path:
     out_dir = Path("reports/phase-1-training-scaffold")
     out_dir.mkdir(parents=True, exist_ok=True)
     marker = eval_set_locked_marker(cfg.release)
-    report = out_dir / f"{cfg.release}-{cfg.region}-loop-closed.md"
+    suffix = f"-scaleup-{cost['n_params_M']:.0f}M" if cost else ""
+    report = out_dir / f"{cfg.release}-{cfg.region}-loop-closed{suffix}.md"
     lines = [
         f"# Phase-1 training scaffold — loop closed on {cfg.region}",
         "",
@@ -149,6 +153,19 @@ def _write_report(cfg: ScaffoldConfig, metrics: dict, *, trained_steps: int) -> 
         json.dumps(cfg.model_dump(), indent=2, sort_keys=True),
         "```",
         "",
+    ]
+    if cost is not None:
+        lines += [
+            "## Cost / throughput (scale-up probe — bake-off sizing)",
+            "Per-step node-h measured on 4xA100; warmup INCLUDED (conservative). Use",
+            "`est_node_h_12_runs` vs `prd_bakeoff_budget_node_h` to confirm the 4x3",
+            "bake-off at this top scale fits the PRD envelope.",
+            "```json",
+            json.dumps(cost, indent=2, sort_keys=True),
+            "```",
+            "",
+        ]
+    lines += [
         "## Per-cell slice metrics (REPORTED, not gated)",
         "```json",
         json.dumps(metrics, indent=2, sort_keys=True),
@@ -166,9 +183,56 @@ def _write_report(cfg: ScaffoldConfig, metrics: dict, *, trained_steps: int) -> 
     return report
 
 
-def run_short(cfg: ScaffoldConfig | None = None, *, build_shards: bool = True) -> dict:
-    """The real pre-deadline run (Leonardo 4xA100). Trains for cfg.max_steps, evals
-    once, writes the reports/ summary. ``build_shards=False`` for DDP runs whose
+def _cost(cfg: ScaffoldConfig, *, fit_seconds: float, steps: int) -> dict:
+    """Per-run cost from wall-clock x the whole 4-GPU node. node-h is wall-hours
+    (1 Booster node billed whole). Warmup (torch.compile) is INCLUDED -> a
+    conservative (over-)estimate, the safe direction for budgeting. Extrapolates a
+    full bake-off run + the 12-run total vs the PRD's ~375 node-h (1500 GPU-h) budget."""
+    node_h = fit_seconds / 3600.0  # 1 node occupied for the wall duration
+    per_step_node_h = node_h / steps if steps else 0.0
+    full_run_steps = 10_000  # illustrative bake-off per-run length (identical-compute bake-off)
+    full_run_node_h = per_step_node_h * full_run_steps
+    return {
+        "n_params_M": round(_param_count(cfg) / 1e6, 1),
+        "fit_seconds": round(fit_seconds, 1),
+        "steps_completed": steps,
+        "steps_per_sec": round(steps / fit_seconds, 3) if fit_seconds else 0.0,
+        "per_step_node_h": round(per_step_node_h, 6),
+        "est_node_h_per_10k_step_run": round(full_run_node_h, 2),
+        "est_node_h_12_runs": round(full_run_node_h * 12, 1),
+        "prd_bakeoff_budget_node_h": 375,  # PRD §6.4: ~1500 GPU-h / 4 GPU-per-node
+        "warmup_included": True,
+    }
+
+
+def _param_count(cfg: ScaffoldConfig) -> int:
+    from cfm.data.sub_f.vocab import vocab_tag_to_id
+    from cfm.data.training.conditioning import conditioning_field_to_id
+    from cfm.models.micro_ar import MicroAR, MicroARConfig
+
+    n_subf = max(vocab_tag_to_id().values()) + 1
+    m = MicroAR(
+        MicroARConfig(
+            d_model=cfg.d_model,
+            n_layers=cfg.n_layers,
+            n_heads=cfg.n_heads,
+            n_subf_vocab=n_subf,
+            n_cond=len(conditioning_field_to_id()),
+            max_len=cfg.max_len + len(conditioning_field_to_id()),
+        )
+    )
+    return sum(p.numel() for p in m.parameters())
+
+
+def run_short(
+    cfg: ScaffoldConfig | None = None,
+    *,
+    build_shards: bool = True,
+    max_time: str | None = None,
+) -> dict:
+    """The real pre-deadline run (Leonardo 4xA100). Trains for cfg.max_steps (or until
+    ``max_time`` wall-clock, used by the scale-up probe), evals once, writes the
+    reports/ summary with per-run cost. ``build_shards=False`` for DDP runs whose
     manifest the sbatch preamble already built."""
     cfg = cfg or ScaffoldConfig()
     if cfg.accelerator == "gpu":
@@ -176,17 +240,25 @@ def run_short(cfg: ScaffoldConfig | None = None, *, build_shards: bool = True) -
 
     dm = _datamodule(cfg, build=build_shards)
     lit = maybe_compile(ScaffoldLit(cfg), cfg)
-    trainer = build_trainer(cfg)
+    trainer = build_trainer(cfg, max_time=max_time)
+    t0 = time.time()
     trainer.fit(lit, dm)
+    fit_seconds = time.time() - t0
 
     # Eval + report on the global-zero rank only: the model is DDP-synced, so rank 0
     # is representative, and only one process must write the report file.
     if not trainer.is_global_zero:
         return {"trained_steps": int(trainer.global_step)}
+    cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step))
     metrics = _generate_and_score(lit, cfg, n_cells=64, max_new=512)
-    report = _write_report(cfg, metrics, trained_steps=int(trainer.global_step))
+    report = _write_report(cfg, metrics, trained_steps=int(trainer.global_step), cost=cost)
     logger.info("wrote %s", report)
-    return {"trained_steps": int(trainer.global_step), "metrics": metrics, "report": str(report)}
+    return {
+        "trained_steps": int(trainer.global_step),
+        "metrics": metrics,
+        "cost": cost,
+        "report": str(report),
+    }
 
 
 def main() -> None:
@@ -198,6 +270,19 @@ def main() -> None:
         "--max-steps", type=int, default=None, help="override ScaffoldConfig.max_steps"
     )
     parser.add_argument("--max-len", type=int, default=None, help="override cell-token budget")
+    parser.add_argument("--d-model", type=int, default=None, help="scale-up: model width")
+    parser.add_argument("--n-layers", type=int, default=None, help="scale-up: depth")
+    parser.add_argument("--n-heads", type=int, default=None, help="scale-up: attention heads")
+    parser.add_argument("--batch-size", type=int, default=None, help="per-GPU batch size")
+    parser.add_argument(
+        "--no-compile",
+        action="store_true",
+        help="disable torch.compile (probe: avoids variable-shape recompilation; cost becomes a "
+        "conservative over-estimate vs the compile-on bake-off)",
+    )
+    parser.add_argument(
+        "--max-time", default=None, help="wall budget DD:HH:MM:SS (scale-up probe; bounds the run)"
+    )
     parser.add_argument(
         "--no-build",
         action="store_true",
@@ -207,12 +292,23 @@ def main() -> None:
     if args.smoke:
         print(json.dumps(run_smoke(devices=args.devices)))
         return
-    overrides = {"devices": args.devices, "accelerator": _accelerator_for(args.devices)}
-    if args.max_steps is not None:
-        overrides["max_steps"] = args.max_steps
-    if args.max_len is not None:
-        overrides["max_len"] = args.max_len
-    result = run_short(ScaffoldConfig(**overrides), build_shards=not args.no_build)
+    overrides: dict = {"devices": args.devices, "accelerator": _accelerator_for(args.devices)}
+    for flag, key in [
+        ("max_steps", "max_steps"),
+        ("max_len", "max_len"),
+        ("d_model", "d_model"),
+        ("n_layers", "n_layers"),
+        ("n_heads", "n_heads"),
+        ("batch_size", "batch_size"),
+    ]:
+        val = getattr(args, flag)
+        if val is not None:
+            overrides[key] = val
+    if args.no_compile:
+        overrides["compile"] = False
+    result = run_short(
+        ScaffoldConfig(**overrides), build_shards=not args.no_build, max_time=args.max_time
+    )
     print(json.dumps(result, default=str))
 
 
