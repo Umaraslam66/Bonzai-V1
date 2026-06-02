@@ -11,6 +11,7 @@ Per spec §7:
 from __future__ import annotations
 
 import math
+from functools import cache
 
 import pyproj
 from shapely.geometry.base import BaseGeometry
@@ -21,29 +22,73 @@ TILE_SIZE_M: int = 2000  # per spec §7.2
 CELL_SIZE_M: int = 250  # per spec §7.2 (8x8 grid per tile)
 
 
-# Reusable transformer; constructed once at module import for determinism.
-_TRANSFORMER_4326_TO_SVY21 = pyproj.Transformer.from_crs(
-    "EPSG:4326", f"EPSG:{SVY21_EPSG_CODE}", always_xy=True
-)
+@cache
+def _transformer_for_crs(crs: str) -> pyproj.Transformer:
+    """One pyproj transformer per target CRS, constructed exactly once.
+
+    Cached so every caller for a given CRS shares this exact object — the single
+    coordinate authority for that CRS. Determinism: pyproj.Transformer for a
+    conformal (Transverse Mercator / UTM) projection with no datum grid is a
+    closed-form formula; output is byte-deterministic given fixed input
+    (spec §14.1). Construct-once also preserves the original module-load
+    determinism guarantee.
+    """
+    return pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+
+
+class RegionCoords:
+    """Region-bound EPSG:4326 -> projected-CRS reprojection.
+
+    Built once per city from its ``projected_crs`` (multi-region policy: one
+    conformal UTM zone per city, see ``utm_epsg_for_centroid``). All of a city's
+    reprojection routes through this one object. The grid/tile/cell math
+    (``tile_id_from_svy21``, ``cell_id_within_tile``, ``partition_into_tiles``)
+    is CRS-agnostic metre arithmetic and stays as module functions — only the
+    4326->projected transformer is CRS-bound.
+    """
+
+    def __init__(self, crs: str) -> None:
+        self.crs = crs
+        self._transformer = _transformer_for_crs(crs)
+
+    def reproject_lonlat(self, lon: float, lat: float) -> tuple[float, float]:
+        x, y = self._transformer.transform(lon, lat)
+        return float(x), float(y)
+
+    def reproject_geometry(self, geom: BaseGeometry) -> BaseGeometry:
+        """Reproject a shapely geometry; Z is dropped (output always 2D)."""
+        return shapely_transform(self._transformer.transform, geom)
+
+
+@cache
+def region_coords(crs: str) -> RegionCoords:
+    """The shared ``RegionCoords`` for ``crs`` (one instance per CRS).
+
+    This is the single entry point both the pipeline (``region_coords(
+    region.projected_crs)``) and the backward-compat SVY21 delegates below use,
+    so there is never a parallel coordinate path that can drift.
+    """
+    return RegionCoords(crs)
 
 
 def reproject_lonlat_to_svy21(lon: float, lat: float) -> tuple[float, float]:
-    """Project (lon, lat) in EPSG:4326 to (easting, northing) in EPSG:3414 SVY21.
+    """[backward-compat] EPSG:4326 -> EPSG:3414 SVY21 (easting, northing).
 
-    Determinism: pyproj.Transformer is constructed once per module load; the
-    transformation is a Transverse Mercator formula (no datum grid for SVY21);
-    output is byte-deterministic given fixed input. See spec §14.1.
+    Thin delegate to the shared ``region_coords("EPSG:3414")`` path — NOT a
+    retained private transformer — so it can never drift from the region-bound
+    code. Singapore's projected_crs is EPSG:3414, so the pipeline and this helper
+    are byte-identical on Singapore. See spec §14.1.
     """
-    x, y = _TRANSFORMER_4326_TO_SVY21.transform(lon, lat)
-    return float(x), float(y)
+    return region_coords(f"EPSG:{SVY21_EPSG_CODE}").reproject_lonlat(lon, lat)
 
 
 def reproject_geometry_to_svy21(geom: BaseGeometry) -> BaseGeometry:
-    """Reproject a shapely geometry from EPSG:4326 to EPSG:3414 SVY21.
+    """[backward-compat] Reproject a shapely geometry EPSG:4326 -> EPSG:3414.
 
-    Z coordinates, if present, are dropped; output is always 2D.
+    Thin delegate to the shared ``region_coords("EPSG:3414")`` path (one
+    authority). Z coordinates, if present, are dropped; output is always 2D.
     """
-    return shapely_transform(_TRANSFORMER_4326_TO_SVY21.transform, geom)
+    return region_coords(f"EPSG:{SVY21_EPSG_CODE}").reproject_geometry(geom)
 
 
 # ---- multi-region: centroid -> conformal UTM zone selection ---------------

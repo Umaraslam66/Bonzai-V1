@@ -9,6 +9,7 @@ from cfm.data.sub_c.coords import (
     CELL_SIZE_M,
     SVY21_EPSG_CODE,
     TILE_SIZE_M,
+    RegionCoords,
     cell_id_within_tile,
     clip_to_admin_polygon,
     densify_polygon,
@@ -196,3 +197,50 @@ def test_epsg_label_from_crs_rejects_missing_authority():
 def test_epsg_label_from_crs_rejects_non_numeric_code():
     with pytest.raises(ValueError):
         epsg_label_from_crs("EPSG:abc")
+
+
+# --- Multi-region (Q1): RegionCoords region-bound reprojection --------------
+# Built once per city from its projected_crs. Guards (PI lock 2026-06-02):
+#  - the EPSG:3414 path is byte-identical to the legacy module functions, and
+#  - the legacy reproject_*_to_svy21 delegates route through the SAME path
+#    (one transformer construction; no parallel retained singleton that can drift).
+
+
+def test_region_coords_svy21_reprojects_marina_bay():
+    rc = RegionCoords("EPSG:3414")
+    x, y = rc.reproject_lonlat(103.8587, 1.2839)
+    assert 25000 < x < 35000
+    assert 25000 < y < 35000
+
+
+def test_region_coords_svy21_delegate_byte_identity_lonlat():
+    # Guard #2 (behavioral): legacy function and RegionCoords produce IDENTICAL
+    # output -> they cannot be on two drifting coordinate paths.
+    lon, lat = 103.8587, 1.2839
+    rc = RegionCoords("EPSG:3414")
+    assert reproject_lonlat_to_svy21(lon, lat) == rc.reproject_lonlat(lon, lat)
+
+
+def test_region_coords_svy21_delegate_byte_identity_geometry():
+    p = Point(103.8587, 1.2839)
+    rc = RegionCoords("EPSG:3414")
+    g_old = reproject_geometry_to_svy21(p)
+    g_new = rc.reproject_geometry(p)
+    assert (g_old.x, g_old.y) == (g_new.x, g_new.y)  # bit-identical
+
+
+def test_region_coords_same_crs_byte_identical_across_instances():
+    # Determinism / drift guard: two RegionCoords for the same CRS agree bit-for-bit
+    # (they share one cached transformer construction).
+    a = RegionCoords("EPSG:3414").reproject_lonlat(103.8587, 1.2839)
+    b = RegionCoords("EPSG:3414").reproject_lonlat(103.8587, 1.2839)
+    assert a == b
+
+
+def test_region_coords_berlin_utm33n_range():
+    # Berlin centroid ~13.40°E, 52.52°N in ETRS89/UTM33N (EPSG:25833):
+    # easting ~390k (west of the 15°E central meridian), northing ~5.82M.
+    rc = RegionCoords("EPSG:25833")
+    x, y = rc.reproject_lonlat(13.40, 52.52)
+    assert 380_000 < x < 410_000
+    assert 5_800_000 < y < 5_840_000
