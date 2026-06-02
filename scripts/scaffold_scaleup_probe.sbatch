@@ -32,16 +32,17 @@ echo "=== pre-build training manifest (single process) ==="
 python -c "from cfm.data.training.build_shards import build_training_shards as b; s=b('2026-04-15.0','singapore'); print('built', len(s), 'shards')"
 
 # 300M baseline AR (d_model=1024, 24 layers, 16 heads => ~311M params, verified).
-# max_len 2048 caps the cell budget for memory headroom at 300M (p90=2409; full 5760
-# is a follow-up if this fits comfortably). max_time leaves margin under the 30-min cap
-# for the eval + report on rank 0. batch_size 2/GPU is conservative for 300M; raise if
-# GPU memory allows on a clean run.
-echo "=== 300M scale-up probe (4-GPU DDP, wall-bounded) ==="
+# Fit bounded by max_steps=2000 (~5 min @ ~8 it/s) for a clean per-step cost number.
+# Eval kept SMALL (8 cells x 256 tokens): autoregressive eval generation at 300M is
+# per-token forwards and overran the first run (64x512 took >20 min on rank 0) -- the
+# eval cost is itself a bake-off finding; the cost deliverable is TRAINING throughput.
+# max_len 2048 caps the cell budget for memory headroom; batch 2/GPU conservative.
+echo "=== 300M scale-up probe (4-GPU DDP) ==="
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --no-compile \
   --d-model 1024 --n-layers 24 --n-heads 16 \
-  --max-len 2048 --batch-size 2 \
-  --max-time "00:00:18:00"
+  --max-len 2048 --batch-size 2 --max-steps 2000 \
+  --eval-cells 8 --eval-max-new 256
 
 echo "=== report ==="
 cat reports/phase-1-training-scaffold/2026-04-15.0-singapore-loop-closed-scaleup-311M.md 2>/dev/null || echo "(report not found)"

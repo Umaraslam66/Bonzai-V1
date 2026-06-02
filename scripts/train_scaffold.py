@@ -229,11 +229,17 @@ def run_short(
     *,
     build_shards: bool = True,
     max_time: str | None = None,
+    eval_cells: int = 64,
+    eval_max_new: int = 512,
 ) -> dict:
     """The real pre-deadline run (Leonardo 4xA100). Trains for cfg.max_steps (or until
     ``max_time`` wall-clock, used by the scale-up probe), evals once, writes the
     reports/ summary with per-run cost. ``build_shards=False`` for DDP runs whose
-    manifest the sbatch preamble already built."""
+    manifest the sbatch preamble already built. ``eval_cells``/``eval_max_new`` size
+    the post-train eval generation — KEEP SMALL at large model scales: autoregressive
+    generation is per-token forward passes, so 64x512 at 300M is minutes-to-tens-of-
+    minutes (it overran the probe's first run). The eval cost is itself a bake-off
+    finding; the slice's cost deliverable is TRAINING throughput, not eval."""
     cfg = cfg or ScaffoldConfig()
     if cfg.accelerator == "gpu":
         assert_training_env_locked()
@@ -250,7 +256,7 @@ def run_short(
     if not trainer.is_global_zero:
         return {"trained_steps": int(trainer.global_step)}
     cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step))
-    metrics = _generate_and_score(lit, cfg, n_cells=64, max_new=512)
+    metrics = _generate_and_score(lit, cfg, n_cells=eval_cells, max_new=eval_max_new)
     report = _write_report(cfg, metrics, trained_steps=int(trainer.global_step), cost=cost)
     logger.info("wrote %s", report)
     return {
@@ -283,6 +289,13 @@ def main() -> None:
     parser.add_argument(
         "--max-time", default=None, help="wall budget DD:HH:MM:SS (scale-up probe; bounds the run)"
     )
+    parser.add_argument("--eval-cells", type=int, default=64, help="post-train eval: cells to gen")
+    parser.add_argument(
+        "--eval-max-new",
+        type=int,
+        default=512,
+        help="post-train eval: tokens/cell (keep small@scale)",
+    )
     parser.add_argument(
         "--no-build",
         action="store_true",
@@ -307,7 +320,11 @@ def main() -> None:
     if args.no_compile:
         overrides["compile"] = False
     result = run_short(
-        ScaffoldConfig(**overrides), build_shards=not args.no_build, max_time=args.max_time
+        ScaffoldConfig(**overrides),
+        build_shards=not args.no_build,
+        max_time=args.max_time,
+        eval_cells=args.eval_cells,
+        eval_max_new=args.eval_max_new,
     )
     print(json.dumps(result, default=str))
 
