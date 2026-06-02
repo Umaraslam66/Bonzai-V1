@@ -289,6 +289,12 @@ def main() -> None:
     parser.add_argument("--n-heads", type=int, default=None, help="scale-up: attention heads")
     parser.add_argument("--batch-size", type=int, default=None, help="per-GPU batch size")
     parser.add_argument(
+        "--grad-accum",
+        type=int,
+        default=None,
+        help="gradient accumulation; holds effective batch constant across scales (§10)",
+    )
+    parser.add_argument(
         "--no-compile",
         action="store_true",
         help="disable torch.compile (probe: avoids variable-shape recompilation; cost becomes a "
@@ -321,6 +327,7 @@ def main() -> None:
         ("n_layers", "n_layers"),
         ("n_heads", "n_heads"),
         ("batch_size", "batch_size"),
+        ("grad_accum", "grad_accum"),
     ]:
         val = getattr(args, flag)
         if val is not None:

@@ -103,6 +103,7 @@ def build_trainer(
         max_steps=-1 if epoch_mode else cfg.max_steps,
         max_epochs=max_epochs,
         limit_train_batches=limit_train_batches,
+        accumulate_grad_batches=cfg.grad_accum,  # holds effective batch constant across scales
         fast_dev_run=fast_dev_run,
         deterministic=True,
         use_distributed_sampler=False,  # the DataModule owns the seeded sampler
@@ -110,6 +111,15 @@ def build_trainer(
         logger=_build_logger(),
         default_root_dir=default_root_dir,
     )
+
+
+def effective_batch_size(cfg: ScaffoldConfig) -> int:
+    """The comparability-relevant batch: per-GPU batch * devices * grad accumulation.
+
+    Held constant across scales (§10) so a memory-forced smaller per-GPU batch at 300M/1B
+    is compensated by grad_accum rather than silently changing the optimization regime.
+    """
+    return cfg.batch_size * cfg.devices * cfg.grad_accum
 
 
 def maybe_compile(lit: ScaffoldLit, cfg: ScaffoldConfig) -> ScaffoldLit:

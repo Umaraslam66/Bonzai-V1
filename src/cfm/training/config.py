@@ -27,6 +27,10 @@ class ScaffoldConfig(BaseModel):
     # optimisation
     lr: float = 3e-4
     batch_size: int = 8
+    #: Gradient accumulation: holds the EFFECTIVE batch (batch_size * devices * grad_accum)
+    #: constant across scales when per-GPU memory forces a smaller batch_size at 300M/1B
+    #: (§10 comparability -- per-scale memory limits must not be an uncontrolled variable).
+    grad_accum: int = 1
     max_steps: int = 2000
 
     # trainer / hardware
