@@ -44,8 +44,11 @@ def _accelerator_for(devices: int) -> str:
     return "gpu" if (devices > 1 or torch.cuda.is_available()) else "cpu"
 
 
-def _datamodule(cfg: ScaffoldConfig) -> CellDataModule:
-    build_training_shards(cfg.release, cfg.region)  # writes the lineage manifest
+def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
+    # DDP: pre-build the manifest ONCE in the sbatch preamble (single process) and
+    # pass build=False to the 4 srun ranks, so they only READ it (no write race).
+    if build:
+        build_training_shards(cfg.release, cfg.region)  # writes the lineage manifest
     return CellDataModule(
         training_manifest=training_manifest_path(cfg.release, cfg.region),
         holdout_manifest=holdout_manifest_path(cfg.release),
@@ -163,18 +166,23 @@ def _write_report(cfg: ScaffoldConfig, metrics: dict, *, trained_steps: int) -> 
     return report
 
 
-def run_short(cfg: ScaffoldConfig | None = None) -> dict:
+def run_short(cfg: ScaffoldConfig | None = None, *, build_shards: bool = True) -> dict:
     """The real pre-deadline run (Leonardo 4xA100). Trains for cfg.max_steps, evals
-    once, writes the reports/ summary."""
+    once, writes the reports/ summary. ``build_shards=False`` for DDP runs whose
+    manifest the sbatch preamble already built."""
     cfg = cfg or ScaffoldConfig()
     if cfg.accelerator == "gpu":
         assert_training_env_locked()
 
-    dm = _datamodule(cfg)
+    dm = _datamodule(cfg, build=build_shards)
     lit = maybe_compile(ScaffoldLit(cfg), cfg)
     trainer = build_trainer(cfg)
     trainer.fit(lit, dm)
 
+    # Eval + report on the global-zero rank only: the model is DDP-synced, so rank 0
+    # is representative, and only one process must write the report file.
+    if not trainer.is_global_zero:
+        return {"trained_steps": int(trainer.global_step)}
     metrics = _generate_and_score(lit, cfg, n_cells=64, max_new=512)
     report = _write_report(cfg, metrics, trained_steps=int(trainer.global_step))
     logger.info("wrote %s", report)
@@ -186,11 +194,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Phase-1 training scaffold runner")
     parser.add_argument("--smoke", action="store_true", help="tiny loop-closing smoke")
     parser.add_argument("--devices", type=int, default=4, help="DDP devices (Leonardo node = 4)")
+    parser.add_argument(
+        "--max-steps", type=int, default=None, help="override ScaffoldConfig.max_steps"
+    )
+    parser.add_argument("--max-len", type=int, default=None, help="override cell-token budget")
+    parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="DDP: manifest already built by the sbatch preamble; ranks only read it",
+    )
     args = parser.parse_args()
     if args.smoke:
         print(json.dumps(run_smoke(devices=args.devices)))
-    else:
-        print(json.dumps(run_short(ScaffoldConfig(devices=args.devices)), default=str))
+        return
+    overrides = {"devices": args.devices, "accelerator": _accelerator_for(args.devices)}
+    if args.max_steps is not None:
+        overrides["max_steps"] = args.max_steps
+    if args.max_len is not None:
+        overrides["max_len"] = args.max_len
+    result = run_short(ScaffoldConfig(**overrides), build_shards=not args.no_build)
+    print(json.dumps(result, default=str))
 
 
 if __name__ == "__main__":
