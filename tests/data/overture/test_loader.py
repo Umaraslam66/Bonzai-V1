@@ -47,6 +47,7 @@ def _write_singapore_region(repo_root: Path) -> Path:
                 },
                 "fallback_bbox": [103.6, 1.16, 104.05, 1.48],
                 "crs": "EPSG:4326",
+                "projected_crs": "EPSG:3414",
             }
         )
     )
@@ -86,6 +87,42 @@ def test_load_region_second_call_uses_cache(isolated_repo: Path, overture_mini_d
     # NOT touch the source on a cache hit.
     second = load_region("singapore", backend=backend, repo_root=isolated_repo)
     assert first.manifest_path == second.manifest_path
+
+
+# --- Multi-region (Q1): projected_crs is a required region-config field ------
+# Singapore pins EPSG:3414; new European cities pin their conformal UTM zone.
+# It rides on the Region object so sub-C reads region.projected_crs (one source).
+
+
+def test_load_region_exposes_projected_crs(isolated_repo: Path, overture_mini_dir: Path) -> None:
+    backend = LocalFixtureBackend(fixtures_dir=overture_mini_dir)
+    region = load_region("singapore", backend=backend, repo_root=isolated_repo)
+    assert region.projected_crs == "EPSG:3414"
+
+
+def test_load_region_projected_crs_survives_cache_path(
+    isolated_repo: Path, overture_mini_dir: Path
+) -> None:
+    # The cache-hit reconstruction must also carry projected_crs (read from the
+    # region config, not the cache manifest), not silently drop it.
+    backend = LocalFixtureBackend(fixtures_dir=overture_mini_dir)
+    load_region("singapore", backend=backend, repo_root=isolated_repo)  # populate cache
+    cached = load_region("singapore", backend=backend, repo_root=isolated_repo)
+    assert cached.projected_crs == "EPSG:3414"
+
+
+def test_load_region_missing_projected_crs_raises(
+    isolated_repo: Path, overture_mini_dir: Path
+) -> None:
+    # projected_crs is REQUIRED — no silent default to Singapore's 3414, which
+    # would be a footgun for a new European region.
+    region_path = isolated_repo / "configs" / "data" / "regions" / "singapore.yaml"
+    cfg = yaml.safe_load(region_path.read_text())
+    del cfg["projected_crs"]
+    region_path.write_text(yaml.safe_dump(cfg))
+    backend = LocalFixtureBackend(fixtures_dir=overture_mini_dir)
+    with pytest.raises(ValueError):
+        load_region("singapore", backend=backend, repo_root=isolated_repo)
 
 
 def test_load_region_unknown_region_raises(isolated_repo: Path, overture_mini_dir: Path) -> None:

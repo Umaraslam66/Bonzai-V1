@@ -74,6 +74,10 @@ class Region:
     geometry: RegionGeometry
     themes: dict[str, pa.Table]
     manifest_path: Path
+    #: Projected (metric, conformal) CRS for sub-C reprojection, e.g. "EPSG:3414"
+    #: (Singapore SVY21) or "EPSG:25833" (a UTM33N city). A downstream-handoff
+    #: record like ``geometry`` — sub-A does not use it; sub-C reprojects with it.
+    projected_crs: str
 
     @property
     def admin_polygon(self) -> BaseGeometry:

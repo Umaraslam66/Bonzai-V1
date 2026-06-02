@@ -70,12 +70,14 @@ def test_region_construction(tmp_path: Path) -> None:
         geometry=geometry,
         themes=themes,
         manifest_path=tmp_path / "manifest.yaml",
+        projected_crs="EPSG:3414",
     )
     assert region.name == "singapore"
     assert region.release == "2026-04-15.0"
     assert region.themes["buildings"].num_rows == 2
     assert region.admin_polygon is poly
     assert region.bbox == (103.6, 1.16, 104.05, 1.48)
+    assert region.projected_crs == "EPSG:3414"
 
 
 def test_region_is_frozen(tmp_path: Path) -> None:
@@ -89,6 +91,7 @@ def test_region_is_frozen(tmp_path: Path) -> None:
         geometry=geometry,
         themes={},
         manifest_path=tmp_path / "manifest.yaml",
+        projected_crs="EPSG:3414",
     )
     with pytest.raises(FrozenInstanceError):
         region.name = "elsewhere"  # type: ignore[misc]

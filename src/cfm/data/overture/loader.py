@@ -64,6 +64,7 @@ def load_region(
     region_cfg = _load_region_config(root, name)
     bbox = _build_bbox_scope(region_cfg)
     geometry = _build_region_geometry(region_cfg)
+    projected_crs = _build_projected_crs(region_cfg)
     backend = backend or S3DuckDBBackend()
 
     cache_dir = root / "data" / "cache" / "overture" / release["release"] / name
@@ -73,7 +74,7 @@ def load_region(
         existing = CacheManifest.from_yaml(manifest_path)
         if existing.release == release["release"]:
             _verify_cache_or_raise(cache_dir, existing)
-            return _region_from_cache(name, bbox, geometry, cache_dir, existing)
+            return _region_from_cache(name, bbox, geometry, projected_crs, cache_dir, existing)
         logger.info(
             "[overture] cached release %s differs from pin %s; re-fetching",
             existing.release,
@@ -135,6 +136,7 @@ def load_region(
         geometry=geometry,
         themes=themes,
         manifest_path=manifest_path,
+        projected_crs=projected_crs,
     )
 
 
@@ -169,6 +171,25 @@ def _build_bbox_scope(region_cfg: dict) -> BboxScope:
     return BboxScope.from_tuple(tuple(region_cfg["fallback_bbox"]))
 
 
+def _build_projected_crs(region_cfg: dict) -> str:
+    """The region's projected (metric, conformal) CRS for sub-C reprojection.
+
+    REQUIRED — no silent default. Singapore pins ``EPSG:3414`` (SVY21); a new
+    European city pins its conformal UTM zone (see
+    ``cfm.data.sub_c.coords.utm_epsg_for_centroid``). Format-validated here so a
+    malformed value fails at load, not deep in reprojection.
+    """
+    crs = region_cfg.get("projected_crs")
+    if crs is None:
+        raise ValueError(
+            "region config missing required 'projected_crs' (e.g. 'EPSG:3414' for "
+            "Singapore SVY21, 'EPSG:25833' for a UTM33N city); no default is assumed"
+        )
+    if not (isinstance(crs, str) and crs.startswith("EPSG:") and crs[len("EPSG:") :].isdigit()):
+        raise ValueError(f"region config 'projected_crs' must be 'EPSG:<code>', got {crs!r}")
+    return crs
+
+
 def _build_region_geometry(region_cfg: dict) -> RegionGeometry:
     """The handoff-record geometry. Phase 1 placeholder: a Polygon equal to
     the bbox. C-stage (or a future implementation upgrade) replaces this
@@ -198,6 +219,7 @@ def _region_from_cache(
     name: str,
     bbox: BboxScope,
     geometry: RegionGeometry,
+    projected_crs: str,
     cache_dir: Path,
     manifest: CacheManifest,
 ) -> Region:
@@ -211,6 +233,7 @@ def _region_from_cache(
         geometry=geometry,
         themes=themes,
         manifest_path=cache_dir / "manifest.yaml",
+        projected_crs=projected_crs,
     )
 
 

@@ -1,0 +1,20 @@
+# Berlin region config — first multi-region pilot (Q1 CRS parameterization).
+#
+# Pilot purpose: run one real European city end-to-end through the
+# Q1-parameterized pipeline (fetch -> sub_c -> ... -> sub_g) to measure
+# tiles/city, surface new data-regimes, and validate the CRS path on real data.
+#
+# Scoping mirrors singapore.yaml: fallback_bbox is the fetch-time spatial filter;
+# the precise admin polygon (Berlin = a German federal state / Land) comes from
+# the Overture divisions theme downstream.
+name: berlin
+admin:
+  source: "overture://divisions"
+  country_code: "DE"      # Overture ISO country code
+  level: "region"         # Berlin is a Bundesland (Land); divisions level region
+fallback_bbox: [13.0883, 52.3383, 13.7612, 52.6755]   # [min_lon, min_lat, max_lon, max_lat]
+crs: "EPSG:4326"
+# Projected CRS: ETRS89/UTM33N, conformal, chosen ONCE from the Berlin centroid
+# (~13.40°E, 52.52°N -> UTM zone 33) per utm_epsg_for_centroid. Applied to ALL
+# Berlin tiles (one zone per city), so tiles are tile=EPSG25833_*.
+projected_crs: "EPSG:25833"
