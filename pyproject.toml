@@ -18,6 +18,20 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.5",
 ]
+# Training stack — Phase-2 bake-off COMPARABILITY LOCK. These exact versions are
+# shared IDENTICALLY across all 12 bake-off runs (4 arch x 3 scales); a drift
+# between run 1 and run 12 makes the scaling curves incomparable. torch is the
+# +cu121 CUDA build, installed on Leonardo via:
+#   pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+# Full resolved environment (transitive deps incl. nvidia-cu12 / triton) is pinned
+# in configs/training/env-lock-leonardo-cu121.txt for reconstructable reinstalls.
+# Verified on A100-SXM-64GB (driver 535.274.02, CUDA 12.2): torch.cuda matmul OK.
+# Enforced at the training entrypoint by cfm.training.env_lock.assert_training_env_locked.
+training = [
+  "torch==2.5.1",
+  "lightning==2.6.5",
+  "pydantic==2.13.4",
+]
 
 [build-system]
 requires = ["hatchling"]
