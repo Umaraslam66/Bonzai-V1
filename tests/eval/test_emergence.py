@@ -53,8 +53,10 @@ def test_buildings_emerged_handles_zero_cells() -> None:
 
 @pytest.mark.slow
 def test_holdout_density_is_measured_from_real_roundtripped_geoms() -> None:
-    # Real frozen holdout (Leonardo $WORK): round-trip real cells -> polygons / active cells.
-    from cfm.eval.emergence import holdout_polygons_per_active_cell
+    # Real frozen holdout (Leonardo $WORK): round-trip real cells -> PROMOTED polygons /
+    # active cells. (holdout_polygons_per_active_cell moved to geometry in Task 1.5 so it
+    # promotes building rings; without promotion it reads a vacuous 0.0.)
+    from cfm.eval.geometry import holdout_polygons_per_active_cell
 
     density = holdout_polygons_per_active_cell(release="2026-04-15.0", region="singapore")
     assert density > 0.0  # dense urban Singapore has buildings

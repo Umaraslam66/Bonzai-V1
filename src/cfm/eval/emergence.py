@@ -74,41 +74,7 @@ def buildings_emerged(*, n_polygons: int, n_cells: int, floor_per_cell: float) -
     return (n_polygons / n_cells) >= floor_per_cell
 
 
-def holdout_polygons_per_active_cell(*, release: str, region: str) -> float:
-    """Measure the holdout's real polygons-per-active-cell by round-tripping real cells.
-
-    The single source of ``holdout_polys_per_cell`` for the emergence floor. Reuses the
-    SEALED sub-F decoder + sub-G splitter (one source; never reimplemented). Requires the
-    real sub-F tile data (Leonardo ``$WORK``); the local checkout has only the manifest,
-    so the calling test is ``@pytest.mark.slow`` and runs during the diagnostic.
-    """
-    import yaml
-    from shapely.geometry import shape
-
-    from cfm.data.sub_f.decoder import decode_feature
-    from cfm.data.sub_g.readers import read_sub_f_cells
-    from cfm.data.sub_g.seam_decodability import split_cell_into_features
-    from cfm.eval.holdout.paths import holdout_manifest_path, sub_f_region_dir, tile_dirname
-
-    manifest = yaml.safe_load(holdout_manifest_path(release).read_text(encoding="utf-8"))
-    tiles = manifest["regions"][region]["tiles"]
-    sub_f_dir = sub_f_region_dir(release, region)
-
-    n_polygons = 0
-    n_active_cells = 0
-    for tile in tiles:
-        cells_path = sub_f_dir / tile_dirname(tile["tile_i"], tile["tile_j"]) / "cells.parquet"
-        if not cells_path.exists():
-            continue
-        for tokens in read_sub_f_cells(cells_path).values():
-            if not tokens:
-                continue
-            n_active_cells += 1
-            for block in split_cell_into_features(tokens):
-                try:
-                    geom = decode_feature(block)
-                except Exception:
-                    continue
-                if shape(geom).geom_type in ("Polygon", "MultiPolygon"):
-                    n_polygons += 1
-    return n_polygons / n_active_cells if n_active_cells else 0.0
+# NOTE: ``holdout_polygons_per_active_cell`` moved to ``cfm.eval.geometry`` (Task 1.5):
+# it must PROMOTE building closed-ring LineStrings to polygons before counting, and the
+# promotion authority lives in geometry. Keeping it here would cycle (geometry imports
+# this module's building_token_ids). emergence stays a leaf (vocab only).

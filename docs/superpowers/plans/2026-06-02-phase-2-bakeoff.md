@@ -194,6 +194,13 @@ git commit -m "feat(bakeoff): emergence instrumentation + holdout-density-tied f
 
 ---
 
+## Task 1.5: Building-ring promotion contract-fix (UNPLANNED — surfaced during execution)
+*(6th catch: contract-not-read; §3 + §9)*
+
+**Discovered at the Task-4 prerequisite (holdout density read 0.0 — a §6 anti-signal).** The sealed sub-F decoder returns building closed rings as `type:"LineString"` BY CONTRACT (`decoder.py:145-157`: closed-ring↔roundabout is ambiguous at decode time; consumer promotes). The scaffold's `slice_metrics` (and inherited Tasks 1/2) filtered `type=="Polygon"` and never promoted → `n_polygons` / right-angle / building-area / emergence-floor all read 0 on real data. This — not under-training — was the dominant cause of the probe's `n_polygons=0`.
+
+**Fix (done):** `src/cfm/eval/geometry.py::promote_building_rings(blocks, geoms)` — the ONE promotion authority; promotes a feature to Polygon iff its block is a building feature-class (reuses Task-1 `building_token_ids`, §9 construction-identity) AND its ring is closed; roads incl. closed roundabouts stay LineString. Paired §9 guard (`test_geometry_promote.py`): building closed ring → Polygon (must-promote) **and** closed road ring → LineString (must-NOT-promote). Applied in `slice_metrics.slice_eval` + `geometry.holdout_polygons_per_active_cell` (moved from `emergence` to avoid a cycle); identity-locked (`slice_metrics.promote_building_rings is geometry.promote_building_rings`). Then re-measure holdout density → confirm **non-vacuous AND plausible** (a sane buildings-per-active-cell, not just >0) before the floor it feeds is trusted and before the diagnostic runs against it.
+
 ## Task 2: §2 emergence guard in slice_eval + lexicographic ranking + per-feature realism KS
 *(spec §14 Task 4; §2, §7)*
 

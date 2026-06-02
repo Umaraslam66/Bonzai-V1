@@ -25,6 +25,7 @@ from shapely.geometry import shape
 # sub-G's construction-identity predicate, imported BY REFERENCE (protocol v2 §9).
 from cfm.data.sub_g.seam_decodability import _is_bref_placeholder_collapse as _is_bref_collapse
 from cfm.eval.emergence import buildings_emerged  # one source for the emergence floor
+from cfm.eval.geometry import promote_building_rings  # one source for building-ring promotion
 from cfm.eval.holdout.bref_rate import bref_placeholder_rate
 
 
@@ -125,6 +126,11 @@ def slice_eval(
     """
     n_decoded = len(geoms)
     attempted = n_attempted_blocks if n_attempted_blocks is not None else len(blocks)
+
+    # Promote building closed-ring LineStrings to polygons (Task 1.5) BEFORE any
+    # building-geometry metric: the sealed decoder returns building rings as LineString by
+    # contract, so without this n_polygons / right-angle / OGC-on-polygons read a vacuous 0.
+    geoms = promote_building_rings(blocks, geoms)
 
     # OGC validity over the NON-bref-collapse decoded geoms (structural exclusion):
     # bref-collapse is a known v1 limitation, removed from the denominator and
