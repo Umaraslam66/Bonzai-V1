@@ -91,22 +91,23 @@ def _tile_conditioning_dict(labels: TileLabels) -> dict:
     }
 
 
-def build_training_shards(
-    release: str, region: str, *, out_dir: Path | None = None
+def build_shards_in_memory(
+    release: str,
+    region: str,
+    *,
+    tile_ids: list[tuple[int, int]] | None = None,
 ) -> list[TrainingShard]:
-    """Build the in-memory shards (full tile structure) and write a
-    byte-deterministic training_manifest.yaml carrying per-tile stamped lineage."""
-    out = out_dir or training_region_dir(release, region)
-    out.mkdir(parents=True, exist_ok=True)
+    """Build the in-memory shards (full tile structure) WITHOUT writing anything.
+
+    The DataModule reads cell tokens from here (the persisted manifest carries only
+    lineage/provenance, not tokens). ``tile_ids`` restricts the build to a subset
+    (sorted) for fast tests; default is the full validated-minus-holdout set."""
     sub_d_dir = sub_d_region_dir(release, region)
     sub_f_dir = sub_f_region_dir(release, region)
-    prov_by_id = {
-        (int(e["tile_i"]), int(e["tile_j"])): e["provenance_sha256"]
-        for e in _validated_inventory(release, region)
-    }
+    ids = sorted(tile_ids) if tile_ids is not None else compute_training_tile_ids(release, region)
 
     shards: list[TrainingShard] = []
-    for ti, tj in compute_training_tile_ids(release, region):  # sorted -> deterministic
+    for ti, tj in ids:  # sorted -> deterministic
         dirname = tile_dirname(ti, tj)
         labels = read_tile_labels(sub_d_dir / dirname, tile_i=ti, tile_j=tj)
         density = _cell_density_by_cell(sub_d_dir / dirname)
@@ -133,7 +134,21 @@ def build_training_shards(
                 lineage=frozenset({(region, ti, tj)}),  # STAMPED from provenance, points at self
             )
         )
+    return shards
 
+
+def build_training_shards(
+    release: str, region: str, *, out_dir: Path | None = None
+) -> list[TrainingShard]:
+    """Build the in-memory shards (full tile structure) and write a
+    byte-deterministic training_manifest.yaml carrying per-tile stamped lineage."""
+    out = out_dir or training_region_dir(release, region)
+    out.mkdir(parents=True, exist_ok=True)
+    prov_by_id = {
+        (int(e["tile_i"]), int(e["tile_j"])): e["provenance_sha256"]
+        for e in _validated_inventory(release, region)
+    }
+    shards = build_shards_in_memory(release, region)
     _write_training_manifest(out, release, region, shards, prov_by_id)
     return shards
 

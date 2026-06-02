@@ -80,19 +80,30 @@ class MicroAR(nn.Module):
         h = self.blocks(x, mask=causal, is_causal=True)
         return self.head(h)
 
-    def training_loss(self, ids: torch.Tensor, *, prefix_len: torch.Tensor) -> LossOut:
+    def training_loss(
+        self,
+        ids: torch.Tensor,
+        *,
+        prefix_len: torch.Tensor,
+        seq_len: torch.Tensor | None = None,
+    ) -> LossOut:
         """Next-token CE over the cell-token positions; conditioning prefix masked.
 
-        ``ids`` is ``[conditioning prefix | cell tokens]``. ``prefix_len[b]`` is the
-        number of conditioning tokens for example ``b``. Targets at positions
-        ``< prefix_len-1`` (the conditioning tokens themselves) are masked; the
-        target at ``prefix_len-1`` (first cell token, predicted FROM the conditioning)
-        and every later cell-token target are supervised.
+        ``ids`` is ``[conditioning prefix | cell tokens | (right-padding)]``.
+        ``prefix_len[b]`` is the number of conditioning tokens for example ``b``;
+        targets ``< prefix_len-1`` (the conditioning tokens themselves) are masked,
+        while target ``prefix_len-1`` (first cell token, predicted FROM conditioning)
+        onward is supervised. ``seq_len[b]`` (optional) is the real length incl. the
+        prefix; targets at index ``>= seq_len-1`` are right-padding and also masked.
+        When ``seq_len`` is None, every example is assumed full-length (no padding).
         """
         logits = self(ids)[:, :-1]  # logits[:, i] predicts token at position i+1
         target = ids[:, 1:].clone()
+        lens = seq_len.tolist() if seq_len is not None else [None] * ids.shape[0]
         for b, pl in enumerate(prefix_len.tolist()):
-            target[b, : pl - 1] = _IGNORE  # mask conditioning-token targets only
+            target[b, : pl - 1] = _IGNORE  # mask conditioning-token targets
+            if lens[b] is not None:
+                target[b, lens[b] - 1 :] = _IGNORE  # mask right-padding targets
         n = int((target != _IGNORE).sum())
         loss = nn.functional.cross_entropy(
             logits.reshape(-1, logits.shape[-1]),

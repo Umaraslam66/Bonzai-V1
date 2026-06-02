@@ -52,6 +52,17 @@ def test_loss_mask_tracks_variable_prefix_len():
     assert out.n_supervised_positions == (T - 8) + (T - 5)  # 12 + 15 = 27
 
 
+def test_loss_masks_right_padding_via_seq_len():
+    """A padded batch: seq_len marks the real length; targets in the right-padding
+    region are masked just like the conditioning prefix."""
+    m = MicroAR(_cfg())
+    T = 20
+    tokens = torch.randint(0, _N_SUBF, (2, T))
+    # ex0: prefix 8, real length 14 (6 padding); ex1: prefix 8, real length 20 (no pad)
+    out = m.training_loss(tokens, prefix_len=torch.tensor([8, 8]), seq_len=torch.tensor([14, 20]))
+    assert out.n_supervised_positions == (14 - 8) + (20 - 8)  # 6 + 12 = 18
+
+
 def test_logits_cover_only_subf_predict_range():
     m = MicroAR(_cfg())
     logits = m(torch.randint(0, _N_SUBF, (1, 10)))
