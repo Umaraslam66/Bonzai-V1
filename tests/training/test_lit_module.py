@@ -43,6 +43,19 @@ def test_validation_step_runs_without_grad_error():
     assert out is None or out.ndim == 0
 
 
+def test_init_is_seed_reproducible_across_instances():
+    """Weight init must be reproducible across separate constructions: same seed ->
+    identical initial weights; different seed -> different. This is what makes a
+    4->4 resume comparable to an uninterrupted reference (init must not vary per
+    process). Regression guard for the cross-process divergence found on Leonardo."""
+    a = ScaffoldLit(_cfg(seed=7))
+    b = ScaffoldLit(_cfg(seed=7))
+    c = ScaffoldLit(_cfg(seed=8))
+    sa, sb, sc = a.state_dict(), b.state_dict(), c.state_dict()
+    assert all(torch.equal(sa[k], sb[k]) for k in sa)  # same seed -> identical init
+    assert any(not torch.equal(sa[k], sc[k]) for k in sa)  # different seed -> differs
+
+
 def test_configure_optimizers_returns_adamw_and_step_cosine():
     lit = ScaffoldLit(_cfg(max_steps=100))
     cfg = lit.configure_optimizers()

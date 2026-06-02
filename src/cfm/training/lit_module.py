@@ -25,6 +25,12 @@ from cfm.training.config import ScaffoldConfig
 class ScaffoldLit(L.LightningModule):
     def __init__(self, cfg: ScaffoldConfig) -> None:
         super().__init__()
+        # Seed BEFORE constructing the model so weight init is reproducible across
+        # separate processes (the experiment = config + commit + snapshot). Without
+        # this, a fresh process inits from nondeterministic startup RNG, so two runs
+        # of the same config diverge from step 0 — and a 4->4 resume can never be
+        # bit-identical to an uninterrupted reference (the init differs).
+        L.seed_everything(cfg.seed, workers=True)
         self.save_hyperparameters(cfg.model_dump())
         self.cfg = cfg
         n_subf = max(vocab_tag_to_id().values()) + 1
