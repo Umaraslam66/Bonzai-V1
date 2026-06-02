@@ -19,9 +19,16 @@
 3. **Measured eval cost.** `cost.eval_seconds` / `eval_node_h_per_cell` — the first real price on the binding pass; sizes the trajectory follow-on + the ladder.
 4. **Train/val gap → memorization vs generation (the load-bearing interpretation).** The gap is large and widening (overfitting). So if buildings clear the floor, **do NOT auto-read it as "the architecture learns to generate buildings."** Distinguish memorization from generation: is the generated building **distribution** close to holdout (per the per-feature KS-realism metric, `cfm.eval.realism.ks_distance`), or are buildings merely *present*? The floor is overfit-invariant (real-holdout-derived); the *reading* is not. Overfitting can fake "present" without "plausible."
 
-## Data-size constraint — options to weigh (NEW, surfaced by the diagnostic)
+## Data-size constraint — the 7th catch, VERIFIED (the decisive finding; PI decision pending)
 
-The bake-off assumed compute-optimal D∝N (Chinchilla r≈20). With ~8M unique training tokens that overfits even 90M. Before the ladder:
+**Verified on Leonardo 2026-06-02:** `sub_f` = `sub_d` = **494 tiles = ALL of validated Singapore** (not a subset of more extracted Singapore), **14.4M tokens total** (29.2k/tile; 362-tile training set ≈ 10.6M). Compute-optimal r=20 ⇒ all-of-Singapore trains only **~720k params**; the ladder needs **27k–896k tiles (54×–1,814× all of Singapore)** for 30M–1B. **Singapore is EXHAUSTED**; a second de-risking region adds ~1 city (negligible vs the need). The D∝N compute-optimal ladder to 1B is INFEASIBLE on de-risking data — this invalidates the **Topic-2 premise**, not just a number (the 7th catch). The diagnostic confirmed it empirically: val_loss minimized very early, then rose monotonically (4.07→10.6→12.4) = data-starved overfitting from near the start.
+
+Three options (PI call — do NOT let an agent pick; needs the data-strategy decision):
+1. **MORE DATA (preserves methodology) — but global-scale.** Needs tens (30M) to thousands (1B) of cities, ~8h+/region. A data-pipeline phase, likely beyond June-11. Second region was triple-duty (resolution+generalization+compliance); it does NOT fix training data (one city ≈ negligible vs 27k+ tiles).
+2. **CAP THE LADDER at the data-feasible scale.** ~14.4M tokens caps compute-optimal at <1M params (or ~30M if ~50 cities extracted). Extrapolating sub-1M→1B production is hopeless; may not support a production decision.
+3. **RE-FRAME the bake-off to the data-limited regime** — compare which architecture generalizes best / overfits least from limited data, NOT compute-optimal scaling curves. A DIFFERENT decision axis than Topic 1 locked (a real re-open).
+
+Original (pre-verification) framing follows:
 - **(a) Train to the val-loss minimum (data-limited early-stop), not r≈40.** Compare architectures at the data-limited regime. Simplest; honest about the constraint; changes the "compute axis" (spec §4) from compute-optimal to data-limited.
 - **(b) More training data** — the second-region extraction (Sweden/Sri Lanka, the Topic-6 escalation) becomes necessary for DATA, not just KS resolution. Expensive (~8h+/region, its own sub-project).
 - **(c) More Singapore tiles** — the 362 were `494 validated − 132 holdout`. Is there more validated Singapore beyond 494? (Check sub-G output; the eval-set/holdout is locked, but more training tiles may exist or be extractable.)
