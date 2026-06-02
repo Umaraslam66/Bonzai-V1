@@ -12,7 +12,28 @@ from cfm.data.overture.errors import (
     RegionNotFound,
     ReleaseNotConfigured,
 )
-from cfm.data.overture.loader import load_region
+from cfm.data.overture.loader import THEMES_TO_LOAD, load_region
+
+
+class _CountingBackend:
+    """Wraps a backend and counts estimate_size / read_theme calls.
+
+    Used to prove the confirm=True COUNT(*) optimization skips the pre-fetch
+    size estimate while leaving the actual fetch (read_theme) untouched.
+    """
+
+    def __init__(self, inner: LocalFixtureBackend) -> None:
+        self.inner = inner
+        self.estimate_calls = 0
+        self.read_calls = 0
+
+    def read_theme(self, **kw):  # type: ignore[no-untyped-def]
+        self.read_calls += 1
+        return self.inner.read_theme(**kw)
+
+    def estimate_size(self, **kw):  # type: ignore[no-untyped-def]
+        self.estimate_calls += 1
+        return self.inner.estimate_size(**kw)
 
 
 def _write_release_pin(repo_root: Path, release: str = "2026-04-15.0") -> Path:
@@ -123,6 +144,44 @@ def test_load_region_missing_projected_crs_raises(
     backend = LocalFixtureBackend(fixtures_dir=overture_mini_dir)
     with pytest.raises(ValueError):
         load_region("singapore", backend=backend, repo_root=isolated_repo)
+
+
+# --- COUNT(*) fetch optimization: confirm=True skips the pre-fetch estimate --
+# The per-theme estimate_size COUNT(*) scans every Overture S3 partition and
+# only feeds the OversizedFetch guard. When confirm=True the guard is overridden,
+# so the COUNT is pure wasted work — skip it. read_theme is untouched, so the
+# fetched data is byte-identical (the determinism requirement).
+
+
+def test_load_region_confirm_true_skips_size_estimate(
+    isolated_repo: Path, overture_mini_dir: Path
+) -> None:
+    backend = _CountingBackend(LocalFixtureBackend(fixtures_dir=overture_mini_dir))
+    load_region("singapore", backend=backend, repo_root=isolated_repo, confirm=True)
+    assert backend.estimate_calls == 0  # COUNT(*) pre-estimate skipped
+    assert backend.read_calls == len(THEMES_TO_LOAD)  # actual fetch still ran
+
+
+def test_load_region_confirm_false_runs_size_estimate(
+    isolated_repo: Path, overture_mini_dir: Path
+) -> None:
+    backend = _CountingBackend(LocalFixtureBackend(fixtures_dir=overture_mini_dir))
+    load_region("singapore", backend=backend, repo_root=isolated_repo, confirm=False)
+    assert backend.estimate_calls == len(THEMES_TO_LOAD)  # guard active -> estimate ran
+
+
+def test_confirm_true_fetches_byte_identical_themes_to_confirm_false(
+    isolated_repo: Path, overture_mini_dir: Path
+) -> None:
+    # The COUNT(*) skip must NOT change WHAT is fetched.
+    backend = LocalFixtureBackend(fixtures_dir=overture_mini_dir)
+    r_false = load_region("singapore", backend=backend, repo_root=isolated_repo, confirm=False)
+    r_true = load_region(
+        "singapore", backend=backend, repo_root=isolated_repo, refresh=True, confirm=True
+    )
+    assert set(r_false.themes) == set(r_true.themes)
+    for theme in r_false.themes:
+        assert r_false.themes[theme].equals(r_true.themes[theme])
 
 
 def test_load_region_unknown_region_raises(isolated_repo: Path, overture_mini_dir: Path) -> None:

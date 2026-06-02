@@ -250,6 +250,16 @@ def _check_total_size(
     *,
     confirm: bool,
 ) -> None:
+    # COUNT(*) optimization: the per-theme estimate_size scans EVERY Overture S3
+    # partition (Overture is partitioned by theme/type, not geography, so a bbox
+    # COUNT touches all files) — the dominant cost of a cold fetch. It only feeds
+    # the OversizedFetch guard below. When confirm=True the caller has
+    # pre-authorized the fetch size, so the guard (and thus the COUNT) is pure
+    # wasted work — skip it entirely. This does NOT touch read_theme, so the
+    # fetched/cached data is byte-identical to the unconfirmed path.
+    if confirm:
+        logger.info("[overture] confirm=True; skipping pre-fetch COUNT(*) size estimate")
+        return
     estimates: dict[str, SizeEstimate] = {}
     total = 0
     for theme in THEMES_TO_LOAD:
@@ -263,7 +273,7 @@ def _check_total_size(
             est.bytes,
         )
     logger.info("[overture] estimated total: %d themes, ~%d bytes", len(estimates), total)
-    if total > OVERSIZED_THRESHOLD_BYTES and not confirm:
+    if total > OVERSIZED_THRESHOLD_BYTES:  # confirm=True already returned above
         raise OversizedFetch(
             f"estimated total {total} bytes exceeds {OVERSIZED_THRESHOLD_BYTES} threshold; "
             "pass confirm=True if intended"
