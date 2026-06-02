@@ -16,7 +16,11 @@ class ScaffoldConfig(BaseModel):
     region: str = "singapore"
     seed: int = 7
 
-    # model (toy ~10-30M; the simplest block shared by bake-off candidates 1-3)
+    # model
+    #: Bake-off backbone: "transformer-ar" (today) | "mamba-hybrid" | "discrete-diffusion"
+    #: (the latter two gated behind Task 5's mamba-ssm verify-before-lock).
+    backbone: str = "transformer-ar"
+    # toy ~10-30M; the simplest block shared by bake-off candidates 1-3
     d_model: int = 256
     n_layers: int = 6
     n_heads: int = 8

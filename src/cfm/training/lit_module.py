@@ -16,9 +16,7 @@ from __future__ import annotations
 import lightning as L
 import torch
 
-from cfm.data.sub_f.vocab import vocab_tag_to_id
-from cfm.data.training.conditioning import conditioning_field_to_id
-from cfm.models.micro_ar import MicroAR, MicroARConfig
+from cfm.models.backbone import build_backbone
 from cfm.training.config import ScaffoldConfig
 
 
@@ -33,18 +31,10 @@ class ScaffoldLit(L.LightningModule):
         L.seed_everything(cfg.seed, workers=True)
         self.save_hyperparameters(cfg.model_dump())
         self.cfg = cfg
-        n_subf = max(vocab_tag_to_id().values()) + 1
-        n_cond = len(conditioning_field_to_id())
-        self.model = MicroAR(
-            MicroARConfig(
-                d_model=cfg.d_model,
-                n_layers=cfg.n_layers,
-                n_heads=cfg.n_heads,
-                n_subf_vocab=n_subf,
-                n_cond=n_cond,
-                max_len=cfg.max_len + n_cond,  # positions cover prefix + cell-token budget
-            )
-        )
+        # Swappable backbone (§9). transformer-ar today; mamba-hybrid / discrete-diffusion
+        # are gated behind Task 5's mamba-ssm verify-before-lock. The shared embedding spans
+        # the value-bearing conditioning id span; the head is the sealed sub-F range.
+        self.model = build_backbone(cfg.backbone, cfg)
 
     def _loss(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         out = self.model.training_loss(

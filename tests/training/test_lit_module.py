@@ -7,7 +7,7 @@ from __future__ import annotations
 import torch
 
 from cfm.data.sub_f.vocab import vocab_tag_to_id
-from cfm.data.training.conditioning import conditioning_field_to_id
+from cfm.data.training.conditioning import CONDITIONING_PREFIX_LEN, conditioning_id_span
 from cfm.training.config import ScaffoldConfig
 from cfm.training.lit_module import ScaffoldLit
 
@@ -21,9 +21,11 @@ def _cfg(**kw) -> ScaffoldConfig:
 def test_lit_builds_model_from_real_vocab_sizes():
     lit = ScaffoldLit(_cfg())
     assert lit.model.cfg.n_subf_vocab == max(vocab_tag_to_id().values()) + 1  # 1508
-    assert lit.model.cfg.n_cond == len(conditioning_field_to_id())  # 8
-    # positional capacity covers the conditioning prefix PLUS the cell-token budget
-    assert lit.model.cfg.max_len == 128 + len(conditioning_field_to_id())
+    # n_cond = the VALUE-BEARING conditioning embedding span (Task 6/7), not the 8-field
+    # count: the embedding must cover every value-bearing id above the sub-F vocab.
+    assert lit.model.cfg.n_cond == conditioning_id_span()  # 8 fields * 64 stride = 512
+    # positional capacity covers the conditioning PREFIX (8 positions) PLUS the cell budget
+    assert lit.model.cfg.max_len == 128 + CONDITIONING_PREFIX_LEN
 
 
 def test_training_step_returns_scalar_loss():
