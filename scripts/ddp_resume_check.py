@@ -111,9 +111,11 @@ def main() -> None:
             default_root_dir=str(shared / "part1"),
         )
         trainer.fit(lit, dm)
+        ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+        # save_checkpoint is a COLLECTIVE (internal barrier; Lightning writes on rank 0).
+        # Guarding it with is_global_zero deadlocks the other ranks — call on ALL ranks.
+        trainer.save_checkpoint(ckpt_path)
         if trainer.is_global_zero:
-            ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-            trainer.save_checkpoint(ckpt_path)
             print(f"[ddp-resume] part1 checkpoint -> {ckpt_path}", flush=True)
         sys.exit(0)
 
