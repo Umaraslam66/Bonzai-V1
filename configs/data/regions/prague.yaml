@@ -1,0 +1,12 @@
+name: prague
+admin:
+  source: overture://divisions
+  country_code: CZ
+  level: locality
+fallback_bbox:
+- 14.22
+- 49.94
+- 14.71
+- 50.18
+crs: EPSG:4326
+projected_crs: EPSG:25833

@@ -1,0 +1,12 @@
+name: umea
+admin:
+  source: overture://divisions
+  country_code: SE
+  level: locality
+fallback_bbox:
+- 20.2
+- 63.78
+- 20.4
+- 63.88
+crs: EPSG:4326
+projected_crs: EPSG:25834
