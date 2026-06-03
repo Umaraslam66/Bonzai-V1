@@ -71,3 +71,14 @@ def write_region_config(candidate: CityCandidate, configs_dir: Path) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(yaml.safe_dump(payload, sort_keys=False))
     return out
+
+
+def load_canary_manifest(path: Path) -> list[dict]:
+    """Load the PI-ratified canary axis labels (the machine-readable home for the
+    morphology/density/geography labels that region configs do NOT carry).
+
+    Returns the per-city dicts (name, country_code, projected_crs, morphology,
+    density, geography) the Phase-G roll-up consumes to build CityRecord axis
+    labels for the coverage gate — so a cold session never re-guesses them."""
+    data = yaml.safe_load(Path(path).read_text())
+    return data["cities"]

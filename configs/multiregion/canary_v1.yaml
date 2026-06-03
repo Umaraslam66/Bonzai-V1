@@ -1,0 +1,45 @@
+# Canary city list for the bounded multi-region extract — PI-ratified 2026-06-03.
+#
+# Machine-readable home for the morphology / density / geography axis labels that
+# the region configs (configs/data/regions/<name>.yaml) do NOT carry:
+# selection.write_region_config writes only the pipeline fields (name/admin/bbox/
+# crs/projected_crs). The Phase-G roll-up reads THIS file to build CityRecord axis
+# labels for the structural coverage gate (rollup.assert_ready_for_next_batch).
+#
+# The labels are PRE-DATA HYPOTHESES on coarse fallback bboxes; the precise admin
+# polygon + measured morphology come from Overture downstream. Do not litigate the
+# labels (e.g. Munich-as-"mixed", Umeå-as-"planned-grid") until the data is in.
+# 5 distinct UTM zones (30-34, one CRS path each); axis coverage complete.
+version: v1
+ratified_utc: "2026-06-03"
+cities:
+  - name: prague
+    country_code: CZ
+    projected_crs: "EPSG:25833"
+    morphology: medieval-organic
+    density: dense-core
+    geography: CZ
+  - name: barcelona
+    country_code: ES
+    projected_crs: "EPSG:25831"
+    morphology: planned-grid
+    density: dense-core
+    geography: ES
+  - name: milton_keynes
+    country_code: GB
+    projected_crs: "EPSG:25830"
+    morphology: modernist-sprawl
+    density: moderate
+    geography: GB
+  - name: munich
+    country_code: DE
+    projected_crs: "EPSG:25832"
+    morphology: mixed
+    density: moderate
+    geography: DE
+  - name: umea
+    country_code: SE
+    projected_crs: "EPSG:25834"
+    morphology: planned-grid
+    density: sparse
+    geography: SE
