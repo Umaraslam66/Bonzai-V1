@@ -202,20 +202,31 @@ token entropy to compute-optimal r; inventing one just relocates the borrowed-co
 made-up number). Measure the geometry token stream's redundancy (compression ratio + per-token/n-gram entropy)
 and **compare** it to (a) a language-token baseline (the r=20 anchor) and (b) the Singapore corpus.
 
-**Pre-committed decision rule (stated before measuring, so the result can't be read to fit the city count we
-already have):**
-- If geometry redundancy is **within X% of the language baseline** → treat **r=20 as confirmed**; the ~20,600-tile
-  budget stands.
-- If geometry is **materially *less* redundant** than the language baseline (→ more tokens/param, r>20) → **size
-  up** the tile budget by Y (add cities while it's cheap — mid-extraction adds are cheap; growing a frozen corpus
-  later is not).
-- *(X and Y are set as concrete numbers in the plan; the rule's shape is locked here.)*
+**The proxy is ADVISORY, not a budget gate (PI decision 2026-06-03).** It computes and RECORDS a diagnostic
+signal — the geometry redundancy, its relative position to BOTH the language baseline (the r=20 anchor) and the
+Singapore corpus, and a band-classified verdict label — but it NEVER changes the budget. Constants pinned
+before any data: X = 0.10 (±10% band), Y = 0.5 (+50%).
 
-**Limit (stated up front):** the proxy is **directional**. An **ambiguous** result (close to the language
-baseline) is **not** read as "r=20 confirmed." The safe default is **conservative: size at r=20 AND raise an
-explicit `r-unresolved-until-bakeoff` flag**, so the true compute-optimal r is resolved by the bake-off's
-training measurement — never by an over-read of an ambiguous proxy. Ambiguous ⇒ conservative sizing + explicit
-unresolved flag, not false confirmation.
+**Budget rule (unconditional):** the tile budget ALWAYS sizes up to `base·(1+Y)`, and the
+`r-unresolved-until-bakeoff` flag is ALWAYS set, regardless of the verdict label. **The bake-off is the sole
+authority on r.**
+
+**Why advisory, not a down-gate:** the only place a budget-gating proxy could DOWN-size (confirm→base) is also
+the only place it could cause the *unrecoverable* error — an under-provision discovered mid-bake-off forces a
+re-fetch+reprocess inside the timed Leonardo window — and its sole upside is saving cheap CPU cities that are
+pre-paid production data anyway. A novel data-only redundancy proxy does not clear the confidence bar to gate
+the budget down against that asymmetry (protocol §10.1). `base·(1+Y)` is a path the system already handles, so
+unconditional size-up adds no feasibility risk.
+
+**Recorded verdict label (diagnostic only):** `rel_lang = (geometry − language)/language`; `rel_lang ≥ +X` →
+`more_redundant_than_language` (would-be r≤20 signal); `rel_lang ≤ −X` → `less_redundant_than_language`
+(would-be r>20); `|rel_lang| < X` → `ambiguous`. `rel_sg` (vs Singapore) is recorded to flag gross anomalies.
+These inform the bake-off; they do not gate the budget. The comparison is RELATIVE — never an absolute
+threshold on the EU corpus alone.
+
+*(Audit note: resolved §7's internal contradiction — original "within X% → confirmed" vs the Limit's
+"ambiguous = close to baseline → not confirmed" — AND demoted the proxy from budget-gate to advisory per the
+§10.1 cost-asymmetry; the bake-off is the sole r authority. PI-blessed 2026-06-03.)*
 
 ---
 
