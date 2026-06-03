@@ -114,11 +114,12 @@ def _check_schema_version_consistency(manifest: RegionManifest, region_dir: Path
     schema_version AND every tile's provenance.yaml schema_version.
     """
     expected = manifest.sub_c_schema_version
+    epsg_label = manifest.region_crs.replace(":", "")  # tile-dir label from region CRS
 
     for tile_entry in manifest.tiles:
         tile_i = tile_entry["tile_i"]
         tile_j = tile_entry["tile_j"]
-        tile_name = f"tile=EPSG3414_i{tile_i}_j{tile_j}"
+        tile_name = f"tile={epsg_label}_i{tile_i}_j{tile_j}"
         tile_dir = region_dir / tile_name
 
         # Check meta.yaml schema_version
@@ -161,11 +162,12 @@ def _check_manifest_tiles_match_filesystem(manifest: RegionManifest, region_dir:
     No missing tile dirs that ARE in the manifest.
     """
     # Build expected set from manifest
+    epsg_label = manifest.region_crs.replace(":", "")  # tile-dir label from region CRS
     manifest_tile_names: set[str] = set()
     for tile_entry in manifest.tiles:
         tile_i = tile_entry["tile_i"]
         tile_j = tile_entry["tile_j"]
-        manifest_tile_names.add(f"tile=EPSG3414_i{tile_i}_j{tile_j}")
+        manifest_tile_names.add(f"tile={epsg_label}_i{tile_i}_j{tile_j}")
 
     # Build actual set from filesystem
     disk_tile_names: set[str] = {
@@ -209,11 +211,12 @@ def _check_manifest_provenance_sha_matches_disk(manifest: RegionManifest, region
     This strips EXCLUDED_FROM_SHA paths (extracted_utc, any *_sha256 fields) before
     hashing, canonicalizes to YAML, and hashes the UTF-8 bytes.
     """
+    epsg_label = manifest.region_crs.replace(":", "")  # tile-dir label from region CRS
     for tile_entry in manifest.tiles:
         tile_i = tile_entry["tile_i"]
         tile_j = tile_entry["tile_j"]
         stored_sha = tile_entry["provenance_sha256"]
-        tile_name = f"tile=EPSG3414_i{tile_i}_j{tile_j}"
+        tile_name = f"tile={epsg_label}_i{tile_i}_j{tile_j}"
         tile_dir = region_dir / tile_name
 
         prov_path = tile_dir / "provenance.yaml"
@@ -243,10 +246,11 @@ def _check_provenance_outputs_sha_match_files(manifest: RegionManifest, region_d
     The orchestrator writes the file then reads path.read_bytes() and hashes;
     the cross-tile validator does the same comparison.
     """
+    epsg_label = manifest.region_crs.replace(":", "")  # tile-dir label from region CRS
     for tile_entry in manifest.tiles:
         tile_i = tile_entry["tile_i"]
         tile_j = tile_entry["tile_j"]
-        tile_name = f"tile=EPSG3414_i{tile_i}_j{tile_j}"
+        tile_name = f"tile={epsg_label}_i{tile_i}_j{tile_j}"
         tile_dir = region_dir / tile_name
 
         prov_path = tile_dir / "provenance.yaml"
