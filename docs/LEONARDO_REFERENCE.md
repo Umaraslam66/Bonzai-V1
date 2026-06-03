@@ -38,6 +38,8 @@ The root directories still exist. Their contents were deleted.
 
 ## SSH
 
+$ step ssh login 'aslamumar16@gmail.com' --provisioner cineca-hpc
+
 Basic login:
 
 ```bash
