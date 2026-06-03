@@ -232,6 +232,9 @@ def _build_region_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     (sub_d / "_SUCCESS").touch()
     sub_e.mkdir(parents=True, exist_ok=True)
     (sub_e / "_SUCCESS").touch()
+    # sub-F now reads region_crs from the sub-E manifest (spec §8); real sub-E
+    # always writes it (sub_e/manifest.py:65). Provide the minimal field here.
+    (sub_e / "manifest.yaml").write_text(yaml.safe_dump({"region_crs": "EPSG:3414"}))
 
     return sub_c, sub_d, sub_e, out
 

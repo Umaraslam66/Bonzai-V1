@@ -16,7 +16,11 @@ import yaml
 
 from cfm.data.sub_d.versions import VersionNamespace, VersionRef
 
-SUB_F_ARTIFACT_FORMAT_VERSION = "1.0"
+# 1.1: multi-region region_crs field added to the region manifest (provenance +
+# cross-stage CRS consistency for the multi-region corpus). Manifest-FORMAT change
+# only — cells.parquet data shape is unchanged, so SCHEMA stays 1.0. The
+# ARTIFACT_FORMAT axis distinguishes a pre-region_crs manifest from a post one.
+SUB_F_ARTIFACT_FORMAT_VERSION = "1.1"
 SUB_F_SCHEMA_VERSION = "1.0"
 SUB_F_VOCAB_VERSION = "1.0"
 # 1.1: the cycle-1 N/S endpoint-direction fix (commit 98cdeb0,

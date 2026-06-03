@@ -219,14 +219,27 @@ unresolved flag, not false confirmation.
 
 ---
 
-## 8. sub_f `region_crs` gap — fixed in-scope
+## 8. sub_f `region_crs` gap — fixed in-scope (provenance/consistency, not bug-prevention)
 
-sub_f's manifest currently omits `region_crs` (Berlin's sub_g still passed, so it's non-blocking *today*). We
-**fix it in-scope** rather than carry it: "non-blocking because one city passed" is the **regime-blindness
-pattern** — one morphology/zone passing does not prove a `region_crs`-dependent sub_f path is harmless across
-all zones; a carried gap could quietly enable a future-zone bug. The fix is small and multi-region means sub_f
-*should* know its region's CRS. **Add it with a test that exercises a non-Singapore `region_crs`** (the same
-guard shape as the Berlin validator-hardcode regression).
+sub_f's manifest omits `region_crs` while sub_c/sub_d/sub_e all carry it. **Corrected rationale
+(the original draft was wrong, verified during execution 2026-06-03):** sub_f is **CRS-agnostic** —
+it has *zero* `region_crs` references and parses tile coordinates from dir names, so there is no
+`region_crs`-dependent code path that could misbehave across zones. The gap is therefore
+**metadata-completeness** (provenance + cross-stage CRS consistency for the multi-region corpus),
+**not** latent-bug-prevention. We still fix it in-scope: with manifests about to be minted for dozens
+of cities, sub_f being the only stage that doesn't record its CRS is a hole the roll-up and any
+cross-stage CRS audit will want closed — far cheaper to close before fan-out than to re-derive every
+region later.
+
+**Implementation (decided 2026-06-03):** add `region_crs` to the sub_f manifest dict
+(`build_region_manifest`), threaded from the **canonical sub_e manifest** (`_read_sub_e_region_crs`),
+not inferred from tile-dir names. Because adding a manifest field is a **manifest-FORMAT** change
+(cells.parquet data shape unchanged), bump **`SUB_F_ARTIFACT_FORMAT_VERSION` 1.0→1.1** (the axis that
+matches the change, per the `DERIVATION`/`VALIDATOR` selective-bump precedent) and **leave
+`SUB_F_SCHEMA_VERSION` at 1.0** (the DATA_SHAPE axis is genuinely unchanged). Guard with a
+**non-Singapore (`EPSG:25833`) test** — a Singapore-only test would pass even if the field were
+hardcoded or dropped (regime-blindness). Singapore's on-disk manifest is left stale-but-forward-
+compatible (re-derive opportunistically; not forced).
 
 ---
 

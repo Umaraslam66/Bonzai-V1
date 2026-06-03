@@ -104,8 +104,9 @@ def _layer3_subset_tiles() -> list[tuple[int, int]]:
 
 def _build_filtered_inputs(work: Path) -> SimpleNamespace:
     """Symlink the layer-3 subset's sub-C + sub-E tile dirs into a filtered region
-    tree (+ markers). Simpler than the sub-E fixture: derive_region reads no sub-C
-    / sub-D manifest, only markers + sub-E tile dirs + per-tile sub-C features."""
+    tree (+ markers + the sub-E manifest). derive_region reads no sub-C / sub-D
+    manifest, but DOES read the sub-E manifest for region_crs (spec §8), plus the
+    markers, the sub-E tile dirs, and per-tile sub-C features."""
     sub_c = work / "sub_c" / "singapore"
     sub_d = work / "sub_d" / "singapore"
     sub_e = work / "sub_e" / "singapore"
@@ -113,6 +114,9 @@ def _build_filtered_inputs(work: Path) -> SimpleNamespace:
         d.mkdir(parents=True, exist_ok=True)
     (sub_d / "_SUCCESS").touch()
     (sub_e / "_SUCCESS").touch()
+    # sub-F reads region_crs from the sub-E manifest (spec §8); symlink the real
+    # one (carries region_crs: EPSG:3414) alongside the filtered tile dirs.
+    (sub_e / "manifest.yaml").symlink_to(_SUB_E_REGION / "manifest.yaml")
     for ti, tj in _layer3_subset_tiles():
         tile = f"tile=EPSG3414_i{ti}_j{tj}"
         (sub_c / tile).symlink_to(_SUB_C_REGION / tile, target_is_directory=True)
