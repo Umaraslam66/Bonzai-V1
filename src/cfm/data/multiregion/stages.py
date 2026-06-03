@@ -69,6 +69,8 @@ STAGE_ORDER: tuple[Stage, ...] = (
             c.region,
             "--release",
             c.release,
+            "--output-dir",  # explicit so write-dir == the dir we check the marker in
+            str(c.sub_c_dir),
         ],
         source_globs=(
             "scripts/extract_tiles.py",
