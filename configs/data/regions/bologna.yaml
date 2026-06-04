@@ -4,9 +4,9 @@ admin:
   country_code: IT
   level: locality
 fallback_bbox:
-- 11.04
-- 44.25
-- 11.64
-- 44.73
+- 11.18
+- 44.36
+- 11.5
+- 44.62
 crs: EPSG:4326
 projected_crs: EPSG:25832

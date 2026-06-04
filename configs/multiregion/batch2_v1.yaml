@@ -130,6 +130,12 @@ cities:
   morphology: modernist-sprawl
   density: moderate
   geography: PL
+- name: eisenhuttenstadt
+  country_code: DE
+  projected_crs: EPSG:25833
+  morphology: modernist-sprawl
+  density: moderate
+  geography: DE
 - name: espoo
   country_code: FI
   projected_crs: EPSG:25835

@@ -27,9 +27,13 @@ from cfm.data.multiregion import selection  # noqa: E402
 
 # (name, country, center_lon, center_lat, morphology, density, size_tier)
 # size_tier sets the generous half-widths below. Coordinates are city centres.
-_BIG = (0.40, 0.30)  # big metro
-_MID = (0.30, 0.24)  # city
-_SMALL = (0.16, 0.13)  # town
+# Half-widths (lon, lat) in degrees. Sized so every city fits the lrd_all_serial
+# 4h wall cap (the only authorized CPU partition; dcgp not authorized, boost
+# forbidden). Still GENEROUS: no European dense core exceeds ~20km, so even the
+# 'big' ~30x33km box over-includes every core. Counts are NOT the sizing basis.
+_BIG = (0.22, 0.17)  # big metro ~30x38km (~300 tiles, ~2h)
+_MID = (0.16, 0.13)  # city ~22x29km (~130 tiles, ~50min)
+_SMALL = (0.11, 0.09)  # town ~15x20km (~55 tiles, ~25min)
 _TIERS = {"big": _BIG, "mid": _MID, "small": _SMALL}
 
 CANDIDATES: list[tuple] = [
@@ -59,6 +63,7 @@ CANDIDATES: list[tuple] = [
     ("cergy", "FR", 2.04, 49.04, "modernist-sprawl", "moderate", "mid"),
     ("tychy", "PL", 18.99, 50.13, "modernist-sprawl", "moderate", "mid"),
     ("vallingby", "SE", 17.87, 59.36, "modernist-sprawl", "moderate", "mid"),
+    ("eisenhuttenstadt", "DE", 14.65, 52.15, "modernist-sprawl", "moderate", "mid"),
     ("espoo", "FI", 24.66, 60.21, "modernist-sprawl", "sparse", "small"),
     ("welwyn", "GB", -0.20, 51.80, "modernist-sprawl", "sparse", "small"),
     # --- mixed ---

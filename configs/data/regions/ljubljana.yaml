@@ -4,9 +4,9 @@ admin:
   country_code: SI
   level: locality
 fallback_bbox:
-- 14.21
-- 45.81
-- 14.81
-- 46.29
+- 14.35
+- 45.92
+- 14.67
+- 46.18
 crs: EPSG:4326
 projected_crs: EPSG:25833

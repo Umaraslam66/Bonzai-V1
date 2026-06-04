@@ -4,9 +4,9 @@ admin:
   country_code: FI
   level: locality
 fallback_bbox:
-- 24.64
-- 59.93
-- 25.24
-- 60.41
+- 24.78
+- 60.04
+- 25.1
+- 60.3
 crs: EPSG:4326
 projected_crs: EPSG:25835

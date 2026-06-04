@@ -4,9 +4,9 @@ admin:
   country_code: AT
   level: locality
 fallback_bbox:
-- 16.07
-- 47.97
-- 16.67
-- 48.45
+- 16.21
+- 48.08
+- 16.53
+- 48.34
 crs: EPSG:4326
 projected_crs: EPSG:25833
