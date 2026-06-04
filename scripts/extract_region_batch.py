@@ -60,6 +60,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Slurm CPU partition (asserted non-boost; declared even in --dry-run).",
     )
     p.add_argument(
+        "--authorized-boost-override",
+        action="store_true",
+        help="DELIBERATE single-run escape hatch: allow a boost (GPU) partition. "
+        "PI-authorized for batch-2 preprocessing (2026-06-04, per-core billing). "
+        "Guard stays default-deny; the override is logged loudly.",
+    )
+    p.add_argument(
         "--state-dir",
         type=Path,
         default=None,
@@ -72,8 +79,11 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     # Non-boost guard on the declared processing partition — fail loud BEFORE any work.
+    # (--authorized-boost-override is the PI-authorized single-run escape hatch.)
     try:
-        assert_cpu_partition(args.partition)
+        assert_cpu_partition(
+            args.partition, authorized_boost_override=args.authorized_boost_override
+        )
     except ValueError as exc:
         _log.error("%s", exc)
         return 2
