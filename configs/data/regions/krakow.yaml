@@ -1,0 +1,12 @@
+name: krakow
+admin:
+  source: overture://divisions
+  country_code: PL
+  level: locality
+fallback_bbox:
+- 19.64
+- 49.82
+- 20.24
+- 50.3
+crs: EPSG:4326
+projected_crs: EPSG:25834

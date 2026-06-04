@@ -1,0 +1,12 @@
+name: almere
+admin:
+  source: overture://divisions
+  country_code: NL
+  level: locality
+fallback_bbox:
+- 4.92
+- 52.11
+- 5.52
+- 52.59
+crs: EPSG:4326
+projected_crs: EPSG:25831

@@ -1,0 +1,12 @@
+name: edinburgh
+admin:
+  source: overture://divisions
+  country_code: GB
+  level: locality
+fallback_bbox:
+- -3.49
+- 55.71
+- -2.89
+- 56.19
+crs: EPSG:4326
+projected_crs: EPSG:25830

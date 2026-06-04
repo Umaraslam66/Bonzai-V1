@@ -1,0 +1,12 @@
+name: a_coruna
+admin:
+  source: overture://divisions
+  country_code: ES
+  level: locality
+fallback_bbox:
+- -8.71
+- 43.12
+- -8.11
+- 43.6
+crs: EPSG:4326
+projected_crs: EPSG:25829

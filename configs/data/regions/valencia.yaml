@@ -1,0 +1,12 @@
+name: valencia
+admin:
+  source: overture://divisions
+  country_code: ES
+  level: locality
+fallback_bbox:
+- -0.68
+- 39.23
+- -0.08
+- 39.71
+crs: EPSG:4326
+projected_crs: EPSG:25830

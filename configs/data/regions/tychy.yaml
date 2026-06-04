@@ -1,0 +1,12 @@
+name: tychy
+admin:
+  source: overture://divisions
+  country_code: PL
+  level: locality
+fallback_bbox:
+- 18.69
+- 49.89
+- 19.29
+- 50.37
+crs: EPSG:4326
+projected_crs: EPSG:25834

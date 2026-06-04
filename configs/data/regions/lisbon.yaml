@@ -1,0 +1,12 @@
+name: lisbon
+admin:
+  source: overture://divisions
+  country_code: PT
+  level: locality
+fallback_bbox:
+- -9.44
+- 38.48
+- -8.84
+- 38.96
+crs: EPSG:4326
+projected_crs: EPSG:25829

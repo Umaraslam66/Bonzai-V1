@@ -1,0 +1,12 @@
+name: welwyn
+admin:
+  source: overture://divisions
+  country_code: GB
+  level: locality
+fallback_bbox:
+- -0.36
+- 51.67
+- -0.04
+- 51.93
+crs: EPSG:4326
+projected_crs: EPSG:25830

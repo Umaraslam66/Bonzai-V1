@@ -1,0 +1,12 @@
+name: helsinki
+admin:
+  source: overture://divisions
+  country_code: FI
+  level: locality
+fallback_bbox:
+- 24.64
+- 59.93
+- 25.24
+- 60.41
+crs: EPSG:4326
+projected_crs: EPSG:25835

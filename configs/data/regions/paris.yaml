@@ -1,0 +1,12 @@
+name: paris
+admin:
+  source: overture://divisions
+  country_code: FR
+  level: locality
+fallback_bbox:
+- 1.95
+- 48.56
+- 2.75
+- 49.16
+crs: EPSG:4326
+projected_crs: EPSG:25831

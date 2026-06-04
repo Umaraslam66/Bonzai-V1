@@ -1,0 +1,12 @@
+name: turin
+admin:
+  source: overture://divisions
+  country_code: IT
+  level: locality
+fallback_bbox:
+- 7.39
+- 44.83
+- 7.99
+- 45.31
+crs: EPSG:4326
+projected_crs: EPSG:25832

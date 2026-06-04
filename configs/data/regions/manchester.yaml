@@ -1,0 +1,12 @@
+name: manchester
+admin:
+  source: overture://divisions
+  country_code: GB
+  level: locality
+fallback_bbox:
+- -2.54
+- 53.24
+- -1.94
+- 53.72
+crs: EPSG:4326
+projected_crs: EPSG:25830
