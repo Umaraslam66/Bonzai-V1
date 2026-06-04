@@ -6,6 +6,50 @@ cold session resumes from.
 
 ---
 
+## UPDATE 2026-06-04 — G2 + G3 DONE; HALTED before G4 (batch-2)
+
+**G2 (canary extract): COMPLETE + clean.** All 5 canary cities fetched on the Leonardo login node
+(tmux, ~45min) then processed via `multiregion_process.sbatch` on `lrd_all_serial` and **validated
+end-to-end** — each `passed=True groups=0 sanity_floor_violated=False`. Tiles/tokens: prague 253/12.2M,
+munich 171/10.1M, barcelona 72/7.24M, milton_keynes 42/1.85M, umea 36/0.81M (**574 tiles, 32.2M tokens**).
+
+**Canary caught a real bug:** committed sbatch asked 32cpu/120G → rejected (`QOSMaxCpuPerUserLimit`).
+`lrd_all_serial` QoS caps cpu=8/mem=30800M/4h, and **cpu=8 is per-USER → per-city jobs run SERIAL**.
+Fixed to 8cpu/30G/4h + added `test_sbatch_fits_lrd_all_serial_qos` must-distinguish guard (proven: fails
+on old 32cpu/120G). **Committed `b98a20b`; deployed to Leonardo (ff from 5bdcf05).**
+
+**Validated baseline = `b98a20b`** (NOT 5bdcf05 — its committed sbatch is the broken one). §5.1
+composition check ran at b98a20b: all 5 cities "nothing — up to date" (b98a20b invalidates no stage;
+the 5bdcf05-run artifacts are current). Single clean committed-sha baseline confirmed.
+
+**G3 (proceed gate): all three parts satisfied** — `reports/2026-06-04-phase-2-g3-canary-rollup.yaml`
+(driver `scripts/multiregion/build_g3_rollup.py`):
+1. **Regime gate** — 5/5 validated, **0 data-regime fixes needed**; the one fix (sbatch) has a proven
+   must-distinguish guard. Structural axis-coverage gate `ready_for_next_batch=True` (morphology 4 /
+   density 3 / geography 5; 0 uncovered).
+2. **Sizing gate** — advisory proxy measured: geometry_redundancy 0.516 vs Singapore 0.537
+   (rel_sg −0.039, no anomaly); **language anchor DEFERRED** (no language-token corpus pinned; spec §7
+   forbids inventing one — advisory, doesn't gate budget). Budget sizes up to **30,900 tiles**,
+   r-unresolved flag set (bake-off = sole r authority).
+3. **Cost-model gate — KEY FINDING:** EU **~56,060 tokens/tile vs Singapore's pinned 29,150 (~1.9×;
+   barcelona dense 100,538 = 3.4×, umea sparse 22,377 = 0.77×)**. Method reproduces Singapore exactly
+   (29,201), so the delta is real. **The 29,150/tile assumption does NOT generalize to Europe** — a
+   tile-budget corpus over-yields tokens ~2× (safe per §10.1). Clipped fallback-bbox tile counts are
+   **lower bounds** (barcelona dense=72 < moderate munich=171); barcelona is an unreliable
+   tiles/morphology point. `lrd_all_serial` is 8-CPU serial-per-user → batch-2 throughput must weigh
+   `dcgp_usr_prod` (parallel, BILLS) vs free-but-serial.
+
+**State:** local tip `20c79e7` (3 ahead of 5bdcf05: sbatch fix + G3 driver/report). **Still UNMERGED +
+UNPUSHED** — merge waits for G4. (PI considering a branch-only push as off-laptop backup — not a merge.)
+
+**NEXT = G4 (PI decision-gated).** Ratify the batch-2 list to fill axis gaps, **factoring the ~2×
+tok/tile finding into sizing** (tile-budget vs token-target trade-off is a PI call per §10.1; high
+variance 0.77×–3.4× argues against naive token-sizing) and the serial-vs-dcgp throughput trade-off.
+Then fetch+process batch-2, merge into the roll-up, assert validated tokens ≥ budget, write the close-out
+— **THEN the merge decision.** Deploy/access mechanics: see memory `reference_leonardo_claude_ssh_socket`.
+
+---
+
 ## Merge status — READ FIRST (do not misread)
 
 - **`main` has the CRS+pilot FOUNDATION only** (`4c0bf14`, merged + pushed earlier this session with
