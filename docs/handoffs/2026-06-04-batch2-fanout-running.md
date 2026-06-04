@@ -60,7 +60,9 @@ echo "=== fetch lanes done-count ==="
 for L in 1 2 3 4; do echo "lane$L: $(grep -ac 'DONE rc=0' logs/b2-fetch-lane$L.log) done; $(grep -c LANE${L}_COMPLETE logs/b2-fetch-lane$L.log) complete"; done
 echo "=== boost watcher: submitted / all-submitted? ==="; grep -c SUBMITTED logs/b2-boost-watcher.log; grep ALL_SUBMITTED logs/b2-boost-watcher.log
 echo "=== boost jobs still running ==="; squeue -u $USER -o "%.10i %.14P %.12j %.2t %.9M" | head -40
-echo "=== validated batch-2 cities (count of _PHASE1_VALIDATED) ==="
+echo "=== _PHASE1_VALIDATED markers (NOTE: includes 7 pre-existing — 5 canary +"
+echo "    singapore (Phase-1) + berlin (pilot); neither singapore nor berlin is in"
+echo "    the 40-city G4 corpus. The 35 batch-2 names are listed below.) ==="
 ls data/processed/sub_g/$REL/*/_PHASE1_VALIDATED 2>/dev/null | wc -l
 echo "=== any FAILED process jobs? ==="; sacct -X --starttime=2026-06-04 -n -o JobID,JobName%14,State | grep -iE "mr-proc-boost" | grep -viE "COMPLETED|RUNNING|PENDING" | head
 EOF
