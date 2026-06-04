@@ -1,0 +1,214 @@
+#!/usr/bin/env python
+"""Phase-G G4: full-corpus roll-up + THREE-PART DoD gate (canary + batch-2).
+
+Run ON Leonardo when the batch-2 corpus has processed. Reads BOTH canary_v1.yaml
+and batch2_v1.yaml (the full ~40-city diversity corpus), assembles the §6 roll-up,
+and applies the DoD gate the PI locked (2026-06-04). A threshold alone is a trap, so
+the gate is structural + per-city, never just the sum:
+
+  (a) total_validated_tokens >= 600_000_000   (measured DIRECTLY; NOT tiles x 29,150)
+  (b) PER-CITY FLOOR: every validated city contributes a non-trivial tile/token
+      count. A city that "passes" with a near-empty box (empty-sea/rural / silent
+      clip; per-city counts are known-soft, fallback bbox / known_issues #15) is a
+      SILENT DUD and must surface, not hide under the sum. Floor ~ umea canary low
+      (36 tiles / ~0.8M tokens).
+  (c) axis-coverage matrix green (rollup.assert_ready_for_next_batch — morphology/
+      density/geography, 0 uncovered).
+
+AND: groups=0 is necessary, NOT sufficient. Pair each city's validator verdict with
+a rough-numbers sanity glance — flag cities whose tiles/tokens are wildly off their
+morphology/density peers (too clean, too empty, outlier), even if groups=0.
+
+Reports the PER-CITY TABLE (not just the total) + the three-part verdict + flags.
+Read-only over data/; writes the report YAML.
+"""
+
+from __future__ import annotations
+
+import glob
+import statistics
+import sys
+from pathlib import Path
+
+import pyarrow.parquet as pq
+import yaml
+
+_REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO / "src"))
+
+from cfm.data.multiregion import rollup, selection  # noqa: E402
+
+RELEASE = "2026-04-15.0"
+TARGET_TOKENS = 600_000_000  # DoD floor (measured directly)
+FLOOR_TILES = 36  # umea canary low — below this with a generous box ⇒ suspect dud
+FLOOR_TOKENS = 800_000  # umea canary low
+PROC = _REPO / "data" / "processed"
+
+
+def _city_token_stats(region: str) -> tuple[int, int]:
+    """(tile_count, token_count) from sub_f cells (read each file directly — avoid
+    pyarrow Hive 'tile=' column inference)."""
+    files = sorted(glob.glob(str(PROC / "sub_f" / RELEASE / region / "tile=*" / "cells.parquet")))
+    n_tok = 0
+    for f in files:
+        t = pq.ParquetFile(f).read(columns=["token_sequence"])
+        n_tok += len(t.column("token_sequence").combine_chunks().flatten())
+    return len(files), n_tok
+
+
+def _validated(region: str) -> bool:
+    return (PROC / "sub_g" / RELEASE / region / "_PHASE1_VALIDATED").exists()
+
+
+def _groups(region: str) -> int | None:
+    p = PROC / "sub_g" / RELEASE / region / "quarantine_report.yaml"
+    if not p.exists():
+        return None
+    g = yaml.safe_load(p.read_text()).get("groups")
+    return len(g) if isinstance(g, list) else None
+
+
+def main() -> int:
+    canary = selection.load_canary_manifest(_REPO / "configs" / "multiregion" / "canary_v1.yaml")
+    batch2 = selection.load_canary_manifest(_REPO / "configs" / "multiregion" / "batch2_v1.yaml")
+    cities = canary + batch2
+
+    rows: list[dict] = []
+    records: list[rollup.CityRecord] = []
+    for c in cities:
+        name = c["name"]
+        tiles, tokens = _city_token_stats(name)
+        validated = _validated(name)
+        rows.append(
+            {
+                "name": name,
+                "morphology": c["morphology"],
+                "density": c["density"],
+                "geography": c["geography"],
+                "crs": c["projected_crs"],
+                "tiles": tiles,
+                "tokens": tokens,
+                "groups": _groups(name),
+                "validated": validated,
+                "tok_per_tile": round(tokens / tiles, 1) if tiles else None,
+            }
+        )
+        records.append(
+            rollup.CityRecord(
+                name=name,
+                morphology=c["morphology"],
+                density=c["density"],
+                geography=c["geography"],
+                region_crs=c["projected_crs"],
+                tile_count=tiles,
+                fetch_seconds=0.0,
+                stage_shas={},
+                release=RELEASE,
+                validation_status=rollup.VALIDATED if validated else rollup.FAILED,
+                token_count=tokens,
+            )
+        )
+    r = rollup.RollUp(cities=records)
+
+    # ---- (a) token DoD ----
+    total_tokens = rollup.total_validated_tokens(r)
+    gate_a = total_tokens >= TARGET_TOKENS
+
+    # ---- (b) per-city floor (validated cities only) ----
+    below_floor = [
+        x["name"]
+        for x in rows
+        if x["validated"] and (x["tiles"] < FLOOR_TILES or x["tokens"] < FLOOR_TOKENS)
+    ]
+    not_validated = [x["name"] for x in rows if not x["validated"]]
+    gate_b = not below_floor and not not_validated
+
+    # ---- (c) axis coverage ----
+    uncovered = rollup.uncovered_axis_labels(r)
+    gate_c = not uncovered
+
+    # ---- groups=0-not-sufficient: peer-median outlier sanity ----
+    sanity_flags: list[str] = []
+    by_cell: dict[tuple, list[dict]] = {}
+    for x in rows:
+        if x["validated"]:
+            by_cell.setdefault((x["morphology"], x["density"]), []).append(x)
+    for x in rows:
+        if not x["validated"]:
+            continue
+        peers = [p for p in by_cell[(x["morphology"], x["density"])] if p["name"] != x["name"]]
+        if len(peers) >= 2:
+            med = statistics.median([p["tiles"] for p in peers])
+            if med > 0 and (x["tiles"] < 0.4 * med or x["tiles"] > 2.5 * med):
+                sanity_flags.append(
+                    f"{x['name']}: {x['tiles']} tiles vs {x['morphology']}/{x['density']} "
+                    f"peer-median {med:.0f} (outlier — review even though groups={x['groups']})"
+                )
+        if x["density"] == "dense-core" and x["tiles"] < FLOOR_TILES * 2:
+            sanity_flags.append(f"{x['name']}: dense-core but only {x['tiles']} tiles (suspect)")
+        if x["groups"]:  # groups > 0 (None and 0 are falsy) — validated but NOT clean
+            sanity_flags.append(f"{x['name']}: groups={x['groups']} (NOT clean)")
+
+    dod_pass = gate_a and gate_b and gate_c
+
+    # ---- report ----
+    print("=== G4 PER-CITY TABLE (full corpus) ===")
+    for x in sorted(rows, key=lambda z: (z["morphology"], z["density"], -z["tiles"])):
+        flag = ""
+        if not x["validated"]:
+            flag = " <<NOT-VALIDATED"
+        elif x["tiles"] < FLOOR_TILES or x["tokens"] < FLOOR_TOKENS:
+            flag = " <<BELOW-FLOOR"
+        print(
+            f"  {x['name']:<16} {x['morphology']:<16} {x['density']:<10} {x['crs']:<11} "
+            f"tiles={x['tiles']:>4} tokens={x['tokens']:>9} groups={x['groups']}{flag}"
+        )
+    n_val = sum(1 for x in rows if x["validated"])
+    print(
+        f"\n  cities={len(rows)} validated={n_val} tiles={rollup.total_validated_tiles(r)} "
+        f"tokens={total_tokens:,}"
+    )
+    print("\n=== THREE-PART DoD GATE ===")
+    print(f"  (a) tokens >= 600M:        {gate_a}  ({total_tokens:,} / {TARGET_TOKENS:,})")
+    print(f"  (b) per-city floor:        {gate_b}  below_floor={below_floor}")
+    print(f"      not_validated={not_validated}")
+    print(f"  (c) axis-coverage green:   {gate_c}  uncovered={uncovered}")
+    print(f"  ==> DoD PASS: {dod_pass}")
+    print("\n=== groups=0-NOT-SUFFICIENT sanity flags ===")
+    print(
+        "\n".join(f"  ⚠ {s}" for s in sanity_flags) or "  (none — counts in-ballpark for all peers)"
+    )
+
+    out = _REPO / "reports" / "2026-06-05-phase-2-g4-corpus-dod.yaml"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        yaml.safe_dump(
+            {
+                "per_city": rows,
+                "totals": {
+                    "cities": len(rows),
+                    "validated": n_val,
+                    "validated_tiles": rollup.total_validated_tiles(r),
+                    "validated_tokens": total_tokens,
+                },
+                "dod_gate": {
+                    "a_tokens_ge_600M": gate_a,
+                    "b_per_city_floor": gate_b,
+                    "c_axis_coverage": gate_c,
+                    "PASS": dod_pass,
+                    "below_floor": below_floor,
+                    "not_validated": not_validated,
+                    "uncovered_axes": uncovered,
+                },
+                "sanity_flags": sanity_flags,
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        )
+    )
+    print(f"\nwrote {out}")
+    return 0 if dod_pass else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
