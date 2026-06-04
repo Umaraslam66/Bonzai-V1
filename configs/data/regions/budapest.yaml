@@ -4,9 +4,9 @@ admin:
   country_code: HU
   level: locality
 fallback_bbox:
-- 18.82
-- 47.33
-- 19.26
-- 47.67
+- 18.64
+- 47.2
+- 19.44
+- 47.8
 crs: EPSG:4326
 projected_crs: EPSG:25834

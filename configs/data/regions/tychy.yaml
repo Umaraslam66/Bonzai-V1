@@ -4,9 +4,9 @@ admin:
   country_code: PL
   level: locality
 fallback_bbox:
-- 18.83
-- 50.0
-- 19.15
-- 50.26
+- 18.69
+- 49.89
+- 19.29
+- 50.37
 crs: EPSG:4326
 projected_crs: EPSG:25834

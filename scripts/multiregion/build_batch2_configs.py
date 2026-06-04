@@ -27,13 +27,13 @@ from cfm.data.multiregion import selection  # noqa: E402
 
 # (name, country, center_lon, center_lat, morphology, density, size_tier)
 # size_tier sets the generous half-widths below. Coordinates are city centres.
-# Half-widths (lon, lat) in degrees. Sized so every city fits the lrd_all_serial
-# 4h wall cap (the only authorized CPU partition; dcgp not authorized, boost
-# forbidden). Still GENEROUS: no European dense core exceeds ~20km, so even the
-# 'big' ~30x33km box over-includes every core. Counts are NOT the sizing basis.
-_BIG = (0.22, 0.17)  # big metro ~30x38km (~300 tiles, ~2h)
-_MID = (0.16, 0.13)  # city ~22x29km (~130 tiles, ~50min)
-_SMALL = (0.11, 0.09)  # town ~15x20km (~55 tiles, ~25min)
+# Half-widths (lon, lat) in degrees. GENEROUS over-inclusion (PI: avoid clipping a
+# dense core; known_issues #15). Boost (PI-authorized for batch-2, 2026-06-04) has
+# no lrd_all_serial 4h cap, so boxes stay generous; the only constraint is
+# single_utm_zone_ok on the FULL box. Counts are NOT the sizing basis.
+_BIG = (0.40, 0.30)  # big metro ~58x67km
+_MID = (0.30, 0.24)  # city ~44x53km
+_SMALL = (0.16, 0.13)  # town ~23x29km
 _TIERS = {"big": _BIG, "mid": _MID, "small": _SMALL}
 
 CANDIDATES: list[tuple] = [
