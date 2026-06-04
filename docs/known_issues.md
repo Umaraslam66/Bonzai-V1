@@ -6,6 +6,69 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #15 — sub_c tiles the fallback bbox, not the real Overture admin polygon
+
+- **Filed:** 2026-06-04 (Phase-2 multiregion G3 / batch-2 scoping)
+- **Severity:** low (diversity corpus tolerates over-inclusion; tile/token counts are NOT the sizing basis)
+- **Status:** DEFERRED — acceptable for a diversity corpus; revisit only if true-extent counts ever become load-bearing
+- **Affects:** `src/cfm/data/overture/loader.py::_build_region_geometry` (Phase-1 placeholder), `src/cfm/data/sub_c/pipeline.py:348`
+
+### Context
+
+`_build_region_geometry` is a Phase-1 placeholder: `admin_polygon = box(fallback_bbox)`. sub_c partitions tiles over (and clips features to) that box (`pipeline.py:348`), NOT the real divisions polygon — the divisions theme *is* fetched but feeds only the (separately-broken, see #13) admin_region lookup. The manifests' `admin_polygon_source: overture://divisions:...` is a cosmetic label, not evidence of a real polygon. **Confirmed in code 2026-06-04.** The boxes over-include (Prague's box ≈937 km² > its municipality ≈496 km²) — benign for a diversity corpus (extra fringe, not a clip). Consequence: per-city **tile/token counts are not trustworthy as true-extent measures**; per-tile tok/tile *direction* is robust. Sizing is by **diversity, not counts** (see handoff), so this does not block batch-2.
+
+### For batch-2
+
+Draw fallback bboxes **generously** (over-include rather than risk clipping a dense core). NOT bundled with #13/#14 (one reopen, one change, clean attribution).
+
+### Tracking
+
+- Source: `loader.py:193`, `pipeline.py:348`. Surfaced: G3 batch-2 scoping 2026-06-04.
+
+---
+
+## #14 — admin_region granularity is not comparable across countries (subtype='region')
+
+- **Filed:** 2026-06-04 (Phase-2 multiregion batch-2 scoping)
+- **Severity:** medium (semantics; couples to #13's hard gate)
+- **Status:** DEFERRED — the correct cross-country granularity is a **value-bearing-conditioning (Task 7) design decision**; spec TBD. Do NOT guess it in an operational reopen.
+- **Affects:** `src/cfm/data/sub_c/pipeline.py::_derive_region_lookup_svy21` (the `subtype='region'` filter)
+
+### Context
+
+`subtype='region'` means different administrative levels per country (inspected on the real cached divisions themes 2026-06-04): Singapore = **sub-city district** (5 regions, varies tile-to-tile); Spain = **Catalunya** (whole autonomous community — constant for every Barcelona tile); Germany = **Bayern** (whole Bundesland — constant for Munich); Czechia = **Praha / kraj** (Prague ≈ the city). So naively de-hardcoding `country_code` while keeping `subtype='region'` would NOT fix #13 — it would replace "null = European" with "near-unique province ID per EU city vs sub-city district for SG", a subtler asymmetry. The spec itself files the right subtype as TBD ("equivalent second-level subtype for other regions"). The correct choice depends on what value-bearing conditioning is *for*, which is a Task-7 design decision.
+
+### Tracking
+
+- Source: `pipeline.py::_derive_region_lookup_svy21`. Couples to #13. Surfaced: batch-2 scoping 2026-06-04.
+
+---
+
+## #13 — sub_c admin_region lookup hardcodes country_code='SG' → None for all non-SG tiles
+
+- **Filed:** 2026-06-04 (Phase-2 multiregion G2/G3)
+- **Severity:** medium (latent train-contamination: INERT today, becomes a systematic SG-vs-EU confound the moment value-bearing conditioning is enabled)
+- **Status:** DEFERRED — **⛔ HARD GATE (see below): must be fixed before ANY value-bearing conditioning (Task 7 / bake-off candidate).**
+- **Affects:** `src/cfm/data/sub_c/pipeline.py:337` (`country_code="SG"` hardcoded)
+
+### Context
+
+The admin_region lookup filters the divisions theme by `country='SG'`, so every non-Singapore tile gets `admin_region=None`. **INERT under slice-v1 value-agnostic conditioning** — the model consumes 8 field-SLOT tokens with no value channel (`micro_ar.py:15-21`), `datamodule.build_conditioning_prefix` (`datamodule.py:53-60`) returns the field-slot id-block, and `n_cond=8` means there is *no embedding id for any region value* — the model physically cannot see `None` vs a region string. The VALUE is recorded in the shard (`build_shards.py:88`) and `conditioning_prefix_ids` (the schema artifact) but is not trained on. Re-derivable from the **already-cached divisions theme** (no re-fetch needed).
+
+### Why deferred (not fixed now)
+
+Defer = ONE reopen at Task 7 (when the #14 granularity is decided regardless). Fixing now = that same Task-7 reopen PLUS a needless 5-city canary reopen — strictly worse, and it would block batch-2 for no durable gain. **`None` is the safer placeholder:** all-EU-null is glaringly unfinished (Task 7 MUST notice and re-derive); a plausible-wrong "Catalunya"-on-every-tile invites silent training on a mismatched signal.
+
+### ⛔ HARD GATE
+
+**BEFORE enabling any value-bearing conditioning (Task 7 / a bake-off candidate): admin_region MUST be re-derived with a deliberate cross-country granularity choice (#14) and the corpus reopened. Do NOT train value-bearing conditioning on the existing admin_region values — EU is all-`None` and SG is hardcoded.** Also recorded in spec §7 and the Phase-2 handoff.
+
+### Tracking
+
+- Source: `pipeline.py:337`; conditioning path `conditioning.py`, `datamodule.py`, `micro_ar.py`, `build_shards.py`. Couples to #14. Surfaced: G2/G3 2026-06-04.
+
+---
+
 ## #12 — Eval-set is FROZEN; three load-bearing carry-forward triggers for the training-scaffold / eval-harness phase
 
 - **Filed:** 2026-06-01 (eval-set-generation close)

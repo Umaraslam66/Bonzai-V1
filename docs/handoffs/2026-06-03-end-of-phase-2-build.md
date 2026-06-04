@@ -39,14 +39,30 @@ the 5bdcf05-run artifacts are current). Single clean committed-sha baseline conf
    tiles/morphology point. `lrd_all_serial` is 8-CPU serial-per-user → batch-2 throughput must weigh
    `dcgp_usr_prod` (parallel, BILLS) vs free-but-serial.
 
-**State:** local tip `20c79e7` (3 ahead of 5bdcf05: sbatch fix + G3 driver/report). **Still UNMERGED +
-UNPUSHED** — merge waits for G4. (PI considering a branch-only push as off-laptop backup — not a merge.)
+**State:** local tip advanced past `20c79e7` (sbatch fix + G3 driver/report + these docs). **Leonardo
+ff'd to match (full off-laptop backup of all commits, composition recheck empty). Still UNMERGED +
+UNPUSHED** — merge waits for G4.
 
-**NEXT = G4 (PI decision-gated).** Ratify the batch-2 list to fill axis gaps, **factoring the ~2×
-tok/tile finding into sizing** (tile-budget vs token-target trade-off is a PI call per §10.1; high
-variance 0.77×–3.4× argues against naive token-sizing) and the serial-vs-dcgp throughput trade-off.
-Then fetch+process batch-2, merge into the roll-up, assert validated tokens ≥ budget, write the close-out
-— **THEN the merge decision.** Deploy/access mechanics: see memory `reference_leonardo_claude_ssh_socket`.
+### Batch-2 decisions (PI, 2026-06-04) — proceed on the CURRENT pipeline, NO reopen
+
+- **Sizing = DIVERSITY, not counts.** Fill the canary coverage matrix (morphology/density/geography)
+  to original breadth (~44 cities). DoD floor = **600M validated tokens, MEASURED AT END**
+  (`total_validated_tokens ≥ 600_000_000` directly — NOT `tiles × 29,150`; that Singapore constant is
+  ~½ the EU rate, see G3). Over-yield is fine; if short, add cities. Draw fallback bboxes **generously**
+  (over-include; known_issues #15). Baseline stays **`76b068d`** — no reopen for batch-2.
+- **⛔ HARD GATE (known_issues #13/#14, spec §7):** `admin_region` is `None` on every EU tile (SG
+  hardcoded) — INERT under today's value-agnostic 8-slot conditioning, but a systematic SG-vs-EU
+  confound the instant value-bearing conditioning is enabled. It MUST be re-derived (with a deliberate
+  cross-country granularity choice) and the corpus reopened **BEFORE any value-bearing conditioning
+  (Task 7 / bake-off)**. Do NOT train value-bearing conditioning on the existing admin_region.
+- **Deferred, NOT bundled** (one reopen, one change): admin_region de-hardcode (#13/#14 → gated to
+  Task 7) and real-polygon tile extent (#15 → generous bboxes suffice). Neither is needed for batch-2.
+- **DoD assertion fix:** the G4 token gate asserts `total_validated_tokens ≥ 600M` directly; the
+  `recommended_tile_budget`/`29,150` constants survive only as diagnostics (spec §7 updated).
+
+**NEXT = G4.** Ratify the diversity batch-2 list + generous bboxes → fetch+process (partition: dcgp vs
+lrd_all_serial, priced 2026-06-04) → merge into the roll-up → assert `validated_tokens ≥ 600M` → close-out
+— **THEN the merge decision.** Deploy/access mechanics: memory `reference_leonardo_claude_ssh_socket`.
 
 ---
 

@@ -228,6 +228,12 @@ threshold on the EU corpus alone.
 "ambiguous = close to baseline → not confirmed" — AND demoted the proxy from budget-gate to advisory per the
 §10.1 cost-asymmetry; the bake-off is the sole r authority. PI-blessed 2026-06-03.)*
 
+### UPDATE 2026-06-04 — canary supersedes the tile×tok/tile sizing derivation; admin_region HARD GATE
+
+**Sizing is by DIVERSITY, not the tile/token derivation above (PI 2026-06-04).** The ~20,600-tile basis (lines 21, 124) was back-computed from Singapore's **29,150 tokens/tile**; the canary measured EU at **~56,060 tok/tile (~1.9×; barcelona 100,538 = 3.4×, umea 22,377 = 0.77×)**, and those tile counts ride on clipped fallback bboxes (known_issues #15), so counts cannot size the run. Batch-2 is sized to **cover the morphology/density/geography matrix to original breadth**; the DoD floor is **600M validated tokens, measured at the end** — assert `total_validated_tokens ≥ 600_000_000` **directly**, NOT `tiles × 29,150`. Over-yield is acceptable (production data + bake-off r>20 headroom); if short, add cities (cheap). The `recommended_tile_budget` / `29,150` constants survive only as **diagnostics**, never gates. Evidence: `reports/2026-06-04-phase-2-g3-canary-rollup.yaml`.
+
+**⛔ HARD GATE — admin_region (known_issues #13/#14):** BEFORE enabling ANY value-bearing conditioning (Task 7 / a bake-off candidate), `admin_region` MUST be re-derived with a deliberate cross-country granularity choice and the corpus reopened. The current corpus has `admin_region=None` on every EU tile (hardcoded SG lookup) — INERT under today's value-agnostic 8-slot conditioning (`micro_ar.py:15-21`, `datamodule.py:53-60`) but a systematic SG-vs-EU confound the instant values are consumed. Do NOT train value-bearing conditioning on the existing admin_region values.
+
 ---
 
 ## 8. sub_f `region_crs` gap — fixed in-scope (provenance/consistency, not bug-prevention)
