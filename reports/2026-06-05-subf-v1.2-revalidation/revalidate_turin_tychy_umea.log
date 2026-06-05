@@ -1,0 +1,18 @@
+v1.2 re-validation (read-only) | release=2026-04-15.0 | 3 cities
+
+  [    ] turin                  PASS
+  [SYM8] tychy                  PASS
+  [    ] umea                   PASS
+
+==== SUMMARY: 3 PASS / 0 FAIL / 0 ERROR / 0 SKIP ====
+SYM8 (the 8 batch-2 symmetry-fail cities) under v1.2:
+    a_coruna               ABSENT
+    bruges                 ABSENT
+    eisenhuttenstadt       ABSENT
+    krakow                 ABSENT
+    lodz                   ABSENT
+    manchester             ABSENT
+    mannheim               ABSENT
+    tychy                  PASS
+
+SYM8 ALL PASS under v1.2: False

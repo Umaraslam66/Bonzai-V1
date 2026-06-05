@@ -6,6 +6,50 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #17 — sub_c records a §8.3 touch-at-boundary as a crossing (touch-as-cross root)
+
+- **Filed:** 2026-06-05 (Phase-2 multiregion, sub-F validator v1.2)
+- **Severity:** low (0.0064% of crossings; census anomaly=0 — no fragment is dropped) but **spec-violating**
+- **Status:** DEFERRED to next regen — spec-violating per §8.3, **TOLERATED under validator v1.2**, MUST fix at the next sub-C regeneration. **Not "benign" — tolerated.**
+- **Affects:** `src/cfm/data/sub_c/geom.py` — crossing records are derived from `per_cell_pieces` (`:141`, consumed at `:156–160`) which is computed BEFORE `apply_sliver_drop` (`:182`, the <0.01 m sliver / 0-d-collapse discard). (Handoff's `geom.py:557` cite was stale; anchor on the `per_cell_pieces`→crossing path vs `apply_sliver_drop` ordering.)
+
+### Context
+
+A road terminating exactly on an internal cell boundary (§8.3 touch-not-cross, which the spec says must produce **0** crossing records) is recorded AS a crossing: the crossing-record derivation keys off `per_cell_pieces` before the sliver/0-d discard removes the boundary-touch fragment, so the touch looks like "present in 2 cells" → a crossing row → sub-E marks the shared edge `MINOR_ROAD` → sub-F emits a `<bref>` on the one side that has the endpoint. The **corpus-wide census** (`symmetry_probe.py --touch-census`, 2026-06-05) measured this directly: **187 / 2,927,731 crossings = 0.0064%, anomaly = 0** (the teeth-proven `anomaly` column confirms NO fragment was actually dropped — these are terminations, not clip-drops). Under v1.2 the road-presence-conditioned symmetry/coverage legs tolerate the one-sided emission.
+
+### Fix (regen era)
+
+Require **positive-length** presence in `_partition_geometry_into_cells` / the crossing derivation (apply the sliver/0-d discard BEFORE deciding "both cells present"). **When fixed, the corpus SHIFTS at the ~54–65 symmetric touch-as-cross edges** — they lose their spurious `<bref>`. So this fix is NOT verdict-only; it changes token bytes and must re-derive + re-bless the affected tiles.
+
+### Tracking
+
+- Source: `geom.py` `per_cell_pieces`/`apply_sliver_drop` ordering. Surfaced: batch-2 sub-F BP7 symmetry-FP investigation (`reports/2026-06-05-batch2-subf-symmetry-fp-investigation.md`). Couples to **#16** (both are regen-era sub-C clip-path prerequisites).
+
+---
+
+## #16 — the v1.2 relax's drop-guard `assert_lossless_clip` is TESTED-BUT-UNWIRED (no production caller)
+
+- **Filed:** 2026-06-05 (Phase-2 multiregion, sub-F validator v1.2)
+- **Severity:** medium (the intended **recurring** drop-guard does not run; until wired, source-trace + census-anomaly are the ONLY drop checks)
+- **Status:** DEFERRED to next regen — wiring requires sub-C to persist `source_clipped_length_m` (a clip-path change + re-run). **Regen-era prerequisite alongside #17.**
+- **Affects:** `src/cfm/data/multiregion/lossless_clip.py::assert_lossless_clip` (no production caller); the sub-C clip path (where it must be wired).
+
+### Context
+
+The v1.2 symmetry + coverage relax **deliberately blinds** those legs to a sub-C clip-DROP (a true crossing whose neighbour fragment was dropped — it looks identical to a §8.3 termination). `assert_lossless_clip` is the intended in-corpus **twin** that catches a drop by length conservation (`Σ per-cell fragment lengths == len(source ∩ bbox)`, tol 0.1 m). But it is **tested-but-unwired**: a repo-wide grep finds its only callers are its own 4 tests — it is NOT called by `pipeline.py` (sub-F derive), NOT by `validate_cross_tile` (docstring mention only, `validator_cross_tile.py:249`), NOT by any sub-C clip code. It needs `len(source ∩ bbox)` per feature computed at sub-C clip time, which sub-C does not currently persist or pass through.
+
+### Consequence (un-missable)
+
+- **No executing in-corpus drop-guard exists today.** The relax shipped on two widened legs with the twin wired to nothing.
+- The ONLY running drop checks are: `symmetry_probe.py --source-trace` (traces symmetry-DISAGREEMENT edges only — blind on cities with 0 disagreements) **+** the touch-census `anomaly` column (corpus-wide; teeth-proven non-vacuous by `tests/data/multiregion/test_touch_census_teeth.py`). Both passed clean on 2026-06-05 (anomaly=0 corpus-wide; `len_in_MISS=0` on all SYM8 traced edges).
+- **Future re-derives (the 13 sub-C timeouts, any regen) do NOT get the guard** unless the sub-C `source_clipped_length_m` wiring lands first. Wiring `assert_lossless_clip` into the sub-C clip path is a **regen-era prerequisite**.
+
+### Tracking
+
+- Source: `lossless_clip.py`. Evidence: `reports/2026-06-05-subf-v1.2-revalidation-closeout.md` §3. Couples to **#17**.
+
+---
+
 ## #15 — sub_c tiles the fallback bbox, not the real Overture admin polygon
 
 - **Filed:** 2026-06-04 (Phase-2 multiregion G3 / batch-2 scoping)

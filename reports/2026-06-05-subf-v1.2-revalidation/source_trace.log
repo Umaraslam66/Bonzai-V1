@@ -1,0 +1,38 @@
+
+========== SOURCE-TRACE bruges: 1 disagreeing edges ==========
+  tile=EPSG25831_i253_j2830 (2, 5).E->(3, 5) fid=3028c16d | src_len=350m kept(after bbox)=350m | len_in_EMIT=346.0m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  VERDICTS: {'termination/clip(FP)': 1}
+
+========== SOURCE-TRACE manchester: 1 disagreeing edges ==========
+  tile=EPSG25830_i275_j2953 (6, 0).S->(6, 1) fid=f1d1e917 | src_len=144m kept(after bbox)=144m | len_in_EMIT=135.6m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  VERDICTS: {'termination/clip(FP)': 1}
+
+========== SOURCE-TRACE eisenhuttenstadt: 2 disagreeing edges ==========
+  tile=EPSG25833_i239_j2886 (0, 5).E->(1, 5) fid=b04f316e | src_len=2828m kept(after bbox)=2828m | len_in_EMIT=285.8m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  tile=EPSG25833_i239_j2886 (1, 4).S->(1, 5) fid=b04f316e | src_len=2828m kept(after bbox)=2828m | len_in_EMIT=308.6m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  VERDICTS: {'termination/clip(FP)': 2}
+
+========== SOURCE-TRACE a_coruna: 2 disagreeing edges ==========
+  tile=EPSG25829_i278_j2396 (4, 2).W->(3, 2) fid=7e3ed9e8 | src_len=15m kept(after bbox)=15m | len_in_EMIT=2.6m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  tile=EPSG25829_i279_j2392 (2, 1).E->(3, 1) fid=71c2155b | src_len=336m kept(after bbox)=336m | len_in_EMIT=166.5m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  VERDICTS: {'termination/clip(FP)': 2}
+
+========== SOURCE-TRACE lodz: 3 disagreeing edges ==========
+  tile=EPSG25834_i192_j2870 (1, 4).W->(0, 4) fid=fca403af | src_len=25m kept(after bbox)=25m | len_in_EMIT=13.6m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  tile=EPSG25834_i196_j2877 (5, 1).E->(6, 1) fid=00c2a7c2 | src_len=484m kept(after bbox)=484m | len_in_EMIT=270.8m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  tile=EPSG25834_i196_j2877 (6, 0).S->(6, 1) fid=00c2a7c2 | src_len=484m kept(after bbox)=484m | len_in_EMIT=211.9m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  VERDICTS: {'termination/clip(FP)': 3}
+
+========== SOURCE-TRACE tychy: 1 disagreeing edges ==========
+  tile=EPSG25834_i180_j2779 (4, 3).N->(4, 2) fid=6f8d28c4 | src_len=889m kept(after bbox)=889m | len_in_EMIT=217.4m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  VERDICTS: {'termination/clip(FP)': 1}
+
+========== SOURCE-TRACE mannheim: 1 disagreeing edges ==========
+  tile=EPSG25832_i225_j2738 (1, 3).N->(1, 2) fid=d565b162 | src_len=3779m kept(after bbox)=3779m | len_in_EMIT=186.2m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  VERDICTS: {'termination/clip(FP)': 1}
+
+========== SOURCE-TRACE krakow: 3 disagreeing edges ==========
+  tile=EPSG25834_i212_j2772 (2, 5).E->(3, 5) fid=7bf4a246 | src_len=105m kept(after bbox)=105m | len_in_EMIT=74.4m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  tile=EPSG25834_i216_j2761 (0, 0).E->(1, 0) fid=e6024361 | src_len=2011m kept(after bbox)=2011m | len_in_EMIT=253.5m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  tile=EPSG25834_i216_j2761 (1, 1).N->(1, 0) fid=e6024361 | src_len=2011m kept(after bbox)=2011m | len_in_EMIT=265.3m len_in_MISS=0.0m miss_has_fid=False => termination/clip(FP)
+  VERDICTS: {'termination/clip(FP)': 3}
