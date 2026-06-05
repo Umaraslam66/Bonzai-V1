@@ -55,6 +55,26 @@ ROAD_CLASS_RAW = {
 # but ONLY if it is a transportation feature (sub-E reads crossings, which are
 # road-derived). We treat presence in crossings.parquet as the road witness.
 
+# Non-road LineString classes (waterways + rail). They cross internal edges but
+# per §5.1 NEVER emit brefs and NEVER set the edge class (→ NONE in sub-E), so a
+# crossing record for one is NOT a road point-crossing and must be excluded from
+# the touch-as-cross / drop census. SHARED by classify_point_crossings,
+# touch_census, and touch_detail so the exclusion set cannot drift between them.
+NONROAD_CLASS_RAW = {
+    "river",
+    "canal",
+    "stream",
+    "drain",
+    "ditch",
+    "rail",
+    "railway",
+    "light_rail",
+    "tram",
+    "subway",
+    "monorail",
+    "funicular",
+}
+
 
 def _read(tile_dir: Path, name: str) -> list[dict]:
     f = tile_dir / name
@@ -428,27 +448,69 @@ def source_trace(release: str, city: str) -> None:
     print("  VERDICTS:", dict(_C(verdicts)))
 
 
+def classify_point_crossings(
+    crossings_rows: list[dict],
+    features_rows: list[dict],
+    nonroad: set[str] = NONROAD_CLASS_RAW,
+) -> dict[str, int]:
+    """Bucket each ROAD point-crossing record by how many flanking cells carry it.
+
+    For one tile: a sub-C ``crossings.parquet`` record with
+    ``edge_extent_length_m == 0`` is a point-crossing on an internal cell edge.
+    For a ROAD one (its feature's ``class_raw`` not in ``nonroad``), look up
+    whether the road's clipped fragment is present in each of the two flanking
+    cells' ``features.parquet`` rows and bucket:
+
+    - ``real_cross``    — fragment in BOTH cells (a genuine through-crossing).
+    - ``touch_as_cross``— fragment in EXACTLY ONE cell (the §8.3 touch recorded
+      as a cross; the spurious-but-tolerated population the v1.2 relax accepts).
+    - ``anomaly``       — fragment in NEITHER cell. This is an ORPHANED crossing
+      record: a road crosses the edge per ``crossings.parquet`` yet sub-C wrote
+      no fragment on either side — the DROP signature. ``anomaly`` is the SOLE
+      corpus-wide drop check for cities the source-trace gate cannot reach
+      (passing cities have no symmetry disagreement to trace), so it is
+      load-bearing. Its teeth (that a real orphan is COUNTED here, not silently
+      filtered) are pinned by tests/data/multiregion/test_touch_census_teeth.py.
+
+    ``point_cross`` is the total of the three. Pure over row dicts (no I/O) so the
+    teeth test exercises THIS exact classifier, not a reimplementation.
+    """
+    fids_by_cell: dict[tuple[int, int], set[str]] = {}
+    fid_class: dict[str, str] = {}
+    for r in features_rows:
+        fids_by_cell.setdefault((r["cell_i"], r["cell_j"]), set()).add(r["source_feature_id"])
+        fid_class[r["source_feature_id"]] = str(r["class_raw"])
+    tot = {"point_cross": 0, "real_cross": 0, "touch_as_cross": 0, "anomaly": 0}
+    for r in crossings_rows:
+        if r["edge_extent_length_m"] != 0.0:
+            continue  # interval (polygon edge-interval), not a road point-crossing
+        fid = r["source_feature_id"]
+        if fid_class.get(fid) in nonroad:
+            continue  # waterway/rail crossing -> NONE in sub-E, never MINOR_ROAD
+        li, lj, ax = r["lower_cell_i"], r["lower_cell_j"], r["axis"]
+        cA, cB = ((li, lj), (li + 1, lj)) if ax == 0 else ((li, lj), (li, lj + 1))
+        in_a = fid in fids_by_cell.get(cA, set())
+        in_b = fid in fids_by_cell.get(cB, set())
+        tot["point_cross"] += 1
+        if in_a and in_b:
+            tot["real_cross"] += 1
+        elif in_a or in_b:
+            tot["touch_as_cross"] += 1
+        else:
+            tot["anomaly"] += 1
+    return tot
+
+
 def touch_census(release: str) -> None:
     """Corpus-wide §8.3 touch-as-cross census. A road point-crossing record
     (edge_extent_length_m==0) whose road has a real feature-row fragment in only
     ONE flanking cell = a touch recorded as a cross (spec §8.3: 'feature wholly in
     one cell' must produce 0 crossing records). Counts the FULL population, not
     just the asymmetric subset the symmetry leg catches. Validated-city counts =
-    the silent (symmetric-manifestation) population that passed validation."""
-    nonroad = {
-        "river",
-        "canal",
-        "stream",
-        "drain",
-        "ditch",
-        "rail",
-        "railway",
-        "light_rail",
-        "tram",
-        "subway",
-        "monorail",
-        "funicular",
-    }
+    the silent (symmetric-manifestation) population that passed validation. The
+    ``anom`` column is the load-bearing corpus-wide DROP check (see
+    classify_point_crossings); ``anomaly==0`` means orphaned crossings were
+    looked for and none found, NOT that none could be detected."""
     base = Path("data/processed/sub_c") / release
     cities = sorted(p.name for p in base.glob("*") if p.is_dir())
     grand = {"point_cross": 0, "real_cross": 0, "touch_as_cross": 0, "anomaly": 0}
@@ -463,30 +525,9 @@ def touch_census(release: str) -> None:
             if not fe:
                 continue
             ntiles += 1
-            fids_by_cell: dict[tuple[int, int], set[str]] = {}
-            fid_class: dict[str, str] = {}
-            for r in fe:
-                fids_by_cell.setdefault((r["cell_i"], r["cell_j"]), set()).add(
-                    r["source_feature_id"]
-                )
-                fid_class[r["source_feature_id"]] = str(r["class_raw"])
-            for r in cr:
-                if r["edge_extent_length_m"] != 0.0:
-                    continue  # interval (polygon edge-interval), not a road point-crossing
-                fid = r["source_feature_id"]
-                if fid_class.get(fid) in nonroad:
-                    continue  # waterway/rail crossing -> NONE in sub-E, never MINOR_ROAD
-                li, lj, ax = r["lower_cell_i"], r["lower_cell_j"], r["axis"]
-                cA, cB = ((li, lj), (li + 1, lj)) if ax == 0 else ((li, lj), (li, lj + 1))
-                in_a = fid in fids_by_cell.get(cA, set())
-                in_b = fid in fids_by_cell.get(cB, set())
-                tot["point_cross"] += 1
-                if in_a and in_b:
-                    tot["real_cross"] += 1
-                elif in_a or in_b:
-                    tot["touch_as_cross"] += 1
-                else:
-                    tot["anomaly"] += 1
+            tile_counts = classify_point_crossings(cr, fe)
+            for k in tot:
+                tot[k] += tile_counts[k]
         if ntiles == 0:
             continue
         for k in grand:
@@ -505,20 +546,7 @@ def touch_detail(release: str, city: str) -> None:
     """For each §8.3 touch-as-cross edge in a city, report sub-F emission on BOTH
     flanking cells — to confirm the symmetric-manifestation MECHANISM (both emit
     via two opposite-side roads, vs neither emits) rather than assume it."""
-    nonroad = {
-        "river",
-        "canal",
-        "stream",
-        "drain",
-        "ditch",
-        "rail",
-        "railway",
-        "light_rail",
-        "tram",
-        "subway",
-        "monorail",
-        "funicular",
-    }
+    nonroad = NONROAD_CLASS_RAW
     base = Path("data/processed")
     sub_c = base / "sub_c" / release / city
     sub_f = base / "sub_f" / release / city
