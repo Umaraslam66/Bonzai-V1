@@ -88,20 +88,25 @@ def test_source_version_is_composite_from_overture_pin_and_sub_c_manifest():
 
 
 def test_sub_f_non_source_version_constants():
-    assert SUB_F_ARTIFACT_FORMAT_VERSION == "1.0"
+    # 1.1: ARTIFACT_FORMAT bumped when region_crs was added to the region manifest
+    # (manifest-format change; cells.parquet data shape unchanged → SCHEMA stays 1.0).
+    assert SUB_F_ARTIFACT_FORMAT_VERSION == "1.1"
     assert SUB_F_SCHEMA_VERSION == "1.0"
     assert SUB_F_VOCAB_VERSION == "1.0"
     # 1.1: cycle-1 N/S encoder fix (commit 98cdeb0) changed bref output for the
     # same input → derivation-axis bump distinguishes pre/post-cycle-1 artifacts.
     assert SUB_F_DERIVATION_VERSION == "1.1"
-    # 1.1: cycle-3 validator fix (BP4 <unknown_*> key resolution) — verdict-only.
-    assert SUB_F_VALIDATOR_VERSION == "1.1"
+    # 1.2: §8.3 termination relax — symmetry + coverage legs road-presence-conditioned
+    # (verdict-only, no cells.parquet bytes change). 1.1 was the cycle-3 BP4
+    # <unknown_*> key-resolution validator fix.
+    assert SUB_F_VALIDATOR_VERSION == "1.2"
 
 
 def test_region_manifest_has_six_version_fields_and_region_vocab_sources():
     manifest = build_region_manifest(
         region="singapore",
         release="2026-04-15.0",
+        region_crs="EPSG:3414",
         tile_entries=[
             {"tile_i": 2, "tile_j": 1, "provenance_sha256": "b" * 64},
             {"tile_i": 1, "tile_j": 2, "provenance_sha256": "a" * 64},
@@ -119,12 +124,30 @@ def test_region_manifest_has_six_version_fields_and_region_vocab_sources():
     ]:
         assert field in manifest
 
+    assert manifest["region_crs"] == "EPSG:3414"
     assert manifest["sub_f_source_version"] == load_sub_f_source_version()
     assert manifest["vocab_sources_status"] == "complete"
     assert "vocab_sources" in manifest
     assert all("vocab_sources" not in tile for tile in manifest["tiles"])
     assert [(t["tile_i"], t["tile_j"]) for t in manifest["tiles"]] == [(1, 2), (2, 1)]
     assert manifest["manifest_sha256"] == manifest_sha256(manifest)
+
+
+def test_region_manifest_carries_non_singapore_region_crs():
+    """region_crs is threaded into the manifest, verified on a NON-Singapore CRS.
+
+    Regime-blindness guard (spec §8): a Singapore-only test passes even if the
+    field were hardcoded to EPSG:3414 or dropped; EPSG:25833 fails loud unless
+    region_crs is actually threaded through build_region_manifest.
+    """
+    manifest = build_region_manifest(
+        region="berlin",
+        release="2026-04-15.0",
+        region_crs="EPSG:25833",
+        tile_entries=[{"tile_i": 184, "tile_j": 2900, "provenance_sha256": "a" * 64}],
+        vocab_sources=task6_vocab_sources(),
+    )
+    assert manifest["region_crs"] == "EPSG:25833"
 
 
 def test_task6_vocab_sources_cover_all_locked_blueprints():
@@ -150,6 +173,7 @@ def test_manifest_sha_excludes_live_clock_and_sha_fields():
     manifest = build_region_manifest(
         region="singapore",
         release="2026-04-15.0",
+        region_crs="EPSG:3414",
         tile_entries=[{"tile_i": 0, "tile_j": 0, "provenance_sha256": "a" * 64}],
         vocab_sources=task6_vocab_sources(),
     )
@@ -166,6 +190,7 @@ def test_manifest_sha_changes_on_semantic_content_change():
     manifest = build_region_manifest(
         region="singapore",
         release="2026-04-15.0",
+        region_crs="EPSG:3414",
         tile_entries=[{"tile_i": 0, "tile_j": 0, "provenance_sha256": "a" * 64}],
         vocab_sources=task6_vocab_sources(),
     )
@@ -202,6 +227,7 @@ def test_source_and_derivation_axes_are_independent(tmp_path: Path):
     manifest = build_region_manifest(
         region="singapore",
         release="2026-04-15.0",
+        region_crs="EPSG:3414",
         tile_entries=[],
         vocab_sources=task6_vocab_sources(),
     )

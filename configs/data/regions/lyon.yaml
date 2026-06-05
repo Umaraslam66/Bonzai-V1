@@ -1,0 +1,12 @@
+name: lyon
+admin:
+  source: overture://divisions
+  country_code: FR
+  level: locality
+fallback_bbox:
+- 4.54
+- 45.52
+- 5.14
+- 46.0
+crs: EPSG:4326
+projected_crs: EPSG:25831

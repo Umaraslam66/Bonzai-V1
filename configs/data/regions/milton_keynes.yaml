@@ -1,0 +1,12 @@
+name: milton_keynes
+admin:
+  source: overture://divisions
+  country_code: GB
+  level: locality
+fallback_bbox:
+- -0.83
+- 52.0
+- -0.66
+- 52.08
+crs: EPSG:4326
+projected_crs: EPSG:25830

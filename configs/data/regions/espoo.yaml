@@ -1,0 +1,12 @@
+name: espoo
+admin:
+  source: overture://divisions
+  country_code: FI
+  level: locality
+fallback_bbox:
+- 24.5
+- 60.08
+- 24.82
+- 60.34
+crs: EPSG:4326
+projected_crs: EPSG:25835

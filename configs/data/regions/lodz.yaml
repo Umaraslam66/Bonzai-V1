@@ -1,0 +1,12 @@
+name: lodz
+admin:
+  source: overture://divisions
+  country_code: PL
+  level: locality
+fallback_bbox:
+- 19.16
+- 51.52
+- 19.76
+- 52.0
+crs: EPSG:4326
+projected_crs: EPSG:25834

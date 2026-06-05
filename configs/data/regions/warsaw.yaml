@@ -1,0 +1,12 @@
+name: warsaw
+admin:
+  source: overture://divisions
+  country_code: PL
+  level: locality
+fallback_bbox:
+- 20.61
+- 51.93
+- 21.41
+- 52.53
+crs: EPSG:4326
+projected_crs: EPSG:25834

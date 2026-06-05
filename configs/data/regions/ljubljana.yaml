@@ -1,0 +1,12 @@
+name: ljubljana
+admin:
+  source: overture://divisions
+  country_code: SI
+  level: locality
+fallback_bbox:
+- 14.21
+- 45.81
+- 14.81
+- 46.29
+crs: EPSG:4326
+projected_crs: EPSG:25833

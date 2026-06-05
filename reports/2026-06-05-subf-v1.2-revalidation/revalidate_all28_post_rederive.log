@@ -1,0 +1,43 @@
+v1.2 re-validation (read-only) | release=2026-04-15.0 | 28 cities
+
+  [SYM8] a_coruna               PASS
+  [    ] almere                 PASS
+  [    ] barcelona              PASS
+  [    ] berlin                 PASS
+  [    ] bologna                PASS
+  [SYM8] bruges                 PASS
+  [    ] cergy                  PASS
+  [    ] copenhagen             PASS
+  [    ] edinburgh              PASS
+  [SYM8] eisenhuttenstadt       PASS
+  [    ] espoo                  PASS
+  [    ] glasgow                PASS
+  [    ] karlsruhe              PASS
+  [SYM8] krakow                 PASS
+  [    ] ljubljana              PASS
+  [SYM8] lodz                   PASS
+  [    ] malmo                  PASS
+  [SYM8] manchester             PASS
+  [SYM8] mannheim               PASS
+  [    ] milton_keynes          PASS
+  [    ] munich                 PASS
+  [    ] prague                 PASS
+  [    ] singapore              PASS
+  [    ] tallinn                PASS
+  [    ] toledo                 PASS
+  [    ] turin                  PASS
+  [SYM8] tychy                  PASS
+  [    ] umea                   PASS
+
+==== SUMMARY: 28 PASS / 0 FAIL / 0 ERROR / 0 SKIP ====
+SYM8 (the 8 batch-2 symmetry-fail cities) under v1.2:
+    a_coruna               PASS
+    bruges                 PASS
+    eisenhuttenstadt       PASS
+    krakow                 PASS
+    lodz                   PASS
+    manchester             PASS
+    mannheim               PASS
+    tychy                  PASS
+
+SYM8 ALL PASS under v1.2: True

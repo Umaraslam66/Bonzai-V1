@@ -6,6 +6,134 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #18 — destructive in-place re-derives must use the guarded tool (not hand-rolled shell)
+
+- **Filed:** 2026-06-05 (sub-F v1.2 corpus re-derive; near-miss)
+- **Severity:** medium (process/safety — a corruption hazard against the single-copy corpus)
+- **Status:** MITIGATED by `scripts/multiregion/guarded_rederive.py`; this entry is the standing mandate.
+- **Affects:** any operation that re-derives a region in place (sub-F re-derive; the upcoming sub_c re-runs for the 13 timeouts / almere).
+
+### Context
+
+`pq.write_table` (`src/cfm/data/io.py:30`) writes `cells.parquet` **in place, not atomically**. An in-place re-derive therefore (a) truncates the prior-good tile during its write window (a kill there leaves an unreadable parquet — detectable but destroyed), and (b) for an already-`_SUCCESS` city, leaves the **stale `_SUCCESS`** in place during the rewrite, so a mid-rewrite kill yields a city that *looks* blessed but fails leg-5 version-consistency. On 2026-06-05 a hand-rolled `nohup` loop was also accidentally launched **twice**; two concurrent in-place re-derives of the same dirs would have corrupted the corpus — prevented only by wait-loop timing, NOT a safeguard. Zero corruption occurred, but the exposure was real.
+
+### Mandate / fix
+
+Use `python -m scripts.multiregion.guarded_rederive --city <c> ...` for ALL destructive re-derives. It enforces: **lockfile** (`fcntl.flock` — a second invocation refuses), **atomic temp-swap** (derive into a temp dir; replace live only on full success; live untouched during the kill-prone derive), and **halt-on-non-identical** (compare temp vs live before swap; HALT with live untouched unless `--allow-content-change`). 10 tests in `tests/data/multiregion/test_guarded_rederive.py`. This matters most for the **sub_c re-runs** (the EXPENSIVE extraction layer), where in-place corruption would destroy real compute, not cheaply-regenerable sub-F.
+
+### Tracking
+
+- Source: `guarded_rederive.py` (commit `edcb1b8`). Evidence/analysis: `reports/2026-06-05-subf-v1.2-revalidation-closeout.md` §8.
+
+---
+
+## #17 — sub_c records a §8.3 touch-at-boundary as a crossing (touch-as-cross root)
+
+- **Filed:** 2026-06-05 (Phase-2 multiregion, sub-F validator v1.2)
+- **Severity:** low (0.0064% of crossings; census anomaly=0 — no fragment is dropped) but **spec-violating**
+- **Status:** DEFERRED to next regen — spec-violating per §8.3, **TOLERATED under validator v1.2**, MUST fix at the next sub-C regeneration. **Not "benign" — tolerated.**
+- **Affects:** `src/cfm/data/sub_c/geom.py` — crossing records are derived from `per_cell_pieces` (`:141`, consumed at `:156–160`) which is computed BEFORE `apply_sliver_drop` (`:182`, the <0.01 m sliver / 0-d-collapse discard). (Handoff's `geom.py:557` cite was stale; anchor on the `per_cell_pieces`→crossing path vs `apply_sliver_drop` ordering.)
+
+### Context
+
+A road terminating exactly on an internal cell boundary (§8.3 touch-not-cross, which the spec says must produce **0** crossing records) is recorded AS a crossing: the crossing-record derivation keys off `per_cell_pieces` before the sliver/0-d discard removes the boundary-touch fragment, so the touch looks like "present in 2 cells" → a crossing row → sub-E marks the shared edge `MINOR_ROAD` → sub-F emits a `<bref>` on the one side that has the endpoint. The **corpus-wide census** (`symmetry_probe.py --touch-census`, 2026-06-05) measured this directly: **187 / 2,927,731 crossings = 0.0064%, anomaly = 0** (the teeth-proven `anomaly` column confirms NO fragment was actually dropped — these are terminations, not clip-drops). Under v1.2 the road-presence-conditioned symmetry/coverage legs tolerate the one-sided emission.
+
+### Fix (regen era)
+
+Require **positive-length** presence in `_partition_geometry_into_cells` / the crossing derivation (apply the sliver/0-d discard BEFORE deciding "both cells present"). **When fixed, the corpus SHIFTS at the ~54–65 symmetric touch-as-cross edges** — they lose their spurious `<bref>`. So this fix is NOT verdict-only; it changes token bytes and must re-derive + re-bless the affected tiles.
+
+### Tracking
+
+- Source: `geom.py` `per_cell_pieces`/`apply_sliver_drop` ordering. Surfaced: batch-2 sub-F BP7 symmetry-FP investigation (`reports/2026-06-05-batch2-subf-symmetry-fp-investigation.md`). Couples to **#16** (both are regen-era sub-C clip-path prerequisites).
+
+---
+
+## #16 — the v1.2 relax's drop-guard `assert_lossless_clip` is TESTED-BUT-UNWIRED (no production caller)
+
+- **Filed:** 2026-06-05 (Phase-2 multiregion, sub-F validator v1.2)
+- **Severity:** medium (the intended **recurring** drop-guard does not run; until wired, source-trace + census-anomaly are the ONLY drop checks)
+- **Status:** DEFERRED to next regen — wiring requires sub-C to persist `source_clipped_length_m` (a clip-path change + re-run). **Regen-era prerequisite alongside #17.**
+- **Affects:** `src/cfm/data/multiregion/lossless_clip.py::assert_lossless_clip` (no production caller); the sub-C clip path (where it must be wired).
+
+### Context
+
+The v1.2 symmetry + coverage relax **deliberately blinds** those legs to a sub-C clip-DROP (a true crossing whose neighbour fragment was dropped — it looks identical to a §8.3 termination). `assert_lossless_clip` is the intended in-corpus **twin** that catches a drop by length conservation (`Σ per-cell fragment lengths == len(source ∩ bbox)`, tol 0.1 m). But it is **tested-but-unwired**: a repo-wide grep finds its only callers are its own 4 tests — it is NOT called by `pipeline.py` (sub-F derive), NOT by `validate_cross_tile` (docstring mention only, `validator_cross_tile.py:249`), NOT by any sub-C clip code. It needs `len(source ∩ bbox)` per feature computed at sub-C clip time, which sub-C does not currently persist or pass through.
+
+### Consequence (un-missable)
+
+- **No executing in-corpus drop-guard exists today.** The relax shipped on two widened legs with the twin wired to nothing.
+- The ONLY running drop checks are: `symmetry_probe.py --source-trace` (traces symmetry-DISAGREEMENT edges only — blind on cities with 0 disagreements) **+** the touch-census `anomaly` column (corpus-wide; teeth-proven non-vacuous by `tests/data/multiregion/test_touch_census_teeth.py`). Both passed clean on 2026-06-05 (anomaly=0 corpus-wide; `len_in_MISS=0` on all SYM8 traced edges).
+- **Future re-derives (the 13 sub-C timeouts, any regen) do NOT get the guard** unless the sub-C `source_clipped_length_m` wiring lands first. Wiring `assert_lossless_clip` into the sub-C clip path is a **regen-era prerequisite**.
+
+### Tracking
+
+- Source: `lossless_clip.py`. Evidence: `reports/2026-06-05-subf-v1.2-revalidation-closeout.md` §3. Couples to **#17**.
+
+---
+
+## #15 — sub_c tiles the fallback bbox, not the real Overture admin polygon
+
+- **Filed:** 2026-06-04 (Phase-2 multiregion G3 / batch-2 scoping)
+- **Severity:** low (diversity corpus tolerates over-inclusion; tile/token counts are NOT the sizing basis)
+- **Status:** DEFERRED — acceptable for a diversity corpus; revisit only if true-extent counts ever become load-bearing
+- **Affects:** `src/cfm/data/overture/loader.py::_build_region_geometry` (Phase-1 placeholder), `src/cfm/data/sub_c/pipeline.py:348`
+
+### Context
+
+`_build_region_geometry` is a Phase-1 placeholder: `admin_polygon = box(fallback_bbox)`. sub_c partitions tiles over (and clips features to) that box (`pipeline.py:348`), NOT the real divisions polygon — the divisions theme *is* fetched but feeds only the (separately-broken, see #13) admin_region lookup. The manifests' `admin_polygon_source: overture://divisions:...` is a cosmetic label, not evidence of a real polygon. **Confirmed in code 2026-06-04.** The boxes over-include (Prague's box ≈937 km² > its municipality ≈496 km²) — benign for a diversity corpus (extra fringe, not a clip). Consequence: per-city **tile/token counts are not trustworthy as true-extent measures**; per-tile tok/tile *direction* is robust. Sizing is by **diversity, not counts** (see handoff), so this does not block batch-2.
+
+### For batch-2
+
+Draw fallback bboxes **generously** (over-include rather than risk clipping a dense core). NOT bundled with #13/#14 (one reopen, one change, clean attribution).
+
+### Tracking
+
+- Source: `loader.py:193`, `pipeline.py:348`. Surfaced: G3 batch-2 scoping 2026-06-04.
+
+---
+
+## #14 — admin_region granularity is not comparable across countries (subtype='region')
+
+- **Filed:** 2026-06-04 (Phase-2 multiregion batch-2 scoping)
+- **Severity:** medium (semantics; couples to #13's hard gate)
+- **Status:** DEFERRED — the correct cross-country granularity is a **value-bearing-conditioning (Task 7) design decision**; spec TBD. Do NOT guess it in an operational reopen.
+- **Affects:** `src/cfm/data/sub_c/pipeline.py::_derive_region_lookup_svy21` (the `subtype='region'` filter)
+
+### Context
+
+`subtype='region'` means different administrative levels per country (inspected on the real cached divisions themes 2026-06-04): Singapore = **sub-city district** (5 regions, varies tile-to-tile); Spain = **Catalunya** (whole autonomous community — constant for every Barcelona tile); Germany = **Bayern** (whole Bundesland — constant for Munich); Czechia = **Praha / kraj** (Prague ≈ the city). So naively de-hardcoding `country_code` while keeping `subtype='region'` would NOT fix #13 — it would replace "null = European" with "near-unique province ID per EU city vs sub-city district for SG", a subtler asymmetry. The spec itself files the right subtype as TBD ("equivalent second-level subtype for other regions"). The correct choice depends on what value-bearing conditioning is *for*, which is a Task-7 design decision.
+
+### Tracking
+
+- Source: `pipeline.py::_derive_region_lookup_svy21`. Couples to #13. Surfaced: batch-2 scoping 2026-06-04.
+
+---
+
+## #13 — sub_c admin_region lookup hardcodes country_code='SG' → None for all non-SG tiles
+
+- **Filed:** 2026-06-04 (Phase-2 multiregion G2/G3)
+- **Severity:** medium (latent train-contamination: INERT today, becomes a systematic SG-vs-EU confound the moment value-bearing conditioning is enabled)
+- **Status:** DEFERRED — **⛔ HARD GATE (see below): must be fixed before ANY value-bearing conditioning (Task 7 / bake-off candidate).**
+- **Affects:** `src/cfm/data/sub_c/pipeline.py:337` (`country_code="SG"` hardcoded)
+
+### Context
+
+The admin_region lookup filters the divisions theme by `country='SG'`, so every non-Singapore tile gets `admin_region=None`. **INERT under slice-v1 value-agnostic conditioning** — the model consumes 8 field-SLOT tokens with no value channel (`micro_ar.py:15-21`), `datamodule.build_conditioning_prefix` (`datamodule.py:53-60`) returns the field-slot id-block, and `n_cond=8` means there is *no embedding id for any region value* — the model physically cannot see `None` vs a region string. The VALUE is recorded in the shard (`build_shards.py:88`) and `conditioning_prefix_ids` (the schema artifact) but is not trained on. Re-derivable from the **already-cached divisions theme** (no re-fetch needed).
+
+### Why deferred (not fixed now)
+
+Defer = ONE reopen at Task 7 (when the #14 granularity is decided regardless). Fixing now = that same Task-7 reopen PLUS a needless 5-city canary reopen — strictly worse, and it would block batch-2 for no durable gain. **`None` is the safer placeholder:** all-EU-null is glaringly unfinished (Task 7 MUST notice and re-derive); a plausible-wrong "Catalunya"-on-every-tile invites silent training on a mismatched signal.
+
+### ⛔ HARD GATE
+
+**BEFORE enabling any value-bearing conditioning (Task 7 / a bake-off candidate): admin_region MUST be re-derived with a deliberate cross-country granularity choice (#14) and the corpus reopened. Do NOT train value-bearing conditioning on the existing admin_region values — EU is all-`None` and SG is hardcoded.** Also recorded in spec §7 and the Phase-2 handoff.
+
+### Tracking
+
+- Source: `pipeline.py:337`; conditioning path `conditioning.py`, `datamodule.py`, `micro_ar.py`, `build_shards.py`. Couples to #14. Surfaced: G2/G3 2026-06-04.
+
+---
+
 ## #12 — Eval-set is FROZEN; three load-bearing carry-forward triggers for the training-scaffold / eval-harness phase
 
 - **Filed:** 2026-06-01 (eval-set-generation close)

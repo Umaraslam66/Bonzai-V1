@@ -1,0 +1,12 @@
+name: madrid
+admin:
+  source: overture://divisions
+  country_code: ES
+  level: locality
+fallback_bbox:
+- -4.1
+- 40.12
+- -3.3
+- 40.72
+crs: EPSG:4326
+projected_crs: EPSG:25830

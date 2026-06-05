@@ -1,0 +1,12 @@
+name: copenhagen
+admin:
+  source: overture://divisions
+  country_code: DK
+  level: locality
+fallback_bbox:
+- 12.17
+- 55.38
+- 12.97
+- 55.98
+crs: EPSG:4326
+projected_crs: EPSG:25833

@@ -1,0 +1,12 @@
+name: bruges
+admin:
+  source: overture://divisions
+  country_code: BE
+  level: locality
+fallback_bbox:
+- 3.06
+- 51.08
+- 3.38
+- 51.34
+crs: EPSG:4326
+projected_crs: EPSG:25831

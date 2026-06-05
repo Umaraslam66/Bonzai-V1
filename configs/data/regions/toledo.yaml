@@ -1,0 +1,12 @@
+name: toledo
+admin:
+  source: overture://divisions
+  country_code: ES
+  level: locality
+fallback_bbox:
+- -4.19
+- 39.73
+- -3.87
+- 39.99
+crs: EPSG:4326
+projected_crs: EPSG:25830

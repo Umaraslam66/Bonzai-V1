@@ -66,19 +66,24 @@ def task6_vocab_sources() -> dict[str, dict[str, str]]:
 def build_region_manifest(
     region: str,
     release: str,
+    region_crs: str,
     tile_entries: list[dict],
     vocab_sources: dict[str, Any],
 ) -> dict:
     """Build a sub-F region manifest.
 
-    ``vocab_sources`` is region-scope metadata covering the four locked vocab
-    blueprints (BP1/BP2/BP4/BP7). It was partial at Halt 6 (BP7 pending); BP7's
-    source was added once Task 7 locked it (close-checklist line 8, T15).
+    ``region_crs`` (e.g. "EPSG:3414" / "EPSG:25833") is provenance + cross-stage
+    CRS-consistency metadata for the multi-region corpus, threaded from the sub-E
+    manifest (sub-F encoding is CRS-agnostic; spec §8). ``vocab_sources`` is
+    region-scope metadata covering the four locked vocab blueprints
+    (BP1/BP2/BP4/BP7). It was partial at Halt 6 (BP7 pending); BP7's source was
+    added once Task 7 locked it (close-checklist line 8, T15).
     """
 
     manifest = {
         "region": region,
         "release": release,
+        "region_crs": region_crs,
         "sub_f_artifact_format_version": SUB_F_ARTIFACT_FORMAT_VERSION,
         "sub_f_schema_version": SUB_F_SCHEMA_VERSION,
         "sub_f_vocab_version": SUB_F_VOCAB_VERSION,

@@ -1,0 +1,12 @@
+name: rome
+admin:
+  source: overture://divisions
+  country_code: IT
+  level: locality
+fallback_bbox:
+- 12.1
+- 41.6
+- 12.9
+- 42.2
+crs: EPSG:4326
+projected_crs: EPSG:25833

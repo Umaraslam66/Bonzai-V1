@@ -1,0 +1,12 @@
+name: bologna
+admin:
+  source: overture://divisions
+  country_code: IT
+  level: locality
+fallback_bbox:
+- 11.04
+- 44.25
+- 11.64
+- 44.73
+crs: EPSG:4326
+projected_crs: EPSG:25832

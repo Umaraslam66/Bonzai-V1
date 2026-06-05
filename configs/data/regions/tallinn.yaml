@@ -1,0 +1,12 @@
+name: tallinn
+admin:
+  source: overture://divisions
+  country_code: EE
+  level: locality
+fallback_bbox:
+- 24.45
+- 59.2
+- 25.05
+- 59.68
+crs: EPSG:4326
+projected_crs: EPSG:25835

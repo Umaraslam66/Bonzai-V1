@@ -43,6 +43,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
+
 from cfm.data.io import canonicalize_yaml
 from cfm.data.sub_f.manifest import build_region_manifest, task6_vocab_sources
 from cfm.data.sub_f.pipeline_writer import encode_tile
@@ -236,11 +238,13 @@ def derive_region(cfg: PipelineConfig) -> None:
 
     # Cross-tile validator runs BEFORE _SUCCESS (sub-E precedent + spec §11.8).
     # If it raises, the manifest + _SUCCESS are never written for this run.
-    validate_cross_tile(cfg.output_region_dir, cfg.sub_e_region_dir)
+    validate_cross_tile(cfg.output_region_dir, cfg.sub_e_region_dir, cfg.sub_c_region_dir)
 
+    region_crs = _read_sub_e_region_crs(cfg.sub_e_region_dir)
     manifest = build_region_manifest(
         region=cfg.region,
         release=cfg.release,
+        region_crs=region_crs,
         tile_entries=tile_entries,
         vocab_sources=task6_vocab_sources(),
     )
@@ -251,6 +255,20 @@ def derive_region(cfg: PipelineConfig) -> None:
 
     if cfg.run_alpha_drop_report:
         _emit_alpha_drop_report(cfg)
+
+
+def _read_sub_e_region_crs(sub_e_region_dir: Path) -> str:
+    """Read the authoritative ``region_crs`` from the sub-E region manifest.
+
+    ``region_crs`` threads sub_c -> sub_d -> sub_e via manifests
+    (sub_e/manifest.py:65). sub-F's encoding is CRS-agnostic, but it records
+    ``region_crs`` in its manifest for provenance + cross-stage CRS consistency
+    in the multi-region corpus (spec §8). Read from the canonical source (the
+    sub-E manifest), NOT inferred from tile-dir names.
+    """
+    manifest_path = sub_e_region_dir / "manifest.yaml"
+    data = yaml.safe_load(manifest_path.read_text())
+    return str(data["region_crs"])
 
 
 def _parse_tile_coords(tile_name: str) -> tuple[int, int]:

@@ -1,0 +1,169 @@
+cities:
+- name: prague
+  morphology: medieval-organic
+  density: dense-core
+  geography: CZ
+  region_crs: EPSG:25833
+  tile_count: 253
+  fetch_seconds: 670.0
+  stage_shas:
+    fetch: 5bdcf056d148
+    sub_c: 5bdcf056d148
+    sub_d: 5bdcf056d148
+    sub_e: 5bdcf056d148
+    sub_f: 5bdcf056d148
+    validate: 5bdcf056d148
+  release: 2026-04-15.0
+  validation_status: validated
+  token_count: 12200028
+  regime: ''
+- name: barcelona
+  morphology: planned-grid
+  density: dense-core
+  geography: ES
+  region_crs: EPSG:25831
+  tile_count: 72
+  fetch_seconds: 731.0
+  stage_shas:
+    fetch: 5bdcf056d148
+    sub_c: 5bdcf056d148
+    sub_d: 5bdcf056d148
+    sub_e: 5bdcf056d148
+    sub_f: 5bdcf056d148
+    validate: 5bdcf056d148
+  release: 2026-04-15.0
+  validation_status: validated
+  token_count: 7238741
+  regime: ''
+- name: milton_keynes
+  morphology: modernist-sprawl
+  density: moderate
+  geography: GB
+  region_crs: EPSG:25830
+  tile_count: 42
+  fetch_seconds: 355.0
+  stage_shas:
+    fetch: 5bdcf056d148
+    sub_c: 5bdcf056d148
+    sub_d: 5bdcf056d148
+    sub_e: 5bdcf056d148
+    sub_f: 5bdcf056d148
+    validate: 5bdcf056d148
+  release: 2026-04-15.0
+  validation_status: validated
+  token_count: 1845484
+  regime: ''
+- name: munich
+  morphology: mixed
+  density: moderate
+  geography: DE
+  region_crs: EPSG:25832
+  tile_count: 171
+  fetch_seconds: 761.0
+  stage_shas:
+    fetch: 5bdcf056d148
+    sub_c: 5bdcf056d148
+    sub_d: 5bdcf056d148
+    sub_e: 5bdcf056d148
+    sub_f: 5bdcf056d148
+    validate: 5bdcf056d148
+  release: 2026-04-15.0
+  validation_status: validated
+  token_count: 10088895
+  regime: ''
+- name: umea
+  morphology: planned-grid
+  density: sparse
+  geography: SE
+  region_crs: EPSG:25834
+  tile_count: 36
+  fetch_seconds: 213.0
+  stage_shas:
+    fetch: 5bdcf056d148
+    sub_c: 5bdcf056d148
+    sub_d: 5bdcf056d148
+    sub_e: 5bdcf056d148
+    sub_f: 5bdcf056d148
+    validate: 5bdcf056d148
+  release: 2026-04-15.0
+  validation_status: validated
+  token_count: 805572
+  regime: ''
+totals:
+  validated_cities: 5
+  validated_tiles: 574
+  validated_tokens: 32178720
+  axis_coverage:
+    morphology:
+      medieval-organic: 1
+      planned-grid: 2
+      modernist-sprawl: 1
+      mixed: 1
+    density:
+      dense-core: 2
+      moderate: 2
+      sparse: 1
+    geography:
+      CZ: 1
+      ES: 1
+      GB: 1
+      DE: 1
+      SE: 1
+  gate_ready_for_next_batch: true
+  gate_error: ''
+  proxy:
+    geometry_redundancy: 0.516437
+    singapore_redundancy: 0.537259
+    rel_singapore: -0.038756
+    language_baseline: null
+    verdict: "language_anchor_DEFERRED (no language-token corpus pinned; spec \xA7\
+      7 forbids inventing one; advisory only, does not gate budget)"
+    base_tile_budget: 20600
+    recommended_tile_budget: 30900
+    r_unresolved_until_bakeoff: true
+  cost_model:
+    validated_tiles: 574
+    validated_tokens: 32178720
+    eu_tokens_per_tile_actual: 56060.5
+    singapore_measured_tokens_per_tile: 29150
+    by_morphology:
+      medieval-organic:
+        cities:
+        - prague
+        tiles: 253
+        tokens: 12200028
+        fetch_s: 670.0
+        tokens_per_tile: 48221.5
+      planned-grid:
+        cities:
+        - barcelona
+        - umea
+        tiles: 108
+        tokens: 8044313
+        fetch_s: 944.0
+        tokens_per_tile: 74484.4
+      modernist-sprawl:
+        cities:
+        - milton_keynes
+        tiles: 42
+        tokens: 1845484
+        fetch_s: 355.0
+        tokens_per_tile: 43940.1
+      mixed:
+        cities:
+        - munich
+        tiles: 171
+        tokens: 10088895
+        fetch_s: 761.0
+        tokens_per_tile: 58999.4
+    batch2_tiles_to_base: 20026
+    batch2_tiles_to_sized_up: 30326
+    target_tokens: 600000000
+    caveats:
+    - 'Tile counts are LOWER BOUNDS (clipped fallback bboxes): barcelona dense-core=72
+      landed BELOW moderate munich=171 -> do NOT treat low counts as morphology floors.
+      Bias batch-2 UP; barcelona is an unreliable point.'
+    - lrd_all_serial QoS = cpu=8 per USER -> per-city jobs run SERIAL (one at a time).
+      A 44-city batch-2 fanout there ~= sum of per-city walls. Weigh dcgp_usr_prod
+      (112-core, parallel, BILLS core-hours) vs free-but-serial.
+  baseline_head_sha: b98a20b

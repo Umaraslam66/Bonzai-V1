@@ -1,0 +1,12 @@
+name: malmo
+admin:
+  source: overture://divisions
+  country_code: SE
+  level: locality
+fallback_bbox:
+- 12.7
+- 55.36
+- 13.3
+- 55.84
+crs: EPSG:4326
+projected_crs: EPSG:25833

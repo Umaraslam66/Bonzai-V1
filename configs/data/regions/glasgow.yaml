@@ -1,0 +1,12 @@
+name: glasgow
+admin:
+  source: overture://divisions
+  country_code: GB
+  level: locality
+fallback_bbox:
+- -4.55
+- 55.62
+- -3.95
+- 56.1
+crs: EPSG:4326
+projected_crs: EPSG:25830
