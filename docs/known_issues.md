@@ -10,7 +10,7 @@ Add new entries on top. Remove entries when they're fixed.
 
 - **Filed:** 2026-06-05 (sub-F v1.2 corpus re-derive; near-miss)
 - **Severity:** medium (process/safety — a corruption hazard against the single-copy corpus)
-- **Status:** MITIGATED by `scripts/multiregion/guarded_rederive.py`; this entry is the standing mandate.
+- **Status:** MITIGATED on BOTH layers — `scripts/multiregion/guarded_rederive.py` (sub-F destructive re-derive) **and** a baked-in guard on the sub-C run path (2026-06-05, branch `phase-2-corpus-completion`): `driver.run_city` holds a per-city `extract_lock` flock for the whole stage chain (a second concurrent extract refuses) and `io.write_parquet` is now atomic (temp + `os.replace`, the #18 truncation root cause). This entry is the standing mandate.
 - **Affects:** any operation that re-derives a region in place (sub-F re-derive; the upcoming sub_c re-runs for the 13 timeouts / almere).
 
 ### Context
@@ -20,6 +20,15 @@ Add new entries on top. Remove entries when they're fixed.
 ### Mandate / fix
 
 Use `python -m scripts.multiregion.guarded_rederive --city <c> ...` for ALL destructive re-derives. It enforces: **lockfile** (`fcntl.flock` — a second invocation refuses), **atomic temp-swap** (derive into a temp dir; replace live only on full success; live untouched during the kill-prone derive), and **halt-on-non-identical** (compare temp vs live before swap; HALT with live untouched unless `--allow-content-change`). 10 tests in `tests/data/multiregion/test_guarded_rederive.py`. This matters most for the **sub_c re-runs** (the EXPENSIVE extraction layer), where in-place corruption would destroy real compute, not cheaply-regenerable sub-F.
+
+### sub-C guard (added 2026-06-05, branch `phase-2-corpus-completion`)
+
+The sub-C re-runs go through the standard driver (`extract_region_batch.py → driver.run_batch → run_city`), not `guarded_rederive.py` (which is sub-F-only). So the guard is baked into that path instead of being an opt-in tool that can be forgotten:
+
+- **Per-city lock** (`src/cfm/data/multiregion/extract_lock.py`): `run_city` acquires an exclusive non-blocking `fcntl.flock` (`data/processed/multiregion/.locks/<city>.extract.lock`) before the stage chain; a second concurrent extract of the same city returns `failed` immediately (continue-but-loud). Different cities still extract concurrently. The flock auto-releases on process death, so a watchdog kill leaves NO stale lock.
+- **Crash-safe write** (`src/cfm/data/io.py::write_parquet`): now writes to a per-pid temp in the same dir and `os.replace`s into place — atomic on a POSIX same-fs rename, so a kill/write-failure mid-derive leaves the destination untouched (a prior-good tile is never truncated). Bytes are unchanged → byte-identity guarantees preserved. This is the direct fix for the `pq.write_table`-is-not-atomic root cause described above, and it covers ALL stages, not just sub-C.
+
+Tests: `tests/data/test_io.py` (crash-safety), `tests/data/multiregion/test_extract_lock.py` (lock), `tests/data/multiregion/test_driver.py` (refuse-when-held + release-on-success/failure).
 
 ### Tracking
 

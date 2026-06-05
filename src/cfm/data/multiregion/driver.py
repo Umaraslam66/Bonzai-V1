@@ -19,7 +19,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from cfm.data.multiregion import stages, state
+from cfm.data.multiregion import extract_lock, stages, state
 from cfm.data.multiregion.stages import Stage, StageContext
 
 _log = logging.getLogger(__name__)
@@ -70,6 +70,14 @@ def run_city(ctx: StageContext, city: state.CityState, repo_root: Path) -> CityR
     to_run = state.stages_to_run(city, head, stages.STAGE_ORDER, repo_root)
     if not to_run:
         return CityResult(region=ctx.region, status="validated")
+    # Headline guard (#18): a destructive extraction holds an exclusive per-city
+    # lock for its whole stage chain. A second concurrent extract of this city
+    # (the double-nohup near-miss) refuses IMMEDIATELY and runs NO stages.
+    try:
+        lock = extract_lock.acquire_city_lock(extract_lock.city_lock_path(repo_root, ctx.region))
+    except extract_lock.ConcurrentExtractError as exc:
+        _log.error("city=%s REFUSED (concurrent extract): %s", ctx.region, exc)
+        return CityResult(region=ctx.region, status="failed", detail=str(exc))
     try:
         for stage in stages.STAGE_ORDER:
             if stage.name not in to_run:
@@ -83,6 +91,8 @@ def run_city(ctx: StageContext, city: state.CityState, repo_root: Path) -> CityR
     except (subprocess.CalledProcessError, RuntimeError, ValueError, OSError) as exc:
         _log.error("city=%s FAILED-NEEDS-ATTENTION: %s", ctx.region, exc)
         return CityResult(region=ctx.region, status="failed", detail=str(exc))
+    finally:
+        lock.close()  # release the flock on success OR failure (never leak the lock)
     return CityResult(region=ctx.region, status="validated")
 
 
