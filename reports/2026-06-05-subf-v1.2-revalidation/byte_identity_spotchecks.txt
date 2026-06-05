@@ -1,0 +1,6 @@
+==== cells.parquet comparison for turin: 696 tiles ====
+  raw sha256 identical (before==after): 696/696
+  BYTE-IDENTICAL  (raw sha): True
+==== cells.parquet comparison for ljubljana: 672 tiles ====
+  raw sha256 identical (before==after): 672/672
+  BYTE-IDENTICAL  (raw sha): True

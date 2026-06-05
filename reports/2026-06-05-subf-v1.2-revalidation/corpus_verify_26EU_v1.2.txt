@@ -1,0 +1,32 @@
+city               _SUCCESS  manifest     versions  verdict
+a_coruna               True      True          1.2  OK
+bruges                 True      True          1.2  OK
+eisenhuttenstadt       True      True          1.2  OK
+krakow                 True      True          1.2  OK
+lodz                   True      True          1.2  OK
+manchester             True      True          1.2  OK
+mannheim               True      True          1.2  OK
+tychy                  True      True          1.2  OK
+almere                 True      True          1.2  OK
+barcelona              True      True          1.2  OK
+bologna                True      True          1.2  OK
+cergy                  True      True          1.2  OK
+copenhagen             True      True          1.2  OK
+edinburgh              True      True          1.2  OK
+espoo                  True      True          1.2  OK
+glasgow                True      True          1.2  OK
+karlsruhe              True      True          1.2  OK
+ljubljana              True      True          1.2  OK
+malmo                  True      True          1.2  OK
+milton_keynes          True      True          1.2  OK
+munich                 True      True          1.2  OK
+prague                 True      True          1.2  OK
+tallinn                True      True          1.2  OK
+toledo                 True      True          1.2  OK
+turin                  True      True          1.2  OK
+umea                   True      True          1.2  OK
+
+26-EU uniformly v1.2+_SUCCESS+manifest: 26/26   bad: 0
+--- untouched (must stay 1.1) ---
+singapore          versions=1.1  OK
+berlin             versions=1.1  OK

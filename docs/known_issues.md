@@ -6,6 +6,27 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #18 — destructive in-place re-derives must use the guarded tool (not hand-rolled shell)
+
+- **Filed:** 2026-06-05 (sub-F v1.2 corpus re-derive; near-miss)
+- **Severity:** medium (process/safety — a corruption hazard against the single-copy corpus)
+- **Status:** MITIGATED by `scripts/multiregion/guarded_rederive.py`; this entry is the standing mandate.
+- **Affects:** any operation that re-derives a region in place (sub-F re-derive; the upcoming sub_c re-runs for the 13 timeouts / almere).
+
+### Context
+
+`pq.write_table` (`src/cfm/data/io.py:30`) writes `cells.parquet` **in place, not atomically**. An in-place re-derive therefore (a) truncates the prior-good tile during its write window (a kill there leaves an unreadable parquet — detectable but destroyed), and (b) for an already-`_SUCCESS` city, leaves the **stale `_SUCCESS`** in place during the rewrite, so a mid-rewrite kill yields a city that *looks* blessed but fails leg-5 version-consistency. On 2026-06-05 a hand-rolled `nohup` loop was also accidentally launched **twice**; two concurrent in-place re-derives of the same dirs would have corrupted the corpus — prevented only by wait-loop timing, NOT a safeguard. Zero corruption occurred, but the exposure was real.
+
+### Mandate / fix
+
+Use `python -m scripts.multiregion.guarded_rederive --city <c> ...` for ALL destructive re-derives. It enforces: **lockfile** (`fcntl.flock` — a second invocation refuses), **atomic temp-swap** (derive into a temp dir; replace live only on full success; live untouched during the kill-prone derive), and **halt-on-non-identical** (compare temp vs live before swap; HALT with live untouched unless `--allow-content-change`). 10 tests in `tests/data/multiregion/test_guarded_rederive.py`. This matters most for the **sub_c re-runs** (the EXPENSIVE extraction layer), where in-place corruption would destroy real compute, not cheaply-regenerable sub-F.
+
+### Tracking
+
+- Source: `guarded_rederive.py` (commit `edcb1b8`). Evidence/analysis: `reports/2026-06-05-subf-v1.2-revalidation-closeout.md` §8.
+
+---
+
 ## #17 — sub_c records a §8.3 touch-at-boundary as a crossing (touch-as-cross root)
 
 - **Filed:** 2026-06-05 (Phase-2 multiregion, sub-F validator v1.2)
