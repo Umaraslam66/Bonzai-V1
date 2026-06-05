@@ -15,10 +15,16 @@ At handoff, the 35 batch-2 cities were **fetching (4 parallel login-node tmux la
 boost** (auto-fanout watcher submits each to `boost_usr_prod` as its fetch lands). **Expected complete
 ~5–7 am local 2026-06-05.** By morning it should be done or nearly so → collect + run **G4 DoD**.
 
-- Local branch `phase-2-multiregion-extract`, tip **`e5fd0fe`** (run `git log --oneline -5`). Leonardo
+- Local branch `phase-2-multiregion-extract`, tip **`5225c7a`** (run `git log --oneline -5`). Leonardo
   is ff'd to the same. **Unmerged + unpushed.** Validated-corpus consistency baseline = the HEAD the
-  cities processed at (`e5fd0fe`); canary was processed at `5bdcf05` and is composition-valid forward
-  (no stage source-glob changed since — verify with the dry-run in §3).
+  cities processed at = **`5225c7a`** (confirmed: every batch-2 job log stamps `sha=5225c7a`); canary
+  was processed at `5bdcf05` and is composition-valid forward (no stage source-glob changed since —
+  verify with the dry-run in §3).
+  - **CORRECTION (2026-06-05):** an earlier draft of this handoff said tip `e5fd0fe`. That was stale —
+    `e5fd0fe`→`5225c7a` adds exactly two commits, `997a7a9` (G4 rollup driver + this handoff) and
+    `5225c7a` (handoff doc edit), **both `scripts/`+`docs/` only — no `src/cfm` pipeline-stage source
+    changed.** So the real composition baseline is `5225c7a`, and it is composition-equivalent to
+    `e5fd0fe` for every processed stage. Use `5225c7a`.
 - Spec: `docs/superpowers/specs/2026-06-03-phase-2-multiregion-extract-orchestrator-design.md`
   (see the 2026-06-04 §7 UPDATE: diversity sizing, 600M DoD, admin_region HARD GATE).
 - Prior handoff: `docs/handoffs/2026-06-03-end-of-phase-2-build.md` (G2/G3 detail).

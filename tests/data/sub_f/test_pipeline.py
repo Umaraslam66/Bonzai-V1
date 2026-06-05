@@ -421,35 +421,33 @@ def test_derive_region_halts_on_inline_validator_failure(tmp_path: Path, monkeyp
 # ===========================================================================
 
 
-def test_derive_region_halts_on_cross_tile_validator_failure(tmp_path: Path):
-    """A real cross-tile (coverage-leg) failure aborts the pipeline; NO _SUCCESS.
+def test_derive_region_halts_on_cross_tile_validator_failure(tmp_path: Path, monkeypatch):
+    """The orchestrator propagates a CrossTileValidationError and writes NO
+    _SUCCESS / manifest.
 
-    encode_tile and validate_cross_tile read the SAME sub-E contract, so the
-    cross-reference / symmetry legs agree by construction. The coverage leg,
-    however, fires on a genuine encode/contract data mismatch: tile (1,0) gets
-    an active MAJOR edge in its sub-E contract AND a road feature in sub-C whose
-    geometry stays INTERIOR (does not touch the active edge), so encode_tile
-    emits no bref on that edge while the contract demands one -> coverage fires.
-
-    Inline passes (the cells are well-formed). This proves the orchestrator
-    propagates CrossTileValidationError and writes no _SUCCESS / manifest.
+    v1.2 NOTE [surfaced per the coverage-rework / 2->3-arg review]: pre-1.2 this
+    triggered a REAL coverage failure via an interior road on an active edge — the
+    road_cells-vs-encoder GAP (coverage demanded a bref the encoder never emits
+    for an interior road). v1.2 conditions coverage AND symmetry on the SAME
+    road-endpoint signal the encoder uses, so the BP7 four-test legs are now
+    encoder-consistent: a correct encoder + the byte-identical (symmetric) sub-E
+    internal-edge contract CANNOT trigger them through the real pipeline by input
+    manipulation — they are pure bug-detectors. The halt behaviour this test owns
+    is therefore exercised by forcing the cross-tile validator to raise, then
+    asserting derive_region propagates it and writes no _SUCCESS / manifest.
     """
     sub_c, sub_d, sub_e, out = _build_region_inputs(tmp_path)
-
-    t10 = _tile_name(1, 0)
-    # Road in cell (0,0) of tile (1,0), kept well interior (never reaches the
-    # East edge at x=250), so encode_tile emits NO bref.
+    # A valid road so tile (1,0) has real content to encode (interior; no bref).
     interior_road = LineString([(50.0, 50.0), (120.0, 120.0)])
     _write_sub_c_features(
-        sub_c / t10 / "features.parquet",
+        sub_c / _tile_name(1, 0) / "features.parquet",
         [_feature_row(0, 0, 0, interior_road, "residential", "road-interior")],
     )
-    # Activate the East edge of cell (0,0) as MAJOR in tile (1,0)'s contract.
-    # Road feature present in the cell + active edge + no bref -> coverage fires.
-    _write_sub_e_contract(
-        sub_e / t10 / "boundary_contract.parquet",
-        overrides={(1, 0, 0, 0): {"scope_marker": 0, "boundary_class_enum": 2}},
-    )
+
+    def _raise_cross_tile(*_args, **_kwargs):
+        raise CrossTileValidationError("BP7 coverage failure (forced for halt test)")
+
+    monkeypatch.setattr("cfm.data.sub_f.pipeline.validate_cross_tile", _raise_cross_tile)
 
     with pytest.raises(CrossTileValidationError, match="coverage"):
         derive_region(_make_cfg(sub_c, sub_d, sub_e, out))

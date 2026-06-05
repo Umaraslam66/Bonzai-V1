@@ -477,6 +477,45 @@ class EncodedCell:
 ON_EDGE_EPS_M = 1e-6
 
 
+def endpoint_edge_direction(
+    x: float,
+    y: float,
+    cell_origin: tuple[float, float] = (0.0, 0.0),
+    cell_extent_m: float = 250.0,
+    edge_eps_m: float = ON_EDGE_EPS_M,
+) -> str | None:
+    """Return the cell-edge direction {N,E,S,W} an endpoint lies on, or None.
+
+    SINGLE AUTHORITY for endpoint->edge classification. The encoder's bref
+    emission gate and the sub-F cross-tile validator's road-edge-presence signal
+    BOTH route through this one function so they can never drift on the N/S
+    convention (the sub-G T11 flip lesson; see
+    reports/2026-05-31-sub-G-T11-symmetry-root-cause.md).
+
+    Direction names follow the BP7 AUTHORITY (sub_e.rotation.cell_to_edge_ids,
+    which the locked configs/sub_f/boundary_reference_vocab.yaml defers to): a
+    cell's NORTH edge is the one shared with (i, j-1) = the LOW-y edge
+    (cell-local y=0); SOUTH = the high-y edge (cell-local y=extent). This is
+    geographically inverted (recorded v2 convention debt) but MUST match
+    cell_to_edge_ids so the contract class looked up by direction is the edge
+    the endpoint physically lies on. Pinned by
+    tests/data/sub_f/test_direction_authority.py — do NOT "fix" to geographic
+    (y=extent->N) without re-deriving sub-F and updating that authority gate.
+    """
+    ox, oy = cell_origin
+    x_rel = x - ox
+    y_rel = y - oy
+    if abs(x_rel) <= edge_eps_m:
+        return "W"
+    if abs(x_rel - cell_extent_m) <= edge_eps_m:
+        return "E"
+    if abs(y_rel) <= edge_eps_m:
+        return "N"
+    if abs(y_rel - cell_extent_m) <= edge_eps_m:
+        return "S"
+    return None
+
+
 def _classify_feature_for_bref(
     geom: BaseGeometry,
     cell_edges: dict[str, str],
@@ -510,32 +549,8 @@ def _classify_feature_for_bref(
     if len(coords) < 2:
         return None, None
 
-    def _direction_of_endpoint(x: float, y: float) -> str | None:
-        ox, oy = cell_origin
-        x_rel = x - ox
-        y_rel = y - oy
-        # Direction names follow the BP7 AUTHORITY (sub_e.rotation.cell_to_edge_ids,
-        # which the locked configs/sub_f/boundary_reference_vocab.yaml defers to):
-        # a cell's NORTH edge is the one shared with (i, j-1) = the LOW-y edge
-        # (cell-local y=0); SOUTH = the high-y edge (cell-local y=extent). This is
-        # geographically inverted (recorded v2 convention debt) but MUST match
-        # cell_to_edge_ids so the contract class looked up by direction is the edge
-        # the endpoint physically lies on. Pinned by
-        # tests/data/sub_f/test_direction_authority.py — do NOT "fix" to geographic
-        # (y=extent->N) without re-deriving sub-F and updating that authority gate.
-        # See reports/2026-05-31-sub-G-T11-symmetry-root-cause.md.
-        if abs(x_rel) <= edge_eps_m:
-            return "W"
-        if abs(x_rel - cell_extent_m) <= edge_eps_m:
-            return "E"
-        if abs(y_rel) <= edge_eps_m:
-            return "N"
-        if abs(y_rel - cell_extent_m) <= edge_eps_m:
-            return "S"
-        return None
-
-    in_dir = _direction_of_endpoint(*coords[0])
-    out_dir = _direction_of_endpoint(*coords[-1])
+    in_dir = endpoint_edge_direction(*coords[0], cell_origin, cell_extent_m, edge_eps_m)
+    out_dir = endpoint_edge_direction(*coords[-1], cell_origin, cell_extent_m, edge_eps_m)
 
     in_class = cell_edges.get(in_dir) if in_dir else None
     out_class = cell_edges.get(out_dir) if out_dir else None

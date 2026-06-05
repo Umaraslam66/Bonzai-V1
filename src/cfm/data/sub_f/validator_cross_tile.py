@@ -58,8 +58,14 @@ import pyarrow.parquet as pq
 import yaml
 
 from cfm.data.sub_f.boundary_contract import load_boundary_contract
+from cfm.data.sub_f.encoder import endpoint_edge_direction
 from cfm.data.sub_f.rotation import DIRECTION_ORDER
 from cfm.data.sub_f.vocab import ROAD_L1_KEY, semantic_tag_to_l1_key, vocab_tag_to_id
+
+# Sub-C feature_class for road (highway) features (sub_c/enums.py FEATURE_CLASS
+# {0: "road", ...}; pipeline_writer._FEATURE_CLASS_TO_KEY maps 0 -> "highway").
+# Only these emit brefs in the encoder, so only these populate road_edge_presence.
+_ROAD_FEATURE_CLASS = 0
 
 # Structural sentinels — must match encoder._FEATURE_TOKEN_ID /
 # _FEATURE_END_TOKEN_ID. Sourced from encoder to keep a single point of
@@ -211,15 +217,37 @@ def _check_cross_reference(
 def _check_symmetry(
     tile_label: str,
     emitted_by_cell: dict[tuple[int, int], list[tuple[str, str, str]]],
+    road_edge_presence: set[tuple[tuple[int, int], str]],
 ) -> None:
-    """Paired adjacent cells must agree on their shared internal edge.
+    """Paired adjacent cells must agree on their shared internal edge — CONDITIONED
+    on road presence (validator v1.2 relax).
 
-    For an internal shared edge, cell A's view (direction DIR) and the
-    neighbour cell B's view (opposite direction) reference the SAME sub-E
-    row, so any bref A emits on DIR must be matched by B emitting the same
-    CLASS on the opposite direction. A break that survives cross-reference
-    is reachable only via an adjacency-mapping bug — this leg validates the
-    E<->W / S<->N opposite-direction mapping independently.
+    For an internal shared edge, cell A's view (direction DIR) and neighbour B's
+    view (opposite direction) reference the SAME sub-E row. The pre-1.2 leg
+    required A and B to emit identically. That premise is FALSE for a road that
+    TERMINATES exactly at an internal cell boundary (spec §8.3 touch-not-cross):
+    the road is present (endpoint-on-edge) only on A's side, so A emits and B —
+    which has no road endpoint there — correctly emits nothing. The asymmetry is
+    faithful to the geometry, not a defect. The pre-1.2 leg false-positived on
+    this and failed 8 batch-2 cities on 14 edges (see
+    reports/2026-06-05-batch2-subf-symmetry-fp-investigation.md).
+
+    v1.2 conditions the leg on `road_edge_presence` — the set of (cell, direction)
+    that carry a road LineString with an endpoint on that edge, derived from the
+    sub-C geometry (the road authority, independent of the encoder). Disagreement
+    rules:
+      - both cells emit, different CLASS  -> raise (genuine class mismatch).
+      - A emits, B silent, B HAS a road endpoint on the edge -> raise
+        (under-emission: B should have emitted; the genuine defect-catching power
+        the relax must preserve — the must-distinguish twin, fixture b).
+      - A emits, B silent, B has NO road endpoint on the edge -> ALLOW
+        (legit one-sided termination, fixture a).
+
+    NOTE: this leg no longer catches a sub-C clip-DROP (a true crossing whose B
+    fragment was dropped) — that is INVISIBLE here (B looks like a termination).
+    The drop mode is covered by the sub-C lossless-clip length invariant
+    (cfm.data.multiregion.lossless_clip) and the independent source-trace corpus
+    gate; see the report.
 
     Adjacency within the 8x8 tile grid:
       DIR=E of (i,j)  <-> DIR=W of (i+1,j)
@@ -227,9 +255,6 @@ def _check_symmetry(
     (Direction labels are cell-local; N is -j, S is +j per sub-E rotation.)
     """
     # Aggregate the per-cell emitted classes into {(cell, dir): CLASS}.
-    # If a cell emits >1 class on one direction (encoder bug), that is itself
-    # a defect — but symmetry compares against the neighbour, so we collapse
-    # to the set and require a single shared class on each side.
     by_cell_dir: dict[tuple[tuple[int, int], str], set[str]] = {}
     for cell, emitted in emitted_by_cell.items():
         for direction, cls, _fk in emitted:
@@ -244,13 +269,27 @@ def _check_symmetry(
             # v2/region-stitch concern; within-tile symmetry is the v1 gate.
             continue
         neighbour_classes = by_cell_dir.get((neighbour, opp), set())
-        if classes != neighbour_classes:
+        if classes == neighbour_classes:
+            continue
+        if neighbour_classes:
+            # Both sides emit but disagree on CLASS -> genuine mismatch.
             raise CrossTileValidationError(
                 f"BP7 symmetry failure at {tile_label}: cell {cell} edge "
                 f"{direction} emits {sorted(classes)} but paired neighbour "
                 f"{neighbour} edge {opp} emits {sorted(neighbour_classes)} "
-                f"— shared-edge views disagree."
+                f"— shared-edge views disagree on class."
             )
+        # Neighbour emits nothing on the shared edge. v1.2: a defect iff the
+        # neighbour genuinely carries a road endpoint there (under-emission);
+        # otherwise a legitimate §8.3 termination (road wholly on this side).
+        if (neighbour, opp) in road_edge_presence:
+            raise CrossTileValidationError(
+                f"BP7 symmetry failure at {tile_label}: cell {cell} edge "
+                f"{direction} emits {sorted(classes)} but paired neighbour "
+                f"{neighbour} edge {opp} emits [] despite carrying a road "
+                f"endpoint on the shared edge — under-emission."
+            )
+        # else: legit one-sided termination (§8.3) -> not a symmetry violation.
 
 
 def _neighbour_cell(cell: tuple[int, int], direction: str) -> tuple[int, int] | None:
@@ -309,18 +348,24 @@ def _check_coverage(
     tile_label: str,
     emitted_by_cell: dict[tuple[int, int], list[tuple[str, str, str]]],
     contract: dict[tuple[int, int], dict[str, str]],
-    road_cells: set[tuple[int, int]],
+    road_edge_presence: set[tuple[tuple[int, int], str]],
 ) -> None:
-    """Active road edges with a road feature in either neighbour emit >=1 bref.
+    """An active edge with a road ENDPOINT in THIS cell must emit >=1 bref (v1.2).
 
-    For each cell's active (MAJOR/MINOR) edge, if a road feature is present
-    in this cell OR the in-tile neighbour across that edge, then this cell
-    must emit at least one bref on that edge. We do NOT fire on active edges
-    where neither this cell nor the neighbour carries a road feature (no
-    feature to attach a crossing to). Per the BP7-fix-3 reviewer note,
-    coverage is an explicit conjunction: emission present AND symmetry holds
-    — symmetry is enforced by the dedicated leg above (run before coverage),
-    so coverage here asserts the emission-present half on edges that demand it.
+    For each cell's active (MAJOR/MINOR) edge, if THIS cell has a road feature
+    with an endpoint on that edge (the edge is in `road_edge_presence`), the cell
+    must emit a bref on it.
+
+    v1.2 CHANGE (validator 1.2): the condition is THIS cell's own road-endpoint
+    presence, NOT the pre-1.2 `road_here OR road_neighbour` over road_cells. The
+    old condition demanded emission from a road that TERMINATES on the neighbour's
+    side (the neighbour is a road cell, so coverage required THIS empty side to
+    emit a bref it cannot produce) — the §8.3 termination false positive that, with
+    the symmetry leg, failed 8 batch-2 cities. Conditioning on the cell's own
+    endpoint both removes that FP (termination side has no endpoint here) AND keeps
+    the teeth: a cell that HAS a road endpoint on an active edge but emits nothing
+    is a genuine under-emission and still raises (fixture cov-b). See
+    reports/2026-06-05-batch2-subf-symmetry-fp-investigation.md.
     """
     for cell, cell_edges in contract.items():
         emitted_dirs = {d for (d, _c, _fk) in emitted_by_cell.get(cell, [])}
@@ -328,19 +373,15 @@ def _check_coverage(
             edge_class = cell_edges.get(direction, "NONE")
             if edge_class not in _EMITTING_CLASSES:
                 continue  # NONE edge: nothing to cover
-            neighbour = _neighbour_cell(cell, direction)
-            road_here = cell in road_cells
-            road_neighbour = neighbour is not None and neighbour in road_cells
-            if not (road_here or road_neighbour):
-                # Active edge but no road feature on either side to attach a
-                # crossing to — do not over-fire.
+            if (cell, direction) not in road_edge_presence:
+                # No road endpoint in THIS cell on this edge -> nothing to emit
+                # (e.g. a road terminating on the neighbour's side). Do not over-fire.
                 continue
             if direction not in emitted_dirs:
                 raise CrossTileValidationError(
                     f"BP7 coverage failure at {tile_label} cell {cell}: edge "
-                    f"{direction} is active ({edge_class}) with a road feature "
-                    f"in this cell or its neighbour, but no <bref> emitted on "
-                    f"that edge."
+                    f"{direction} is active ({edge_class}) with a road endpoint in "
+                    f"this cell, but no <bref> emitted on that edge."
                 )
 
 
@@ -478,20 +519,25 @@ def _SHORT(class_label: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def validate_cross_tile(sub_f_region_dir: Path, sub_e_region_dir: Path) -> None:
+def validate_cross_tile(
+    sub_f_region_dir: Path, sub_e_region_dir: Path, sub_c_region_dir: Path
+) -> None:
     """Validate a sub-F region against all cross-tile invariants.
 
     Raises CrossTileValidationError on the first leg that fails, with a
     leg-specific substring in the message.
 
-    DECISION: chose a two-argument signature
-    `(sub_f_region_dir, sub_e_region_dir)` over the master-plan stub's
-    single-argument form because the cross-reference + coverage legs MUST
-    compare emitted brefs against the sub-E boundary contract, which lives
-    in the sub-E region tree — the single-arg stub could not implement
-    those legs. Judged LOCAL (not load-bearing): T10 only reads, and the
-    sole caller is the Task 11 orchestrator, which already holds both region
-    roots. Revisit if a caller appears that has only the sub-F dir.
+    DECISION (validator v1.2): added a third argument `sub_c_region_dir`. The
+    symmetry (leg 2) and coverage (leg 4) legs are now road-presence-conditioned
+    — they need to know, for each cell-edge, whether THIS cell carries a road
+    feature with an endpoint on that edge (`road_edge_presence`). That signal is
+    derived from sub-C `features.parquet` (the CLEAN artifact — 0-d/sliver clips
+    are discarded before write, so a §8.3 touch-as-cross road is absent there).
+    It is deliberately NOT derived from sub-C `crossings.parquet`, whose
+    `_both_cells_present`/`per_cell_pieces` path (pre-discard) carries the spurious
+    touch-as-cross records this fix tolerates. The independent source-trace gate
+    stays the separate drop backstop. See
+    reports/2026-06-05-batch2-subf-symmetry-fp-investigation.md.
 
     Per feedback_pyarrow_hive_partition_inference: cells.parquet are read
     via load_boundary_contract / pq.ParquetFile(path).read(), never bare
@@ -532,33 +578,58 @@ def validate_cross_tile(sub_f_region_dir: Path, sub_e_region_dir: Path) -> None:
 
         cells_rows = cells_table.to_pylist()
         emitted_by_cell = _emitted_brefs_by_cell(cells_rows, bref_decode, sem_id_to_tag)
-        road_cells = _road_cells(cells_rows, sem_id_to_tag)
+        road_edge_presence = _build_road_edge_presence(sub_c_region_dir / tile_label)
 
         _check_cross_reference(tile_label, emitted_by_cell, contract)
-        _check_symmetry(tile_label, emitted_by_cell)
+        _check_symmetry(tile_label, emitted_by_cell, road_edge_presence)
         _check_non_road_non_emission(tile_label, emitted_by_cell)
-        _check_coverage(tile_label, emitted_by_cell, contract, road_cells)
+        _check_coverage(tile_label, emitted_by_cell, contract, road_edge_presence)
 
 
-def _road_cells(
-    cells_rows: list[dict],
-    sem_id_to_tag: dict[int, str],
-) -> set[tuple[int, int]]:
-    """Cells that contain at least one road (highway-keyed) feature.
+def _build_road_edge_presence(
+    sub_c_tile_dir: Path,
+) -> set[tuple[tuple[int, int], str]]:
+    """Set of (cell, direction) where a ROAD (feature_class==0) LineString has an
+    endpoint on that cell edge — i.e. where the encoder's gate WOULD emit a bref.
 
-    Used by the coverage leg's "road feature in either neighbour" condition.
-    A road feature is a feature chunk whose semantic tag (chunk[1]) has key
-    `highway`.
+    Recomputed from sub-C `features.parquet` (the CLEAN artifact: 0-d Point
+    collapses and <0.01 m slivers are discarded before write per geom.py:200-202 /
+    224-225, so a §8.3 touch-as-cross road is ABSENT here). Deliberately NOT from
+    `crossings.parquet`, which carries the spurious touch-as-cross records (its
+    `_both_cells_present` tests `per_cell_pieces`, pre-discard). Endpoint ->
+    direction routes through the shared `encoder.endpoint_edge_direction`
+    authority so the validator and the encoder cannot drift on the N/S convention.
+
+    Used by the symmetry (leg 2) and coverage (leg 4) legs to tell a legit
+    one-sided termination (neighbour has no road endpoint on the edge -> allow)
+    from an under-emission (neighbour HAS one but didn't emit -> raise). A missing
+    sub-C tile dir / features.parquet yields the empty set (the legs then treat all
+    one-sided emission as termination — the drop mode is backstopped separately by
+    the sub-C length invariant + source-trace gate).
     """
-    out: set[tuple[int, int]] = set()
-    for r in cells_rows:
+    from shapely import wkb as _wkb
+
+    feats_path = sub_c_tile_dir / "features.parquet"
+    if not feats_path.exists():
+        return set()
+    presence: set[tuple[tuple[int, int], str]] = set()
+    for r in pq.ParquetFile(feats_path).read().to_pylist():
+        if int(r["feature_class"]) != _ROAD_FEATURE_CLASS:
+            continue  # only highway features emit brefs (§1.4)
+        geom = _wkb.loads(r["geometry"])
+        if geom.geom_type == "LineString":
+            parts = [geom]
+        elif geom.geom_type == "MultiLineString":
+            parts = list(geom.geoms)
+        else:
+            continue
         cell = (int(r["cell_i"]), int(r["cell_j"]))
-        for chunk in _split_into_feature_chunks(list(r["token_sequence"])):
-            if len(chunk) < 2:
+        for line in parts:
+            coords = list(line.coords)
+            if len(coords) < 2:
                 continue
-            sem_tag = sem_id_to_tag.get(chunk[1], "")
-            key = semantic_tag_to_l1_key(sem_tag)
-            if key == _ROAD_KEY:
-                out.add(cell)
-                break
-    return out
+            for px, py in (coords[0], coords[-1]):
+                direction = endpoint_edge_direction(px, py)
+                if direction is not None:
+                    presence.add((cell, direction))
+    return presence

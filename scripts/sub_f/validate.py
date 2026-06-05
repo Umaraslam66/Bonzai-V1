@@ -49,6 +49,13 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="sub-E region dir (cross-tile legs cross-reference its boundary contract)",
     )
+    parser.add_argument(
+        "--sub-c-region-dir",
+        required=True,
+        type=Path,
+        help="sub-C region dir (v1.2: symmetry + coverage legs read features.parquet "
+        "for the road-edge-presence signal)",
+    )
     args = parser.parse_args(argv)
 
     tile_paths = sorted(args.region_dir.glob("tile=*/cells.parquet"))
@@ -59,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for tile_path in tile_paths:
             validate_inline(tile_path)
-        validate_cross_tile(args.region_dir, args.sub_e_region_dir)
+        validate_cross_tile(args.region_dir, args.sub_e_region_dir, args.sub_c_region_dir)
     except (InlineValidationError, CrossTileValidationError, SubEContractViolation) as e:
         # Type name is kept in the message so callers (and tests) can tell which
         # layer failed — inline vs cross-tile vs sub-E contract.

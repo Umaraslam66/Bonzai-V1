@@ -378,7 +378,9 @@ def test_singapore_cross_tile_composite(derived_singapore: SimpleNamespace) -> N
     """BP7 four-test composite + version/sha/all-cells on the real derived region.
     Runs inside derive_region too (before _SUCCESS); asserting directly is the
     explicit composite gate (mirrors the sub-E precedent)."""
-    validate_cross_tile(derived_singapore.out, derived_singapore.sub_e)
+    validate_cross_tile(
+        derived_singapore.out, derived_singapore.sub_e, derived_singapore.sub_c
+    )
 
 
 # ---------------------------------------------------------------------------

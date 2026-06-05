@@ -33,7 +33,16 @@ SUB_F_DERIVATION_VERSION = "1.1"
 # so unknown-subtype highways no longer false-positive the non-road-emission
 # leg. Verdict-only change (no cells.parquet bytes change); the VALIDATOR axis
 # distinguishes a 1.0-blessed cache from a 1.1-blessed one.
-SUB_F_VALIDATOR_VERSION = "1.1"
+# 1.2: §8.3 termination relax — the symmetry (leg 2) and coverage (leg 4) legs
+# are now road-presence-conditioned (road_edge_presence, derived from sub-C
+# features.parquet via the shared encoder.endpoint_edge_direction authority).
+# A road that TERMINATES at an internal cell boundary (present on one side only)
+# no longer false-positives; an under-emission (road endpoint present on both
+# sides, one side silent) still raises. Verdict-only change (no cells.parquet
+# bytes change — the encoder/tokens are untouched); the VALIDATOR axis
+# distinguishes a 1.1-blessed cache from a 1.2-blessed one. See
+# reports/2026-06-05-batch2-subf-symmetry-fp-investigation.md.
+SUB_F_VALIDATOR_VERSION = "1.2"
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_OVERTURE_PIN_PATH = _REPO_ROOT / "configs" / "data" / "overture_release.yaml"

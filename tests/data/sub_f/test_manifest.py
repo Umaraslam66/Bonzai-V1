@@ -96,8 +96,10 @@ def test_sub_f_non_source_version_constants():
     # 1.1: cycle-1 N/S encoder fix (commit 98cdeb0) changed bref output for the
     # same input → derivation-axis bump distinguishes pre/post-cycle-1 artifacts.
     assert SUB_F_DERIVATION_VERSION == "1.1"
-    # 1.1: cycle-3 validator fix (BP4 <unknown_*> key resolution) — verdict-only.
-    assert SUB_F_VALIDATOR_VERSION == "1.1"
+    # 1.2: §8.3 termination relax — symmetry + coverage legs road-presence-conditioned
+    # (verdict-only, no cells.parquet bytes change). 1.1 was the cycle-3 BP4
+    # <unknown_*> key-resolution validator fix.
+    assert SUB_F_VALIDATOR_VERSION == "1.2"
 
 
 def test_region_manifest_has_six_version_fields_and_region_vocab_sources():

@@ -238,7 +238,7 @@ def derive_region(cfg: PipelineConfig) -> None:
 
     # Cross-tile validator runs BEFORE _SUCCESS (sub-E precedent + spec §11.8).
     # If it raises, the manifest + _SUCCESS are never written for this run.
-    validate_cross_tile(cfg.output_region_dir, cfg.sub_e_region_dir)
+    validate_cross_tile(cfg.output_region_dir, cfg.sub_e_region_dir, cfg.sub_c_region_dir)
 
     region_crs = _read_sub_e_region_crs(cfg.sub_e_region_dir)
     manifest = build_region_manifest(

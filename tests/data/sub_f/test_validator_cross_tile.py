@@ -45,6 +45,7 @@ from cfm.data.sub_f.provenance import provenance_sha256
 from cfm.data.sub_f.validator_cross_tile import (
     CrossTileValidationError,
     _bref_id_to_dir_class,
+    _check_coverage,
     _check_non_road_non_emission,
     _check_symmetry,
     _emitted_brefs_by_cell,
@@ -222,6 +223,29 @@ def _write_tile(
     _write_sub_e_contract(sub_e_dir / tile_name / "boundary_contract.parquet", contract_overrides)
 
 
+def _write_sub_c_features(
+    sub_c_tile_dir: Path, road_lines: list[tuple[int, int, LineString]]
+) -> None:
+    """Write a minimal sub-C features.parquet for road_edge_presence tests.
+
+    Only the columns `_build_road_edge_presence` reads — feature_class (0=road),
+    cell_i, cell_j, geometry (cell-local WKB). Each entry is a road LineString in
+    the named cell, so the validator's road-edge-presence signal includes the
+    edges its endpoints lie on. Tests that need NO road presence simply omit this
+    (a missing features.parquet yields the empty set).
+    """
+    sub_c_tile_dir.mkdir(parents=True, exist_ok=True)
+    table = pa.table(
+        {
+            "cell_i": pa.array([ci for (ci, _cj, _ln) in road_lines], pa.int8()),
+            "cell_j": pa.array([cj for (_ci, cj, _ln) in road_lines], pa.int8()),
+            "feature_class": pa.array([0 for _ in road_lines], pa.int8()),
+            "geometry": pa.array([ln.wkb for (_ci, _cj, ln) in road_lines], pa.binary()),
+        }
+    )
+    pq.write_table(table, sub_c_tile_dir / "features.parquet")
+
+
 # ---- feature-chunk builders (real encoder output) -------------------------
 
 
@@ -292,7 +316,7 @@ def test_version_drift_across_tiles_raises(tmp_path: Path):
     _write_tile(sub_f, sub_e, "tile=1_0", _empty_cell_rows(), provenance=drifted)
 
     with pytest.raises(CrossTileValidationError, match="version manifest"):
-        validate_cross_tile(sub_f, sub_e)
+        validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
@@ -338,7 +362,7 @@ def test_cross_reference_emitted_bref_disagrees_with_contract_raises(tmp_path: P
     _write_tile(sub_f, sub_e, "tile=0_0", rows, contract_overrides=overrides)
 
     with pytest.raises(CrossTileValidationError, match="cross-reference"):
-        validate_cross_tile(sub_f, sub_e)
+        validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
@@ -346,38 +370,98 @@ def test_cross_reference_emitted_bref_disagrees_with_contract_raises(tmp_path: P
 # ===========================================================================
 
 
-def test_symmetry_paired_cells_disagree_on_shared_edge_raises():
-    """NEGATIVE (symmetry leg): two paired cells whose shared-edge brefs
-    disagree -> CrossTileValidationError('symmetry').
+def test_symmetry_road_present_both_one_emits_raises():
+    """NEGATIVE (symmetry leg) — the MUST-DISTINGUISH guard (fixture b).
 
-    Rule-isolated by construction: we call `_check_symmetry` DIRECTLY on a
-    hand-built emitted-by-cell map, so NO earlier leg (cross-reference /
-    non-road) can fire — only the symmetry leg runs. Cell (0,0) emits
-    MAJOR_ROAD on its East edge; the paired neighbour (1,0) emits NOTHING on
-    its West edge (the shared internal edge). Because both views derive from
-    the same sub-E row, this break is only reachable via an adjacency-mapping
-    bug; the leg validates the E<->W opposite-direction mapping in isolation.
+    The shared internal edge has a road feature with an endpoint in BOTH cells
+    (both in `road_edge_presence`), yet only (0,0) emits its bref; (1,0) does
+    NOT emit on its West edge. Because (1,0) genuinely carries a road endpoint
+    on the shared edge, the missing emission is a real defect (encoder
+    under-emission, or a clip that left a present-but-unemitted road) ->
+    CrossTileValidationError('symmetry').
+
+    This is the guard that keeps the v1.2 relax honest: if the relax allowed
+    ALL one-sided emission (a blanket weaken), this case would WRONGLY pass.
     """
     emitted_by_cell = {
         (0, 0): [("E", "MAJOR_ROAD", "highway")],
-        # (1, 0) emits nothing on W -> shared-edge views disagree.
+        # (1, 0) emits nothing on W despite carrying a road endpoint there.
     }
+    road_edge_presence = {((0, 0), "E"), ((1, 0), "W")}  # BOTH sides carry a road endpoint
     with pytest.raises(CrossTileValidationError, match="symmetry"):
-        _check_symmetry("tile=0_0", emitted_by_cell)
+        _check_symmetry("tile=0_0", emitted_by_cell, road_edge_presence)
+
+
+def test_symmetry_termination_one_sided_emission_passes():
+    """POSITIVE (symmetry leg, v1.2 relax) — fixture (a).
+
+    A road TERMINATES exactly at the shared internal edge: present
+    (endpoint-on-edge) only in (0,0), absent from (1,0). (0,0) emits its bref;
+    (1,0) has NO road endpoint on the shared edge (not in `road_edge_presence`),
+    so it correctly emits nothing. The asymmetry is faithful to the geometry
+    (the road exists only on one side), so symmetry must NOT raise.
+
+    Guards the §8.3 termination false positive that failed 8 batch-2 cities on
+    14 edges; see reports/2026-06-05-batch2-subf-symmetry-fp-investigation.md.
+    """
+    emitted_by_cell = {
+        (0, 0): [("E", "MINOR_ROAD", "highway")],
+        # (1, 0) has no road on its W edge -> emits nothing -> legit termination.
+    }
+    road_edge_presence = {((0, 0), "E")}  # ONLY (0,0) carries a road endpoint on the edge
+    _check_symmetry("tile=0_0", emitted_by_cell, road_edge_presence)  # must NOT raise
 
 
 def test_symmetry_paired_cells_disagree_class_raises():
-    """NEGATIVE (symmetry leg, second flavour): paired cells agree an edge is
-    active but disagree on CLASS (A says MAJOR, B says MINOR) -> 'symmetry'.
-
-    Also called directly so only the symmetry leg can fire.
+    """NEGATIVE (symmetry leg): paired cells agree an edge is active but disagree
+    on CLASS (A says MAJOR, B says MINOR) -> 'symmetry'. Both cells carry a road
+    endpoint on the shared edge (both in road_edge_presence), so this is a genuine
+    class disagreement (not a termination) and raises regardless of the relax.
     """
     emitted_by_cell = {
         (0, 0): [("S", "MAJOR_ROAD", "highway")],
         (0, 1): [("N", "MINOR_ROAD", "highway")],  # opposite dir, different class
     }
+    road_edge_presence = {((0, 0), "S"), ((0, 1), "N")}
     with pytest.raises(CrossTileValidationError, match="symmetry"):
-        _check_symmetry("tile=0_0", emitted_by_cell)
+        _check_symmetry("tile=0_0", emitted_by_cell, road_edge_presence)
+
+
+# ===========================================================================
+# Leg 4: coverage (v1.2 road-presence-conditioned) — direct, rule-isolated
+# ===========================================================================
+
+
+def test_coverage_termination_active_edge_no_road_endpoint_passes():
+    """POSITIVE (coverage leg, v1.2) — fixture cov-(a).
+
+    Cell (1,0)'s West edge is active (MINOR_ROAD in the contract) but (1,0) has
+    NO road endpoint on that edge (`road_edge_presence` does not contain it) —
+    the road terminated on the OTHER side. Pre-1.2 coverage required emission
+    whenever a road sat in this cell OR its neighbour (road_cells, too coarse),
+    which demanded a bref the terminating side cannot produce. v1.2 conditions
+    on THIS cell's own road-endpoint presence, so coverage must NOT raise.
+    """
+    contract = {(1, 0): {"N": "NONE", "E": "NONE", "S": "NONE", "W": "MINOR_ROAD"}}
+    emitted_by_cell: dict = {}  # (1,0) emits nothing
+    road_edge_presence: set = set()  # (1,0) has NO road endpoint on its W edge
+    _check_coverage("tile=0_0", emitted_by_cell, contract, road_edge_presence)  # must NOT raise
+
+
+def test_coverage_under_emission_active_edge_with_road_endpoint_raises():
+    """NEGATIVE (coverage leg, v1.2) — fixture cov-(b), the must-distinguish twin.
+
+    Cell (1,0)'s West edge is active AND (1,0) genuinely carries a road endpoint
+    there (`road_edge_presence` contains it), yet (1,0) emits no bref on W. That
+    is a real under-emission -> CrossTileValidationError('coverage'). If the relax
+    dropped the road-presence condition entirely (blanket weaken), this case
+    would WRONGLY pass — so this guards the coverage leg's teeth.
+    """
+    contract = {(1, 0): {"N": "NONE", "E": "NONE", "S": "NONE", "W": "MINOR_ROAD"}}
+    emitted_by_cell: dict = {}  # (1,0) emits nothing despite a road endpoint on W
+    road_edge_presence = {((1, 0), "W")}
+    with pytest.raises(CrossTileValidationError, match="coverage"):
+        _check_coverage("tile=0_0", emitted_by_cell, contract, road_edge_presence)
 
 
 # ===========================================================================
@@ -411,7 +495,7 @@ def test_non_road_building_emits_bref_raises(tmp_path: Path):
     _write_tile(sub_f, sub_e, "tile=0_0", rows, contract_overrides=overrides)
 
     with pytest.raises(CrossTileValidationError, match="non-road"):
-        validate_cross_tile(sub_f, sub_e)
+        validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
@@ -419,39 +503,47 @@ def test_non_road_building_emits_bref_raises(tmp_path: Path):
 # ===========================================================================
 
 
-def test_coverage_active_edge_with_road_feature_no_bref_raises(tmp_path: Path):
-    """NEGATIVE (coverage leg): an active road edge with a road feature in the
-    cell but NO bref emitted -> CrossTileValidationError('coverage').
+def test_coverage_active_edge_with_road_endpoint_no_bref_raises(tmp_path: Path):
+    """NEGATIVE (coverage leg, v1.2): an active edge with a road ENDPOINT in the
+    cell (per sub-C road_edge_presence) but NO bref emitted -> 'coverage'.
 
-    Rule-isolated: cell (0,0) has a ROAD feature (so road_cells includes it,
-    and non-road passes — no building bref) that emits NO bref at all (Case A
-    plain). The contract activates the East edge of (0,0) as MAJOR. Because
-    nothing is emitted, cross-reference has nothing to check (passes) and
-    symmetry has no emission to compare (passes). The only fault is the
-    uncovered active edge -> 'coverage' substring.
+    v1.2 VERDICT-PRESERVATION NOTE [surfaced per the 2->3-arg meaning-flip review]:
+    pre-1.2 this fired because the cell merely *contained* a road (`road_cells`,
+    too coarse — the old fixture's road `[(50,50),(120,120)]` had NO endpoint on
+    the East edge). v1.2 conditions coverage on a road ENDPOINT ON the active
+    edge, so the scenario is updated to a road whose endpoint lies on the East
+    edge of (0,0) — written to the sub-C features the validator now reads — that
+    emits no bref. Same VERDICT (coverage raises), correct v1.2 semantics.
+    Rule-isolated: nothing emitted, so cross-reference and symmetry pass; the only
+    fault is the uncovered active edge with a road endpoint on it.
     """
     sub_f = tmp_path / "sub_f"
     sub_e = tmp_path / "sub_e"
 
     rows = _empty_cell_rows()
-    _set_cell(rows, 0, 0, _road_chunk_plain(), feature_count=1)
+    _set_cell(rows, 0, 0, _road_chunk_plain(), feature_count=1)  # road token, NO bref
 
-    # Activate East edge of (0,0) as MAJOR but the road emits no bref.
+    # Activate East edge of (0,0) as MAJOR.
     overrides = {(1, 0, 0, 0): {"scope_marker": 0, "boundary_class_enum": 2}}
     _write_tile(sub_f, sub_e, "tile=0_0", rows, contract_overrides=overrides)
+    # sub-C: a road whose endpoint lies on the East edge of (0,0) -> road_edge_presence
+    # contains ((0,0),"E"); the cell emits no bref there -> coverage must raise.
+    _write_sub_c_features(
+        sub_f.parent / "sub_c" / "tile=0_0",
+        [(0, 0, LineString([(50.0, 100.0), (250.0, 100.0)]))],
+    )
 
     with pytest.raises(CrossTileValidationError, match="coverage"):
-        validate_cross_tile(sub_f, sub_e)
+        validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
-def test_coverage_does_not_overfire_on_edge_with_no_road_feature(tmp_path: Path):
-    """POSITIVE guard (coverage precision): an active edge with NO road
-    feature in this cell OR its neighbour must NOT raise.
+def test_coverage_does_not_overfire_on_edge_with_no_road_endpoint(tmp_path: Path):
+    """POSITIVE guard (coverage precision, v1.2): an active edge with NO road
+    endpoint in this cell must NOT raise.
 
-    Confirms coverage is precise about the 'road feature in either neighbour'
-    condition and does not over-fire on bare active edges. Cell (0,0) is
-    EMPTY (no feature); its East edge is active MAJOR; neighbour (1,0) is also
-    empty. No road feature to attach a crossing to -> coverage must pass.
+    Cell (0,0) is EMPTY (no road in sub-C -> empty road_edge_presence); its East
+    edge is active MAJOR. v1.2 coverage conditions on THIS cell's own road-endpoint
+    presence, so a bare active edge with no road endpoint here does not over-fire.
     """
     sub_f = tmp_path / "sub_f"
     sub_e = tmp_path / "sub_e"
@@ -460,8 +552,8 @@ def test_coverage_does_not_overfire_on_edge_with_no_road_feature(tmp_path: Path)
     overrides = {(1, 0, 0, 0): {"scope_marker": 0, "boundary_class_enum": 2}}
     _write_tile(sub_f, sub_e, "tile=0_0", rows, contract_overrides=overrides)
 
-    # Must not raise — no road feature on either side of the active edge.
-    validate_cross_tile(sub_f, sub_e)
+    # Must not raise — no road endpoint on the active edge (no sub-C features).
+    validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
@@ -493,7 +585,7 @@ def test_happy_path_consistent_region_passes(tmp_path: Path):
     _write_tile(sub_f, sub_e, "tile=1_0", _empty_cell_rows())
 
     # Must not raise.
-    validate_cross_tile(sub_f, sub_e)
+    validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 def test_no_tiles_raises(tmp_path: Path):
@@ -503,7 +595,7 @@ def test_no_tiles_raises(tmp_path: Path):
     sub_f.mkdir()
     sub_e.mkdir()
     with pytest.raises(CrossTileValidationError, match="no tiles"):
-        validate_cross_tile(sub_f, sub_e)
+        validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
@@ -536,7 +628,7 @@ def test_sha_uniqueness_distinct_provenance_content_passes(tmp_path: Path):
     _write_tile(sub_f, sub_e, "tile=1_0", _empty_cell_rows(), provenance=prov_b)
 
     # Must not raise.
-    validate_cross_tile(sub_f, sub_e)
+    validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
@@ -574,7 +666,7 @@ def test_sha_uniqueness_identical_provenance_raises(tmp_path: Path):
     _write_tile(sub_f, sub_e, "tile=1_0", _empty_cell_rows(), provenance=shared_prov)
 
     with pytest.raises(CrossTileValidationError, match=r"(?i)sha.*unique|unique.*sha"):
-        validate_cross_tile(sub_f, sub_e)
+        validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
@@ -594,7 +686,7 @@ def test_all_cells_present_full_grid_passes(tmp_path: Path):
     _write_tile(sub_f, sub_e, "tile=0_0", _empty_cell_rows())
 
     # Must not raise.
-    validate_cross_tile(sub_f, sub_e)
+    validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
@@ -651,7 +743,7 @@ def test_all_cells_present_duplicate_and_missing_raises(tmp_path: Path):
     _write_sub_e_contract(sub_e / "tile=0_0" / "boundary_contract.parquet")
 
     with pytest.raises(CrossTileValidationError, match=r"(?i)cell.*(present|distinct)"):
-        validate_cross_tile(sub_f, sub_e)
+        validate_cross_tile(sub_f, sub_e, sub_f.parent / "sub_c")
 
 
 # ===========================================================================
