@@ -6,7 +6,8 @@ and batch2_v1.yaml (the full ~40-city diversity corpus), assembles the §6 roll-
 and applies the DoD gate the PI locked (2026-06-04). A threshold alone is a trap, so
 the gate is structural + per-city, never just the sum:
 
-  (a) total_validated_tokens >= 600_000_000   (measured DIRECTLY; NOT tiles x 29,150)
+  (a) total_validated_tokens >= 550_000_000   (measured DIRECTLY; NOT tiles x 29,150;
+      550M = PI-ratified v1 floor, reset from the stale 600M pre-measurement heuristic)
   (b) PER-CITY FLOOR: every validated city contributes a non-trivial tile/token
       count. A city that "passes" with a near-empty box (empty-sea/rural / silent
       clip; per-city counts are known-soft, fallback bbox / known_issues #15) is a
@@ -39,7 +40,15 @@ sys.path.insert(0, str(_REPO / "src"))
 from cfm.data.multiregion import rollup, selection  # noqa: E402
 
 RELEASE = "2026-04-15.0"
-TARGET_TOKENS = 600_000_000  # DoD floor (measured directly)
+# DoD floor (measured directly). RESET 600M -> 550M (2026-06-06, PI-ratified v1 floor):
+# 600M was the optimistic tail of the 30M-params x r=20 heuristic computed pre-measurement;
+# the real EU yield came in at ~24k tok/tile (not the assumed 56k), and the PI ratified
+# "550M + full coverage" as the v1 floor. This corrects a STALE constant to match the
+# ratified DoD — NOT a soft override. 550M is a hard line: gate-a is True at >=550M and
+# False below it (a below-550M shipped total is a real miss -> add cities before merge).
+# (This is the CORPUS-completion / merge gate; the r=20 TRAIN-split floor is a separate,
+# post-merge eval-set-gen concern. See reports/2026-06-06-eval-set-gen-scoping.md.)
+TARGET_TOKENS = 550_000_000
 FLOOR_TILES = 36  # umea canary low — below this with a generous box ⇒ suspect dud
 FLOOR_TOKENS = 800_000  # umea canary low
 PROC = _REPO / "data" / "processed"
@@ -190,7 +199,10 @@ def main() -> int:
         f"tokens={total_tokens:,}"
     )
     print("\n=== THREE-PART DoD GATE ===")
-    print(f"  (a) tokens >= 600M:        {gate_a}  ({total_tokens:,} / {TARGET_TOKENS:,})")
+    print(
+        f"  (a) tokens >= {TARGET_TOKENS // 1_000_000}M:        {gate_a}  "
+        f"(raw total {total_tokens:,} / floor {TARGET_TOKENS:,})"
+    )
     print(f"  (b) per-city floor:        {gate_b}  below_floor={below_floor}")
     print(f"      not_validated={not_validated}")
     print(f"  (c) axis-coverage green:   {gate_c}  uncovered={uncovered}")
@@ -216,7 +228,7 @@ def main() -> int:
                     "validated_tokens": total_tokens,
                 },
                 "dod_gate": {
-                    "a_tokens_ge_600M": gate_a,
+                    "a_tokens_ge_floor": gate_a,
                     "b_per_city_floor": gate_b,
                     "c_axis_coverage": gate_c,
                     "PASS": dod_pass,
