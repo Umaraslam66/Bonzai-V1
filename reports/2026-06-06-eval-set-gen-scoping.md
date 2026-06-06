@@ -25,20 +25,32 @@ G4 per-city counts.
 all distinct; geography EE/GB/DE/DE (CRS distinct; DE repeats — acceptable, or swap munich→
 **lisbon** PT/z29/21.5M for 4 distinct geographies at +11M token cost).
 
-### TOKEN-COST TENSION — surfacing, not papering over
+### FLOOR INTERPRETATION — RESOLVED: train-budget, not corpus-total (don't repeat the 56k conflation)
 
-- Shipped corpus ≈ **551M** projected (397.7M validated + ~153M from the 7 add-cities, pending).
-- Holding out these 4 = **−34.7M** → **training ≈ 516M, UNDER the 550M floor.**
-- This is acute because the corpus sits *right at* 550M — there is **no headroom for a held-out
-  eval set without dropping train under the floor.** Held-out-CITIES and the 550M training floor
-  are in direct competition at the current corpus size.
-- **Resolutions (PI's call):** (a) **add ~3–4 more cities** (corpus → ~585M, so train ≥ 550M after
-  holdout) — the spec's "add cities, cheap" lever, the cleanest; (b) clarify whether 550M is a
-  *training-token* floor (then this binds) vs a *corpus* floor (then it's already met and 516M-train
-  is fine); (c) hold out fewer/smaller cities (e.g. drop munich → −24.6M, train ~526M — still under);
-  (d) accept ~516M train (the floor is a heuristic, 516M is ~94% of it). **I recommend (a)** — it
-  preserves both a real 4-morphology held-out eval AND the training floor; cost is a few more
-  evening-launch extractions. **Final add-city yields land tomorrow midday — the exact gap firms then.**
+The spec frames the floor as **CORPUS** — "**Corpus** token-count confirmed ≥ 30M-ceiling need at
+r=20" (§25), "assert `total_validated_tokens ≥ 600_000_000` directly" (§233). But the *derivation*
+(30M params × r=20 tokens/param) is a **TRAINING-data budget** — tokens the model SEES. The spec
+says "corpus" only because it **predates the held-out-CITY decision**: at spec-time the held-out
+eval was Singapore-TILES (a separate sub-project), so the multi-region corpus *was* the train set
+(corpus = train). The held-out-CITY decision splits them. So two distinct gates, which I had
+conflated:
+
+- **Corpus-completion DoD (the MERGE gate, tomorrow):** corpus total. The 4 held-out cities are
+  validated corpus members → they **count toward it** → ~551M clears the PI-accepted 550M.
+  **Holding out cities does NOT breach the merge gate.** (Coded caveat: `build_g4_rollup.TARGET_TOKENS`
+  still literally checks **600M**, so the gate-(a) line prints `False` at 551M; the PI-accepted v1
+  floor is **550M + full coverage**, so the merge call is that judgment, not the literal-600M line.
+  PI's call: lower `TARGET_TOKENS`→550M to match the ratified floor, or treat gate-(a) as advisory.)
+- **Training-data floor (the r=20 INTENT):** the model trains on corpus − held-out ≈ **516M**, below
+  the 550M training budget → **add ~3–4 cities so corpus ≥ ~585M → train ≥ 550M after the ~35M
+  holdout.** Right reason (train budget), right phase (eval-set-gen / training, post-merge).
+
+**Correction:** my earlier "train dipped under 550M *total*" conflated train and eval (the same
+misapplied-number class as the 56k tok/tile estimate). Correct version: **the corpus clears the
+merge DoD (held-out cities count toward corpus total); the TRAIN split needs the r=20 floor → add
+cities for the training phase.** Add-cities is the cheap lever; firm gap lands tomorrow midday with
+the add-city yields. Hold-out city set confirmed CLEAN (all 4 VALIDATED, groups=0, none in the
+inflation-excluded/degraded set).
 
 ---
 
@@ -91,10 +103,11 @@ measured — never a guessed absolute number.
 - **`labels.py`** — the Singapore `morphology_class` CONSTANT + "no real Singapore variation"
   assumption. Multi-region HAS variation (more signal, not less); confirm the conditioning-vector
   extraction reads per-tile sub-C/sub-D values (it does) and drop the single-region constant.
-- **`resolution.py`** — mostly mechanical, BUT one check: the gap-floor numbers (single-region
-  0.049, second-region trigger 0.076 from the frozen-set memo) were Singapore-derived; confirm
-  the multi-region held-out gap is computed against THIS corpus, not the carried single-region
-  floor. (Tiny, but flag it so it isn't a silent single-region assumption.)
+- **`resolution.py`** — mostly mechanical, BUT one care-point: the gap-floor numbers (single-region
+  0.049, second-region trigger 0.076 from the frozen-set memo) were Singapore-derived. Recompute on
+  the **TRAIN split ONLY** — never include the held-out cities in the floor's own calibration, or
+  eval data leaks into the threshold it's later judged against (the calibration must not see the
+  test set). Not just "vs this corpus" — specifically the train subset.
 - **Reusable AS-IS (no work):** `lineage_audit.py` (region-keyed, one code path — a 2-region
   manifest already exercises identical logic), the manifest schema (regions-keyed), and
   `perplexity_gap.py` (macro→micro, region-agnostic).
