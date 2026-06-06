@@ -11,8 +11,10 @@ for c in eindhoven tilburg wolfsburg telford szczecin linz debrecen; do
   elif [ -f data/processed/sub_c/$R/$c/_SUCCESS ]; then s="sub_c-done-only"
   elif [ -d data/processed/sub_c/$R/$c ]; then s="sub_c-PARTIAL($(ls -d data/processed/sub_c/$R/$c/tile=* 2>/dev/null | wc -l | tr -d ' ')t)"
   else s="NOT-STARTED"; fi
-  js=$(sacct -n -X -o State --name="mr-add-$c" 2>/dev/null | tail -1 | tr -d ' ')
-  printf "  %-12s %-26s slurm=%s\n" "$c" "$s" "${js:-none}"
+  # IN-FLIGHT state only (squeue = active jobs); markers above are the terminal truth.
+  # Do NOT use sacct --name|tail -1 — it surfaces the STALE old failed job (the scare).
+  js=$(squeue -h -n "mr-add-$c" -o "%T" 2>/dev/null | head -1)
+  printf "  %-12s %-26s live=%s\n" "$c" "$s" "${js:-no-active-job(marker=truth)}"
 done
 echo "=== gated-chain status log ==="; tail -20 logs/addcities_status.txt 2>/dev/null
 echo "=== final G4 (if rollup ran) ==="; sed -n '/cities=/p; /DoD PASS/p' reports/2026-06-06-overnight-g4-rollup.txt 2>/dev/null
