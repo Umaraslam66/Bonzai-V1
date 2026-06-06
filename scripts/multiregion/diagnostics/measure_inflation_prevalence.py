@@ -69,10 +69,12 @@ def _dpathlen(geom: dict) -> float:
 
 
 def main() -> int:
-    # (scope, class) -> per-bucket [feat_count, token_sum]; scope in {"ALL", morph}
+    # (scope, class) -> per-bucket [feat_count, token_sum]; scope in {"ALL", morph, city}
     counts: dict = defaultdict(lambda: [[0, 0] for _ in BUCKETS])
     n_feat = 0
-    for city, morph in CITIES.items():
+    # optional argv override: "city:morph,city:morph,..." (else the 29-validated sample)
+    cmap = dict(p.split(":") for p in sys.argv[1].split(",")) if len(sys.argv) > 1 else dict(CITIES)
+    for city, morph in cmap.items():
         region = PROC / "sub_f" / R / city
         tiles = sorted(region.glob("tile=*"))
         if not tiles:
@@ -107,14 +109,14 @@ def main() -> int:
                         ratio = _dpathlen(dg) / sp.length
                         bi = _bucket(ratio)
                         ntok = len(blk)
-                        for scope in ("ALL", morph):
+                        for scope in ("ALL", morph, city):
                             for key in ((scope, cls), (scope, "ALL")):
                                 counts[key][bi][0] += 1
                                 counts[key][bi][1] += ntok
                         n_feat += 1
 
     labels = ["<1.0", "1.0-1.5", "1.5-2", "2-4", ">=4"]
-    print(f"features measured: {n_feat}  (cities={len(CITIES)}, ~{TILES_PER_CITY} tiles each)")
+    print(f"features measured: {n_feat}  (cities={len(cmap)}, ~{TILES_PER_CITY} tiles each)")
 
     def emit(scope: str, cls: str) -> None:
         rows = counts.get((scope, cls))
@@ -136,8 +138,11 @@ def main() -> int:
     emit("ALL", "building")
     emit("ALL", "road")
     print("\n========== PER-MORPHOLOGY (building) ==========")
-    for m in sorted({v for v in CITIES.values()}):
+    for m in sorted({v for v in cmap.values()}):
         emit(m, "building")
+    print("\n========== PER-CITY (building) ==========")
+    for c in cmap:
+        emit(c, "building")
     return 0
 
 
