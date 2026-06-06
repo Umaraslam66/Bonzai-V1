@@ -1,0 +1,12 @@
+name: debrecen
+admin:
+  source: overture://divisions
+  country_code: HU
+  level: locality
+fallback_bbox:
+- 21.33
+- 47.29
+- 21.93
+- 47.77
+crs: EPSG:4326
+projected_crs: EPSG:25834

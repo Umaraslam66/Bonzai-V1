@@ -6,6 +6,54 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #20 — rotterdam + warsaw are DEGRADED SOURCE DATA (~12–13× quantum-inflation), not a pipeline bug
+
+- **Filed:** 2026-06-06 (Phase-2 corpus completion, the 6-city inflation gate)
+- **Severity:** medium (these two cities carry ~12–13× the corpus-normal building-inflation rate; an OVERTURE source-data quality problem)
+- **Status:** EXCLUDED from the shipped corpus. **Do NOT just re-run them** — a re-run produces the same inflated geometry (the inflation is in the source densification, not the pipeline). amsterdam (~3× elevated) also excluded as borderline.
+- **Affects:** the shipped-corpus selection (`build_g4_rollup.py` EXCLUDED set); Overture buildings in rotterdam/warsaw boxes.
+
+### Context
+
+The decoded-vertex inflation defect (#19) is a corpus-wide ~0.05% token-share tail. The 6-city prevalence gate (`measure_inflation_prevalence.py`, 2026-06-06) measured each sub-G-failed city's own building-inflation distribution against the 29-validated reference (≥2× building token-share = 0.05%):
+
+- **lodz 0.03%, a_coruna 0.04%, almere 0.04%** — indistinguishable from the corpus tail (corpus-normal, edge-tripped only).
+- **amsterdam 0.14%** (~3×) — elevated, borderline.
+- **rotterdam 0.64% (~13×), warsaw 0.62% (~12×)** — genuinely degraded: their Overture buildings are far more over-densified (sub-quantum vertices) than normal. rotterdam ≥4× token-share = 0.50% (50× the norm).
+
+These two are not the pipeline mis-handling normal data; they are abnormally-densified SOURCE polygons. A blanket "construction-identity exclusion" of the decoded-vertex check (recover-3 / B2) would have MASKED this degraded subset — caught by the per-city gate (the "aggregate hides subsets" / touch-as-cross discipline).
+
+### Fix / handling
+
+Excluded from the shipped corpus (B1-simple, 2026-06-06). Coverage backfilled by add-cities (eindhoven closes NL). A future re-add must first de-densify the source (the #19 regen fix), not just re-run extraction.
+
+### Tracking
+
+- Source: Overture source densification. Evidence: `reports/2026-06-06-inflation-prevalence-the6.txt` + the close-out. Couples to **#19**.
+
+---
+
+## #19 — 0.5 m magnitude-quantum inflates over-densified source polygons (decoded-vertex bloat)
+
+- **Filed:** 2026-06-06 (Phase-2 corpus completion)
+- **Severity:** low corpus-wide (0.05% building token-share at ≥2× inflation; 0.01% at ≥4×) — a documented v1 limitation alongside alpha-drop (0.114%) and touch-as-cross (#17, 0.0064%)
+- **Status:** ACCEPTED for v1 (documented limitation; Path A full-re-derive is ~100× under its trigger bar). The `decoded_vertex_within_cell_bound` sub-G check trips on the edge-adjacent worst cases of this tail.
+- **Affects:** `src/cfm/data/sub_f/encoder.py` magnitude quantization; over-densified Overture polygons (buildings) with sub-quantum segments.
+
+### Context
+
+The sub-F encoder quantizes each (dir, mag) segment to a **0.5 m magnitude floor** (`DEFAULT_MAGNITUDE_QUANTUM_M`). Overture buildings that are over-densified (segments as short as ~0.04 m — a curved-facade digitization artifact) have each sub-quantum segment **rounded UP to 0.5 m**, inflating decoded perimeter **1.5–6.8×** vs the sub_c source (proven 2026-06-06 by authoritative-pairing path-length trace + segment-level evidence: `SRC 0.04 m → DEC 0.5 m`). The decoded vertex lands past the 300 m structural bound because it was *inflated* there, not because the feature is there — so relaxing the bound would bless 2–6× bloated buildings ("coherent ≠ correct"). Prevalence measured corpus-wide (`measure_inflation_prevalence.py`): **≥2× = 0.05% / ≥4× = 0.01%** of building token-share, **uniform across morphologies** (medieval-cores hypothesis falsified).
+
+### Fix (regen era)
+
+De-densify / simplify source polygons to the ~0.5 m quantum BEFORE encoding (drop or merge sub-quantum vertices — no information loss at the representational floor), so the encoder stops rounding sub-quantum segments up. Then re-derive. Verify whether the spec intended a pre-simplification step (missing-step) vs a design gap. The recover-3 option (per-city-prevalence-gated structural exclusion of the decoded-vertex check, with a teeth-proof) is banked for this regen window — it was deliberately NOT shipped under deadline as new validator surface.
+
+### Tracking
+
+- Source: `encoder.py` magnitude quantization. Evidence: `reports/2026-06-06-inflation-prevalence.txt` (29-ref) + close-out. Couples to **#20**.
+
+---
+
 ## #18 — destructive in-place re-derives must use the guarded tool (not hand-rolled shell)
 
 - **Filed:** 2026-06-05 (sub-F v1.2 corpus re-derive; near-miss)

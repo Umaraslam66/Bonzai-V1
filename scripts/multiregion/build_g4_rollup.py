@@ -44,6 +44,23 @@ FLOOR_TILES = 36  # umea canary low — below this with a generous box ⇒ suspe
 FLOOR_TOKENS = 800_000  # umea canary low
 PROC = _REPO / "data" / "processed"
 
+# Cities NOT in the shipped corpus (B1-simple, 2026-06-06) — excluded from the DoD
+# gate (full reasons in the close-out + known_issues). They may still appear in the
+# per-city table tagged EXCLUDED, but do not count against gate-b / coverage.
+EXCLUDED = {
+    "paris": "dropped: FR already covered, pathological ~30h wall, zero coverage",
+    "lyon": "dropped: FR already covered, pathological ~56h wall, zero coverage",
+    "madrid": "dropped: ES already covered, pathological ~104h wall, zero coverage",
+    "rome": "excluded: not extracted (IT already covered, ~26h+ wall, coverage-redundant)",
+    "rotterdam": "excluded: DEGRADED SOURCE DATA (~13x quantum-inflation, Overture)",
+    "warsaw": "excluded: DEGRADED SOURCE DATA (~12x quantum-inflation, Overture)",
+    "amsterdam": "excluded: elevated inflation (~3x), borderline",
+    "almere": "excluded: quantum-inflation edge-trip (corpus-normal; recover-3 deferred)",
+    "a_coruna": "excluded: quantum-inflation edge-trip (corpus-normal; recover-3 deferred)",
+    "lodz": "excluded: quantum-inflation edge-trip (corpus-normal; recover-3 deferred)",
+    "welwyn": "excluded: unprocessed; GB + modernist-sprawl/sparse already covered",
+}
+
 
 def _city_token_stats(region: str) -> tuple[int, int]:
     """(tile_count, token_count) from sub_f cells (read each file directly — avoid
@@ -71,7 +88,9 @@ def _groups(region: str) -> int | None:
 def main() -> int:
     canary = selection.load_canary_manifest(_REPO / "configs" / "multiregion" / "canary_v1.yaml")
     batch2 = selection.load_canary_manifest(_REPO / "configs" / "multiregion" / "batch2_v1.yaml")
-    cities = canary + batch2
+    addcities_path = _REPO / "configs" / "multiregion" / "addcities_v1.yaml"
+    addcities = selection.load_canary_manifest(addcities_path) if addcities_path.exists() else []
+    cities = canary + batch2 + addcities
 
     rows: list[dict] = []
     records: list[rollup.CityRecord] = []
@@ -120,7 +139,7 @@ def main() -> int:
         for x in rows
         if x["validated"] and (x["tiles"] < FLOOR_TILES or x["tokens"] < FLOOR_TOKENS)
     ]
-    not_validated = [x["name"] for x in rows if not x["validated"]]
+    not_validated = [x["name"] for x in rows if not x["validated"] and x["name"] not in EXCLUDED]
     gate_b = not below_floor and not not_validated
 
     # ---- (c) axis coverage ----
@@ -155,7 +174,9 @@ def main() -> int:
     print("=== G4 PER-CITY TABLE (full corpus) ===")
     for x in sorted(rows, key=lambda z: (z["morphology"], z["density"], -z["tiles"])):
         flag = ""
-        if not x["validated"]:
+        if x["name"] in EXCLUDED:
+            flag = " <<EXCLUDED (not in shipped corpus)"
+        elif not x["validated"]:
             flag = " <<NOT-VALIDATED"
         elif x["tiles"] < FLOOR_TILES or x["tokens"] < FLOOR_TOKENS:
             flag = " <<BELOW-FLOOR"
@@ -178,6 +199,9 @@ def main() -> int:
     print(
         "\n".join(f"  ⚠ {s}" for s in sanity_flags) or "  (none — counts in-ballpark for all peers)"
     )
+    print("\n=== EXCLUDED from shipped corpus (NOT counted in the DoD) ===")
+    for name, reason in EXCLUDED.items():
+        print(f"  {name}: {reason}")
 
     out = _REPO / "reports" / "2026-06-05-phase-2-g4-corpus-dod.yaml"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -201,6 +225,7 @@ def main() -> int:
                     "uncovered_axes": uncovered,
                 },
                 "sanity_flags": sanity_flags,
+                "excluded_from_shipped": EXCLUDED,
             },
             sort_keys=False,
             allow_unicode=True,

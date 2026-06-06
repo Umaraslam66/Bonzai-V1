@@ -1,0 +1,12 @@
+name: wolfsburg
+admin:
+  source: overture://divisions
+  country_code: DE
+  level: locality
+fallback_bbox:
+- 10.49
+- 52.18
+- 11.09
+- 52.66
+crs: EPSG:4326
+projected_crs: EPSG:25832
