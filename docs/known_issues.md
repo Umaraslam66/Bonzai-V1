@@ -10,8 +10,8 @@ Add new entries on top. Remove entries when they're fixed.
 
 - **Filed:** 2026-06-06 (Phase-2 corpus completion, the 6-city inflation gate)
 - **Severity:** medium (these two cities carry ~12–13× the corpus-normal building-inflation rate; an OVERTURE source-data quality problem)
-- **Status:** EXCLUDED from the shipped corpus. **Do NOT just re-run them** — a re-run produces the same inflated geometry (the inflation is in the source densification, not the pipeline). amsterdam (~3× elevated) also excluded as borderline.
-- **Affects:** the shipped-corpus selection (`build_g4_rollup.py` EXCLUDED set); Overture buildings in rotterdam/warsaw boxes.
+- **Status:** **OVERTURNED + RE-ADMITTED (2026-06-07).** The "degraded source, do-not-re-run" verdict was correct *given the encoder of the time* (a plain re-run reproduced the inflation), but the degradation was inflation **severity**, not a different corruption class — and the #19 de-densify fix removes it **at root**. After the de-densify re-derive, rotterdam + warsaw pass sub_g clean AND the path-length spot-check (`spotcheck_pathlength.py`) shows them undistorted vs the accepted eindhoven baseline (mean ≈1.0×, **zero** buildings >1.5×; worst real building ~1.3×, the same codec-quantization ceiling accepted cities show — see #19). PI re-admitted them as full corpus members (+77.1M). amsterdam (~3× borderline) likewise re-derived + validated and counts.
+- **Affects:** (historical) the shipped-corpus selection; Overture buildings in rotterdam/warsaw boxes — now re-admitted via the #19 fix.
 
 ### Context
 
@@ -25,11 +25,11 @@ These two are not the pipeline mis-handling normal data; they are abnormally-den
 
 ### Fix / handling
 
-Excluded from the shipped corpus (B1-simple, 2026-06-06). Coverage backfilled by add-cities (eindhoven closes NL). A future re-add must first de-densify the source (the #19 regen fix), not just re-run extraction.
+Initially excluded (B1-simple, 2026-06-06). The prescribed "de-densify the source first, don't just re-run" path was then executed: the #19 `dedensify_coords` fix + guarded sub_f re-derive (2026-06-07) — exactly the regen-era fix this entry pointed to. Re-admitted after the spot-check confirmed undistortion vs the accepted baseline (Status above). The 6-city prevalence numbers stand as the *historical* characterization of the pre-fix inflation severity; they are no longer an exclusion rationale.
 
 ### Tracking
 
-- Source: Overture source densification. Evidence: `reports/2026-06-06-inflation-prevalence-the6.txt` + the close-out. Couples to **#19**.
+- Source: Overture source densification, removed at encode by the #19 de-densify fix. Evidence: `reports/2026-06-06-inflation-prevalence-the6.txt` (pre-fix severity) + `logs/rederive/spotcheck_3city.txt` (post-fix undistortion). Couples to **#19**.
 
 ---
 
@@ -72,11 +72,21 @@ representable geometry — a ring already spaced `>= quantum` is returned vertex
   coords (no collapse to an invalid ring). Such sub-resolution features can still inflate
   but stay far below the 300 m bound (bounded, and effectively non-existent in Overture —
   min building footprints are several m²). Not gated; documented.
-- **Real-data confirmation (NOT yet done):** the synthetic teeth-proof exercises the exact
-  failing code path; **eindhoven re-derive (Phase 2)** confirms #19 clears + the ~27M token
-  yield survives de-densify on real data; the **rotterdam/warsaw degraded-source recovery
-  verdict (Phase 3, #20)** is a separate real-data check — they stay excluded until a
-  re-derive proves de-densify yields OGC-valid, within-bound geometry from degraded source.
+- **Real-data confirmation (DONE 2026-06-07):** eindhoven gate — #19 cleared
+  (decoded_vertex 1→0), sub_c/d/e byte-untouched (sub_f-only), token yield 26.9M→26.0M
+  (−3.32%, correct shrinkage of sub-resolution noise), geometry valid. Corpus-wide:
+  tiles_changed ≈ 603/611 → over-densification is **pervasive**, not a rare tail, but the
+  shrink is small (NL ~3%, DE/FR <1.5%). rotterdam/warsaw recovered + re-admitted (#20).
+- **CODEC CEILING — distinct from #19, do NOT mistake for unfixed inflation:** after the
+  fix, the per-building decoded/source path-length ratio is centered at ~1.0× (mean 0.997–
+  0.999×, p99 ~1.05×) but has a thin upper tail — the **worst single building is ~1.3×
+  (max ~1.6×)** in EVERY city, INCLUDING accepted ones (eindhoven worst-large 1.314×). This
+  is the inherent encode/decode quantization ceiling (0.5 m magnitude + 1° direction bins
+  on certain building shapes), governed by the BP2 round-trip L_inf lock, NOT residual #19
+  inflation (#19 was pervasive and would lift the *mean/p99*, not a lone tail). The
+  spot-check therefore judges the BULK (mean/p99) against the accepted baseline, treating
+  the ~1.3× tail as info. Sub-quantum-extent clip slivers (source <2 m) decode to a bounded
+  ≤4 m and are the degenerate edge above, not distortion.
 
 ### Tracking
 

@@ -6,11 +6,11 @@ each city's sub_f manifest `sub_f_derivation_version` is "1.2" once re-derived
 under the fix, "1.1" if still pending. For re-derived cities it measures the
 post-fix token count and reads the sub_g `_PHASE1_VALIDATED` marker.
 
-Projection is on the CORPUS-NORMAL set ONLY (33 validated-keep + 7 recover).
-rotterdam/warsaw (degraded source, ~12-13x) are EXCLUDED — they are a separate
-conditional bonus that only counts if they earn re-admission via their own clean
-sub_g verdict; blending their ~79M into the projection would let a halt/proceed
-call rest on tokens that may evaporate (PI, 2026-06-07).
+Projection covers all 42 corpus cities. rotterdam/warsaw were initially held out
+(degraded pair, ~12-13x, known_issue #20) so a halt/proceed call could not rest on
+~79M that might evaporate; the path-length spot-check proved them undistorted vs the
+accepted baseline and the PI re-admitted them (2026-06-07), so they now count toward
+the total like any member (#20 overturned).
 
 projected_final = sum(done corpus-normal, validated, post-fix tokens)
                + sum(pending corpus-normal, prefix_tokens * (1 - max_observed_shrink))
@@ -32,8 +32,14 @@ FLOOR = 550_000_000
 PROC = Path("data/processed")
 G4_REPORT = Path("reports/2026-06-05-phase-2-g4-corpus-dod.yaml")
 
-# Degraded source (known_issue #20) — EXCLUDED from the projection; separate verdict.
-DEGRADED = {"rotterdam", "warsaw"}
+# rotterdam/warsaw were the degraded pair (known_issue #20), excluded pending their own
+# verdict. RE-ADMITTED 2026-06-07: the path-length spot-check proved them undistorted
+# vs the accepted eindhoven baseline (mean ~1.0x, zero buildings >1.5x; #20 OVERTURNED —
+# the degradation was inflation SEVERITY, fixed at root by de-densify, not a different
+# corruption class). They are now full corpus members and count toward the total, so the
+# exclusion set is empty. READMITTED is kept only to label them in the report.
+DEGRADED: set[str] = set()
+READMITTED = {"rotterdam", "warsaw"}
 # Never part of this EU corpus (Phase-1 / test cities) — not re-derived here.
 NOT_IN_CORPUS = {"singapore", "berlin"}
 # Never extracted (no sub_f) — not re-derivable.
@@ -106,9 +112,9 @@ def main() -> int:
     if failed:
         print(f"  ⚠ post-fix VALIDATION FAILURES (corpus-normal): {failed}")
 
-    # Degraded pair — reported separately, NOT in the projection.
-    print("\n=== degraded pair (separate verdict; NOT in projection) ===")
-    for c in sorted(DEGRADED):
+    # rotterdam/warsaw re-admitted 2026-06-07 — now counted in the projection above.
+    print("\n=== re-admitted (now corpus members, COUNTED above; #20 overturned) ===")
+    for c in sorted(READMITTED):
         dv = _derivation_version(c)
         if dv == "1.2":
             print(f"  {c}: re-derived validated={_validated(c)} tok={_tokens(c):,}")
