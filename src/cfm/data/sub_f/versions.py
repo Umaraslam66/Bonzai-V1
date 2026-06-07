@@ -27,7 +27,14 @@ SUB_F_VOCAB_VERSION = "1.0"
 # encoder._classify_feature_for_bref) changed bref direction output for the same
 # input. Bumping the DERIVATION axis distinguishes pre/post-cycle-1 sub-F
 # artifacts so a stale 1.0 cache can never silently compare equal to a 1.1 one.
-SUB_F_DERIVATION_VERSION = "1.1"
+# 1.2: the #19 quantum-inflation fix (encoder.dedensify_coords) drops sub-quantum
+# micro-vertices before encoding, so cells.parquet TOKEN BYTES change for the same
+# input on over-densified features (same defect CLASS as cycle-1: encoder output
+# changed, not schema/vocab/validator). Bumping DERIVATION 1.1->1.2 forces the
+# whole-corpus re-derive (marker-based resume can never silently treat a pre-fix
+# 1.1 cache as current) and prevents a 1.1/1.2 version skew. See docs/known_issues.md
+# #19 + the de-densify teeth-proof (tests/data/sub_f/test_dedensify.py).
+SUB_F_DERIVATION_VERSION = "1.2"
 # 1.1: cycle-3 validator fix — feature_key resolution now resolves BP4
 # <unknown_*> tokens to their semantic key (vocab.unknown_family_tag_to_key),
 # so unknown-subtype highways no longer false-positive the non-road-emission

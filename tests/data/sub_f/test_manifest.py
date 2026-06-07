@@ -95,7 +95,10 @@ def test_sub_f_non_source_version_constants():
     assert SUB_F_VOCAB_VERSION == "1.0"
     # 1.1: cycle-1 N/S encoder fix (commit 98cdeb0) changed bref output for the
     # same input → derivation-axis bump distinguishes pre/post-cycle-1 artifacts.
-    assert SUB_F_DERIVATION_VERSION == "1.1"
+    # 1.2: #19 quantum-inflation fix (encoder.dedensify_coords) drops sub-quantum
+    # vertices → cells.parquet token bytes change for the same input on
+    # over-densified features → derivation-axis bump forces whole-corpus re-derive.
+    assert SUB_F_DERIVATION_VERSION == "1.2"
     # 1.2: §8.3 termination relax — symmetry + coverage legs road-presence-conditioned
     # (verdict-only, no cells.parquet bytes change). 1.1 was the cycle-3 BP4
     # <unknown_*> key-resolution validator fix.
@@ -222,7 +225,7 @@ def test_source_and_derivation_axes_are_independent(tmp_path: Path):
     assert encode_sub_f_source_version(source) == (
         "overture=2099-01-01.0;subc_schema=9.9;subc_commit=" + "f" * 40
     )
-    assert SUB_F_DERIVATION_VERSION == "1.1"
+    assert SUB_F_DERIVATION_VERSION == "1.2"
 
     manifest = build_region_manifest(
         region="singapore",

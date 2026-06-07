@@ -37,7 +37,7 @@ Excluded from the shipped corpus (B1-simple, 2026-06-06). Coverage backfilled by
 
 - **Filed:** 2026-06-06 (Phase-2 corpus completion)
 - **Severity:** low corpus-wide (0.05% building token-share at ≥2× inflation; 0.01% at ≥4×) — a documented v1 limitation alongside alpha-drop (0.114%) and touch-as-cross (#17, 0.0064%)
-- **Status:** ACCEPTED for v1 (documented limitation; Path A full-re-derive is ~100× under its trigger bar). The `decoded_vertex_within_cell_bound` sub-G check trips on the edge-adjacent worst cases of this tail.
+- **Status:** FIX IN PROGRESS (2026-06-07, branch `phase-2-corpus-completion`). PI elevated Path A (de-densify + re-derive) to the critical path after add-cities failed to deliver — G4 failed all 3 gates (431M < 550M, eindhoven/tilburg/szczecin not validated, NL uncovered) and #19 recurred in the new NL cities, blocking NL coverage + ~170M corpus-normal tokens. Fix implemented + teeth-proven (see "Fix landed" below); corpus re-derive + G4 re-validation pending. Was ACCEPTED for v1 when this was a 0.05% tail; the cost-benefit inverted once it became the dominant failure in cities the corpus must include. The `decoded_vertex_within_cell_bound` sub-G check trips on the edge-adjacent worst cases.
 - **Affects:** `src/cfm/data/sub_f/encoder.py` magnitude quantization; over-densified Overture polygons (buildings) with sub-quantum segments.
 
 ### Context
@@ -47,6 +47,36 @@ The sub-F encoder quantizes each (dir, mag) segment to a **0.5 m magnitude floor
 ### Fix (regen era)
 
 De-densify / simplify source polygons to the ~0.5 m quantum BEFORE encoding (drop or merge sub-quantum vertices — no information loss at the representational floor), so the encoder stops rounding sub-quantum segments up. Then re-derive. Verify whether the spec intended a pre-simplification step (missing-step) vs a design gap. The recover-3 option (per-city-prevalence-gated structural exclusion of the decoded-vertex check, with a teeth-proof) is banked for this regen window — it was deliberately NOT shipped under deadline as new validator surface.
+
+### Fix landed — `dedensify_coords` (2026-06-07, pending corpus re-derive validation)
+
+`encoder.dedensify_coords` (called at the top of `encode_feature`, mirrored in the
+`token_cost.py` budget twin) does **radial-distance simplification at tolerance =
+magnitude quantum**: keep `coords[0]`; keep each later vertex only when its straight-line
+distance from the last KEPT vertex is `>= 0.5 m`; always keep the final vertex (preserves
+anchor, ring closure, road bref endpoints exactly). This removes only sub-quantum
+micro-vertices the 0.5 m quantum cannot represent anyway, so it CANNOT destroy
+representable geometry — a ring already spaced `>= quantum` is returned vertex-for-vertex.
+
+- **Teeth-proof:** `tests/data/sub_f/test_dedensify.py` — (a) an over-densified building
+  (0.0735 m segmentation) decoded **6.80× / max-coord 372 m before → ~1.0× / within the
+  300 m bound after**; (b) over-simplify GUARD — a legit-detailed building is untouched,
+  with a discrimination teeth test proving a large tolerance DOES drop vertices (the
+  preservation assertion is not vacuous).
+- **DERIVATION version bumped 1.1 → 1.2** (`sub_f/versions.py`): the fix changes
+  `cells.parquet` token bytes for the same input on over-densified features, so the axis
+  bump forces the whole-corpus re-derive and blocks a pre/post-fix version skew (same
+  defect class as the cycle-1 N/S bump).
+- **Degenerate-extent addendum (v1 edge):** a feature whose WHOLE extent is `< 0.5 m`
+  de-densifies below a valid vertex count; `dedensify_coords` falls back to the original
+  coords (no collapse to an invalid ring). Such sub-resolution features can still inflate
+  but stay far below the 300 m bound (bounded, and effectively non-existent in Overture —
+  min building footprints are several m²). Not gated; documented.
+- **Real-data confirmation (NOT yet done):** the synthetic teeth-proof exercises the exact
+  failing code path; **eindhoven re-derive (Phase 2)** confirms #19 clears + the ~27M token
+  yield survives de-densify on real data; the **rotterdam/warsaw degraded-source recovery
+  verdict (Phase 3, #20)** is a separate real-data check — they stay excluded until a
+  re-derive proves de-densify yields OGC-valid, within-bound geometry from degraded source.
 
 ### Tracking
 
