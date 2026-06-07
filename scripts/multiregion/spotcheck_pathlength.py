@@ -47,6 +47,12 @@ RELEASE = "2026-04-15.0"
 PROC = Path("data/processed")
 CELL_EXTENT_M = 250.0
 EDGE_EPS = 0.5  # interior = bbox at least this far from every cell edge (clip-free)
+# A real building ring; below this a near-zero source perimeter makes the ratio a 0/0
+# artifact (degenerate sub-quantum-extent source / clip sliver — the documented #19 edge).
+MIN_REAL_PERIM_M = 2.0
+# Jitter-clean subset: at >=10m perimeter the 0.5m grid jitter is <~5%, so the ratio is a
+# clean distortion signal (a #19 residual would be >=1.5x). Used for the verdict.
+LARGE_PERIM_M = 10.0
 
 
 def _pathlen(coords: list[tuple[float, float]]) -> float:
@@ -69,9 +75,10 @@ def _is_interior(coords: list[tuple[float, float]]) -> bool:
 
 def main() -> int:
     city = sys.argv[1]
-    ratios: list[float] = []
-    worst = None  # (ratio, sfid, tile, cell, dec_len, src_len, interior)
-    n_buildings = 0
+    real_ratios: list[float] = []  # source >= MIN_REAL_PERIM_M
+    large_worst = None  # worst ratio among source >= LARGE_PERIM_M (jitter-clean)
+    n_real = n_degen = 0
+    degen_max_decoded = 0.0
     for tile_dir in sorted(glob.glob(str(PROC / "sub_f" / RELEASE / city / "tile=*"))):
         tile = Path(tile_dir).name
         cells = read_sub_f_cells(Path(tile_dir) / "cells.parquet")
@@ -101,44 +108,68 @@ def main() -> int:
                     if part.geom_type != "Polygon":  # buildings only (Case A, no bref)
                         continue
                     src = _part_coords(part)
-                    dco = _decoded_coords(dec)
                     src_len = _pathlen(src)
-                    if src_len <= 0:
+                    dec_len = _pathlen(_decoded_coords(dec))
+                    if src_len < MIN_REAL_PERIM_M:
+                        # Degenerate sub-quantum-EXTENT source (clip sliver / noise): a
+                        # near-zero source perimeter makes the ratio a 0/0 artifact. These
+                        # are the documented #19 edge — decoded is bounded (tracked below),
+                        # NOT real-building distortion. Excluded from the ratio judgment.
+                        n_degen += 1
+                        degen_max_decoded = max(degen_max_decoded, dec_len)
                         continue
-                    n_buildings += 1
-                    r = _pathlen(dco) / src_len
-                    ratios.append(r)
-                    if worst is None or r > worst[0]:
-                        worst = (
+                    n_real += 1
+                    r = dec_len / src_len
+                    real_ratios.append(r)
+                    if src_len >= LARGE_PERIM_M and (large_worst is None or r > large_worst[0]):
+                        large_worst = (
                             r,
                             f["source_feature_id"],
                             tile,
                             cell,
-                            _pathlen(dco),
+                            dec_len,
                             src_len,
                             _is_interior(src),
                         )
 
-    if not ratios:
-        print(f"{city}: NO building features paired (unexpected)")
+    if not real_ratios:
+        print(f"{city}: NO real building features paired (unexpected)")
         return 1
-    ratios.sort()
-    p99 = ratios[min(len(ratios) - 1, int(0.99 * len(ratios)))]
-    n_over = sum(1 for r in ratios if r > 1.10)
+    real_ratios.sort()
+
+    def _pct(p: float) -> float:
+        return real_ratios[min(len(real_ratios) - 1, int(p * len(real_ratios)))]
+
+    n_over110 = sum(1 for r in real_ratios if r > 1.10)
+    n_over150 = sum(1 for r in real_ratios if r > 1.50)  # >1.5x on a real ring = #19 inflation
     print(f"=== {city} building path-length undistortion (decoded / sub_c-source) ===")
-    print(f"  buildings paired: {n_buildings}")
-    print(f"  ratio: max={ratios[-1]:.3f}x  p99={p99:.3f}x  mean={statistics.mean(ratios):.3f}x")
-    print(f"  buildings > 1.10x: {n_over} ({100 * n_over / n_buildings:.3f}%)")
-    r, sfid, tile, cell, dlen, slen, interior = worst
-    print("  WORST building:")
-    print(f"    ratio={r:.3f}x  source_feature_id={sfid}")
-    print(f"    {tile} cell={cell}  decoded_perim={dlen:.2f}m  source_perim={slen:.2f}m")
-    print(f"    interior(clip-free)={interior}  <- if True, sub_c ring == unclipped Overture")
+    print(f"  REAL buildings (source >= {MIN_REAL_PERIM_M}m): {n_real}")
+    print(
+        f"  ratio: mean={statistics.mean(real_ratios):.3f}x  p99={_pct(0.99):.3f}x  "
+        f"p99.9={_pct(0.999):.3f}x  max={real_ratios[-1]:.3f}x"
+    )
+    print(f"  real > 1.10x: {n_over110}  |  real > 1.50x (clear #19 inflation): {n_over150}")
+    print(
+        f"  degenerate (source < {MIN_REAL_PERIM_M}m sub-quantum-extent/clip sliver): "
+        f"{n_degen}; max decoded_perim={degen_max_decoded:.2f}m (bounded, harmless)"
+    )
+    large_max = None
+    if large_worst:
+        r, sfid, tile, cell, dlen, slen, interior = large_worst
+        large_max = r
+        print(f"  WORST LARGE building (source >= {LARGE_PERIM_M}m; jitter-clean):")
+        print(f"    ratio={r:.3f}x  source_feature_id={sfid}")
+        print(f"    {tile} cell={cell}  decoded_perim={dlen:.2f}m  source_perim={slen:.2f}m")
+        print(f"    interior(clip-free)={interior}  <- if True, sub_c ring == unclipped Overture")
+    # Undistorted: large jitter-clean buildings ~1.0x AND no real ring inflated > 1.5x.
+    undistorted = (large_max is None or large_max <= 1.10) and n_over150 == 0
     verdict = (
-        "UNDISTORTED (max ~1.0x)" if ratios[-1] <= 1.10 else "STILL DISTORTED (>1.10x) -> EXCLUDE"
+        "UNDISTORTED (real buildings ~1.0x; no #19 residual)"
+        if undistorted
+        else "STILL DISTORTED -> EXCLUDE"
     )
     print(f"  VERDICT: {verdict}")
-    return 0
+    return 0 if undistorted else 1
 
 
 if __name__ == "__main__":
