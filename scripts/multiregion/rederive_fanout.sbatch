@@ -6,7 +6,10 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16000M
+#SBATCH --mem=8000M
+# 8G: the eindhoven gate's actual MaxRSS was ~0.6G, so 8G is generous. Sized so
+# TWO concurrent tasks (2x8=16G) fit under the lrd_all_serial QOS mem cap (30800M)
+# AND the cpu=8 cap (2x4) — else QOSMaxMemoryPerUser throttles to 1 lane, not 2.
 #SBATCH --output=logs/rederive/%x-%A_%a.out
 #SBATCH --error=logs/rederive/%x-%A_%a.err
 #
