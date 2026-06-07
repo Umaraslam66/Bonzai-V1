@@ -15,12 +15,18 @@ the gate is structural + per-city, never just the sum:
       (36 tiles / ~0.8M tokens).
   (c) axis-coverage matrix green (rollup.assert_ready_for_next_batch — morphology/
       density/geography, 0 uncovered).
+  (d) SHA COHERENCE: every city counted as validated must be at the current sub-F
+      DERIVATION sha. The pipeline treats on-disk markers as ground truth, so the merge
+      gate must NOT declare "corpus complete" on a stale `_PHASE1_VALIDATED` (a city
+      blessed pre-fix at 1.1 and never re-derived). A city counts only if marker AND
+      sha-current; any marker-but-stale city is a version_skew and fails the gate. This
+      is the marker-trust safeguard — added 2026-06-07 after a driver wrote a false DONE.
 
 AND: groups=0 is necessary, NOT sufficient. Pair each city's validator verdict with
 a rough-numbers sanity glance — flag cities whose tiles/tokens are wildly off their
 morphology/density peers (too clean, too empty, outlier), even if groups=0.
 
-Reports the PER-CITY TABLE (not just the total) + the three-part verdict + flags.
+Reports the PER-CITY TABLE (not just the total) + the four-part verdict + flags.
 Read-only over data/; writes the report YAML.
 """
 
@@ -38,6 +44,7 @@ _REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO / "src"))
 
 from cfm.data.multiregion import rollup, selection  # noqa: E402
+from cfm.data.sub_f.versions import SUB_F_DERIVATION_VERSION  # noqa: E402
 
 RELEASE = "2026-04-15.0"
 # DoD floor (measured directly). RESET 600M -> 550M (2026-06-06, PI-ratified v1 floor):
@@ -86,6 +93,15 @@ def _validated(region: str) -> bool:
     return (PROC / "sub_g" / RELEASE / region / "_PHASE1_VALIDATED").exists()
 
 
+def _derivation_version(region: str) -> str | None:
+    """Sub-F DERIVATION axis from the region manifest (the post-fix sha discriminator:
+    '1.2' = re-derived under the #19 de-densify fix, '1.1' = stale pre-fix)."""
+    m = PROC / "sub_f" / RELEASE / region / "manifest.yaml"
+    if not m.exists():
+        return None
+    return str(yaml.safe_load(m.read_text()).get("sub_f_derivation_version"))
+
+
 def _groups(region: str) -> int | None:
     p = PROC / "sub_g" / RELEASE / region / "quarantine_report.yaml"
     if not p.exists():
@@ -106,7 +122,13 @@ def main() -> int:
     for c in cities:
         name = c["name"]
         tiles, tokens = _city_token_stats(name)
-        validated = _validated(name)
+        marker = _validated(name)
+        dv = _derivation_version(name)
+        at_sha = dv == SUB_F_DERIVATION_VERSION
+        # A city counts as validated for the DoD ONLY if sub_g blessed it AND its sub_f is
+        # at the current DERIVATION sha. A stale marker (blessed pre-fix at 1.1, never
+        # re-derived) is NOT a clean corpus member — counting it would be a version skew.
+        validated = marker and at_sha
         rows.append(
             {
                 "name": name,
@@ -118,6 +140,9 @@ def main() -> int:
                 "tokens": tokens,
                 "groups": _groups(name),
                 "validated": validated,
+                "marker": marker,
+                "derivation_version": dv,
+                "at_sha": at_sha,
                 "tok_per_tile": round(tokens / tiles, 1) if tiles else None,
             }
         )
@@ -155,6 +180,16 @@ def main() -> int:
     uncovered = rollup.uncovered_axis_labels(r)
     gate_c = not uncovered
 
+    # ---- (d) SHA COHERENCE — all-cities-at-target-sha, the marker-trust safeguard ----
+    # The whole pipeline treats on-disk markers as ground truth, so the merge gate must
+    # not declare "corpus complete" on a stale _PHASE1_VALIDATED. version_skew = cities
+    # blessed by a marker but whose sub_f is NOT at the current DERIVATION sha (e.g. a
+    # 1.1 cache that was never re-derived under the #19 fix). Any skew fails the gate.
+    version_skew = [
+        x["name"] for x in rows if x["marker"] and not x["at_sha"] and x["name"] not in EXCLUDED
+    ]
+    gate_d = not version_skew
+
     # ---- groups=0-not-sufficient: peer-median outlier sanity ----
     sanity_flags: list[str] = []
     by_cell: dict[tuple, list[dict]] = {}
@@ -177,7 +212,7 @@ def main() -> int:
         if x["groups"]:  # groups > 0 (None and 0 are falsy) — validated but NOT clean
             sanity_flags.append(f"{x['name']}: groups={x['groups']} (NOT clean)")
 
-    dod_pass = gate_a and gate_b and gate_c
+    dod_pass = gate_a and gate_b and gate_c and gate_d
 
     # ---- report ----
     print("=== G4 PER-CITY TABLE (full corpus) ===")
@@ -198,7 +233,7 @@ def main() -> int:
         f"\n  cities={len(rows)} validated={n_val} tiles={rollup.total_validated_tiles(r)} "
         f"tokens={total_tokens:,}"
     )
-    print("\n=== THREE-PART DoD GATE ===")
+    print(f"\n=== FOUR-PART DoD GATE (target sha = DERIVATION {SUB_F_DERIVATION_VERSION}) ===")
     print(
         f"  (a) tokens >= {TARGET_TOKENS // 1_000_000}M:        {gate_a}  "
         f"(raw total {total_tokens:,} / floor {TARGET_TOKENS:,})"
@@ -206,6 +241,7 @@ def main() -> int:
     print(f"  (b) per-city floor:        {gate_b}  below_floor={below_floor}")
     print(f"      not_validated={not_validated}")
     print(f"  (c) axis-coverage green:   {gate_c}  uncovered={uncovered}")
+    print(f"  (d) sha-coherence:         {gate_d}  version_skew={version_skew}")
     print(f"  ==> DoD PASS: {dod_pass}")
     print("\n=== groups=0-NOT-SUFFICIENT sanity flags ===")
     print(
@@ -231,10 +267,13 @@ def main() -> int:
                     "a_tokens_ge_floor": gate_a,
                     "b_per_city_floor": gate_b,
                     "c_axis_coverage": gate_c,
+                    "d_sha_coherence": gate_d,
+                    "target_derivation_sha": SUB_F_DERIVATION_VERSION,
                     "PASS": dod_pass,
                     "below_floor": below_floor,
                     "not_validated": not_validated,
                     "uncovered_axes": uncovered,
+                    "version_skew": version_skew,
                 },
                 "sanity_flags": sanity_flags,
                 "excluded_from_shipped": EXCLUDED,
