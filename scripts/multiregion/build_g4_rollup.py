@@ -56,17 +56,17 @@ PROC = _REPO / "data" / "processed"
 # Cities NOT in the shipped corpus (B1-simple, 2026-06-06) — excluded from the DoD
 # gate (full reasons in the close-out + known_issues). They may still appear in the
 # per-city table tagged EXCLUDED, but do not count against gate-b / coverage.
+# Only the genuinely-not-in-corpus cities remain excluded: dropped (pathological wall,
+# never extracted -> no sub_f) or unprocessed. The six #19 inflation/degraded exclusions
+# (rotterdam, warsaw, amsterdam, almere, a_coruna, lodz) were RECOVERED by the de-densify
+# fix (#19) + guarded re-derive (2026-06-07): all re-derived under DERIVATION 1.2 and
+# validated; rotterdam/warsaw additionally passed the path-length spot-check and were
+# PI-re-admitted (#20 overturned). They now COUNT in the DoD. See known_issues #19/#20.
 EXCLUDED = {
-    "paris": "dropped: FR already covered, pathological ~30h wall, zero coverage",
-    "lyon": "dropped: FR already covered, pathological ~56h wall, zero coverage",
-    "madrid": "dropped: ES already covered, pathological ~104h wall, zero coverage",
+    "paris": "dropped: FR already covered, pathological ~30h wall, never extracted",
+    "lyon": "dropped: FR already covered, pathological ~56h wall, never extracted",
+    "madrid": "dropped: ES already covered, pathological ~104h wall, never extracted",
     "rome": "excluded: not extracted (IT already covered, ~26h+ wall, coverage-redundant)",
-    "rotterdam": "excluded: DEGRADED SOURCE DATA (~13x quantum-inflation, Overture)",
-    "warsaw": "excluded: DEGRADED SOURCE DATA (~12x quantum-inflation, Overture)",
-    "amsterdam": "excluded: elevated inflation (~3x), borderline",
-    "almere": "excluded: quantum-inflation edge-trip (corpus-normal; recover-3 deferred)",
-    "a_coruna": "excluded: quantum-inflation edge-trip (corpus-normal; recover-3 deferred)",
-    "lodz": "excluded: quantum-inflation edge-trip (corpus-normal; recover-3 deferred)",
     "welwyn": "excluded: unprocessed; GB + modernist-sprawl/sparse already covered",
 }
 
