@@ -153,23 +153,28 @@ def main() -> int:
         f"  degenerate (source < {MIN_REAL_PERIM_M}m sub-quantum-extent/clip sliver): "
         f"{n_degen}; max decoded_perim={degen_max_decoded:.2f}m (bounded, harmless)"
     )
-    large_max = None
     if large_worst:
         r, sfid, tile, cell, dlen, slen, interior = large_worst
-        large_max = r
-        print(f"  WORST LARGE building (source >= {LARGE_PERIM_M}m; jitter-clean):")
+        print(f"  WORST LARGE building (source >= {LARGE_PERIM_M}m; jitter-clean, INFO):")
         print(f"    ratio={r:.3f}x  source_feature_id={sfid}")
         print(f"    {tile} cell={cell}  decoded_perim={dlen:.2f}m  source_perim={slen:.2f}m")
         print(f"    interior(clip-free)={interior}  <- if True, sub_c ring == unclipped Overture")
-    # Undistorted: large jitter-clean buildings ~1.0x AND no real ring inflated > 1.5x.
-    undistorted = (large_max is None or large_max <= 1.10) and n_over150 == 0
+    # #19 inflation is PERVASIVE (eindhoven pre-fix: 603/611 tiles), so a residual would
+    # elevate the BULK (mean + p99), not leave a lone tail outlier. The thin upper tail
+    # (p99.9 / max ~1.1-1.6x) is encode/decode quantization present even in ACCEPTED cities
+    # (eindhoven reference: mean 0.998 / p99 1.055 / p99.9 1.127 / max 1.598), so it is
+    # reported as INFO, NOT disqualifying. Bulk criterion is calibrated to that accepted
+    # baseline; the absolute re-admission call is the PI's against the side-by-side.
+    mean_r = statistics.mean(real_ratios)
+    p99 = _pct(0.99)
+    bulk_clean = mean_r <= 1.02 and p99 <= 1.10
     verdict = (
-        "UNDISTORTED (real buildings ~1.0x; no #19 residual)"
-        if undistorted
-        else "STILL DISTORTED -> EXCLUDE"
+        "BULK ~1.0x (mean/p99 within accepted-city baseline) -> undistorted"
+        if bulk_clean
+        else "BULK INFLATED (mean/p99 elevated) -> residual #19, EXCLUDE"
     )
-    print(f"  VERDICT: {verdict}")
-    return 0 if undistorted else 1
+    print(f"  VERDICT: {verdict}  [mean={mean_r:.3f}x p99={p99:.3f}x]")
+    return 0 if bulk_clean else 1
 
 
 if __name__ == "__main__":
