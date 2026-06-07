@@ -104,7 +104,7 @@ def main() -> int:
     projected_pending = sum(int(prefix[c] * (1 - max_shrink)) for c in pending)
     projected_final = done_tokens + projected_pending
 
-    print("\n=== projection (corpus-normal ONLY; rotterdam/warsaw excluded) ===")
+    print("\n=== projection (all 42 corpus cities; rotterdam/warsaw re-admitted) ===")
     pct = f"{max_shrink * 100:.2f}%"
     print(f"  done validated: {done_validated} cities, {done_tokens:,} tokens")
     print(f"  pending: {len(pending)} cities, projected {projected_pending:,} @ max_shrink={pct}")
