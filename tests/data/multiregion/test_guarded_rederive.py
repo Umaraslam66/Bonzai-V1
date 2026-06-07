@@ -39,6 +39,42 @@ def test_lock_reacquirable_after_release(tmp_path: Path) -> None:
     gr.acquire_lock(lock).close()  # now free again
 
 
+# --- Guard 1b: PER-CITY lock (enables corpus-wide parallel fan-out) -----------
+# The global lock prevented ALL concurrency; the safety property only needs
+# "no two concurrent re-derives of the SAME city" (each city writes its own
+# per-city temp/live/.bak dirs — no shared mutable state). Per-city locking lets
+# different cities re-derive in parallel while preserving same-city protection.
+
+
+def test_city_rederive_lock_path_distinct_per_city(tmp_path: Path) -> None:
+    a = gr.city_rederive_lock_path(tmp_path, "amsterdam")
+    b = gr.city_rederive_lock_path(tmp_path, "rotterdam")
+    assert a != b
+    assert "amsterdam" in a.name
+    assert "rotterdam" in b.name
+
+
+def test_two_different_city_locks_held_simultaneously(tmp_path: Path) -> None:
+    # The whole point of the per-city change: different cities re-derive
+    # concurrently. Under the OLD global lock this raised ConcurrentRederiveError.
+    la = gr.acquire_lock(gr.city_rederive_lock_path(tmp_path, "amsterdam"))
+    try:
+        lb = gr.acquire_lock(gr.city_rederive_lock_path(tmp_path, "rotterdam"))
+        lb.close()  # both acquired -> no cross-city block
+    finally:
+        la.close()
+
+
+def test_same_city_second_acquire_refuses(tmp_path: Path) -> None:
+    p = gr.city_rederive_lock_path(tmp_path, "amsterdam")
+    fh = gr.acquire_lock(p)
+    try:
+        with pytest.raises(gr.ConcurrentRederiveError):
+            gr.acquire_lock(p)  # same city, still held -> refused
+    finally:
+        fh.close()
+
+
 # --- Guard 3: byte-identity comparison (gates the swap) ----------------------
 
 

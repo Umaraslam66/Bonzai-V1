@@ -5,8 +5,12 @@ Three guards, each a lesson from the 2026-06-05 double-nohup near-miss (an
 unguarded hand-rolled loop nearly ran two concurrent in-place re-derives of the
 same city dirs; only wait-loop timing prevented corpus corruption):
 
-  1. LOCKFILE (fcntl.flock, non-blocking). A second concurrent invocation exits
-     non-zero IMMEDIATELY. Corpus integrity never rests on timing again.
+  1. LOCKFILE (fcntl.flock, non-blocking, PER-CITY). A second concurrent re-derive
+     of the SAME city exits non-zero IMMEDIATELY; DIFFERENT cities re-derive in
+     parallel (each writes its own per-city temp / live / .bak — no shared mutable
+     state). Corpus integrity never rests on timing again. (Was a single global lock;
+     made per-city 2026-06-07 to enable the corpus-wide fan-out for the #19 re-derive,
+     after verifying the global lock was coarser than its safety purpose.)
 
   2. ATOMIC SWAP. Each city is derived into a TEMP dir on the SAME filesystem;
      the live region is replaced only on full success (validator passed +
@@ -73,6 +77,16 @@ def acquire_lock(lock_path: Path = LOCK_PATH):
     fh.write(f"pid={os.getpid()}\n")
     fh.flush()
     return fh
+
+
+def city_rederive_lock_path(base: Path, city: str) -> Path:
+    """Per-city re-derive lock path. The global LOCK_PATH prevented ALL concurrency;
+    the safety property only needs 'no two concurrent re-derives of the SAME city'
+    (each city writes its own per-city temp / live / .bak_rederive dirs — no shared
+    mutable state, verified 2026-06-07). Per-city locking enables the corpus-wide
+    parallel fan-out (the #19 re-derive) while preserving same-city protection.
+    Mirrors extract_lock.city_lock_path (sub-C). ``base`` is the processed dir."""
+    return base / "sub_f" / ".locks" / f"{city}.rederive.lock"
 
 
 def _sha(p: Path) -> str:
@@ -169,18 +183,20 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     base = Path(args.base)
 
-    try:
-        lock = acquire_lock()
-    except ConcurrentRederiveError as exc:
-        log.error("%s", exc)
-        return 3
-    try:
-        for city in args.cities:
-            try:
-                res = guarded_rederive_city(args.release, city, base, args.allow_content_change)
-            except ContentChangedError as exc:
-                log.error("HALT %s", exc)
-                return 4
+    refused: list[str] = []
+    for city in args.cities:
+        # PER-CITY lock (not the legacy global LOCK_PATH): different cities may
+        # re-derive concurrently across the fan-out; only same-city concurrency is
+        # refused. Continue-but-loud on refusal so one busy city never silently
+        # aborts the rest of the batch.
+        try:
+            lock = acquire_lock(city_rederive_lock_path(base, city))
+        except ConcurrentRederiveError as exc:
+            log.error("%s (skipping this city)", exc)
+            refused.append(city)
+            continue
+        try:
+            res = guarded_rederive_city(args.release, city, base, args.allow_content_change)
             log.info(
                 "%s: swapped (prior_live=%s, tiles_changed=%d, _SUCCESS=%s)",
                 res["city"],
@@ -188,8 +204,14 @@ def main(argv: list[str] | None = None) -> int:
                 res["tiles_changed"],
                 res["success_marker"],
             )
-    finally:
-        lock.close()  # releases the flock
+        except ContentChangedError as exc:
+            log.error("HALT %s", exc)
+            return 4  # finally below releases the per-city flock
+        finally:
+            lock.close()  # releases the per-city flock (incl. on the HALT path)
+    if refused:
+        log.error("refused (concurrent same-city re-derive): %s", refused)
+        return 3
     log.info("guarded re-derive complete for %d cities", len(args.cities))
     return 0
 
