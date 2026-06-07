@@ -1,4 +1,11 @@
 #!/bin/bash
+# SUPERSEDED 2026-06-07 by wave2b_driver.sh — DO NOT USE. This version false-completed:
+# it submitted the next chunk while the previous one still held the MaxSubmit=10 quota, the
+# sbatch was rejected (empty jid), and it did not guard for that — logged a false "DRAINED"
+# and wrote a false DONE, so chunks 3+4 never ran. wave2b adds an sbatch-success guard, a
+# submit-quota gate (wait for the user's queue to clear before each chunk), and a
+# double-confirmed drain. Kept for the record only.
+#
 # Wave-2 chunking driver for the #19 corpus-wide re-derive.
 # The lrd_all_serial QOS caps SUBMITTED jobs at 10 (MaxSubmitPU=10), so a 33-task
 # array is rejected. This submits the wave in chunks of <=9 (under the cap), each as
