@@ -28,8 +28,9 @@ from cfm.eval.holdout.paths import eval_set_locked_marker
 
 
 class InsufficientResolutionError(Exception):
-    """The bake-off's needed architecture-distinguishing gap is finer than the
-    frozen eval set can resolve. Carries the named escalation."""
+    """The needed resolving gap is finer than the frozen eval set can resolve
+    (KS-resolution only — the architecture-discrimination verdict is T12's,
+    assert_coherence_power_sufficient). Carries the named escalation."""
 
 
 def assert_resolution_sufficient(
