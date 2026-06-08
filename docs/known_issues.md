@@ -6,6 +6,31 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #22 — SG-constant conditioning leak (morphology_class / country / climate_zone hardcoded across the frozen EU corpus) — BUNDLED WITH #13
+
+- **Filed:** 2026-06-08 (eval-set-gen T6 de-Singapore source check)
+- **Severity:** medium (latent; same class as #13 — inert today, contaminates value-bearing conditioning)
+- **Status:** DEFERRED — **⛔ HARD GATE, BUNDLED WITH #13.** Both are SG value-bearing leaks; both block the same value-bearing conditioning; **both MUST be fixed in the SAME single corpus re-derive — never separately.** Re-deriving for admin_region alone and leaving morphology_class/country/climate SG is the partial-fix trap this bundling prevents.
+- **Affects:** `src/cfm/data/sub_c/conditioning.py:29` (`morphology_class="Asian-megacity"`, `era_class="contemporary"` defaults never overridden for EU); the frozen `effective_conditioning.yaml` across all 42 EU cities.
+
+### Context
+
+`compute_conditioning_per_tile` defaults `morphology_class="Asian-megacity"`; the multi-region pipeline never passed a per-city value, so every EU tile's frozen conditioning carries `morphology_class=Asian-megacity`, `country=SG`, `climate_zone=tropical_rainforest` (verified 2026-06-08 across manchester/munich/krakow/malmo). `coastal_inland_river` is the exception — genuinely derived per-tile (`conditioning.py:56-72`), real and varying.
+
+### Inert under value-agnostic v1 (why not a v1 blocker)
+
+v1 conditioning is value-AGNOSTIC (8 field-SLOT tokens, no value channel — see #13): the model never sees these values, so the SG constants don't reach training or the v1 eval bars (loss + coherence + macro→micro perplexity-gap, which score the macro plan / micro tokens, NOT conditioning values). The eval `labels.py` routes morphology via the REAL `morphology_stratum` (sub-D), keeps `sub_c_morphology_class` UNSCORED, and never extracts country/climate/era into the scored surface → **no SG constant is scored anywhere.**
+
+### HARD GATE (bundled with #13)
+
+BEFORE value-bearing conditioning / full §9.115 conditioning-compliance: re-derive admin_region (#13/#14) **AND** morphology_class/country/climate_zone (#22) in **ONE** corpus re-derive. Fixing one without the other ships a half-de-Singapored conditioning vector.
+
+### Tracking
+
+- Source: `sub_c/conditioning.py:29`. Couples to **#13/#14** (same re-derive, bundled). Surfaced: eval-set-gen T6 de-Singapore source check.
+
+---
+
 ## #21 — munich's fallback_bbox is inner-core only (~3.7× smaller than peer cities)
 
 - **Filed:** 2026-06-08 (eval-set-gen, held-out-set fork — munich tile-count trace)
@@ -244,7 +269,7 @@ Defer = ONE reopen at Task 7 (when the #14 granularity is decided regardless). F
 
 ### ⛔ HARD GATE
 
-**BEFORE enabling any value-bearing conditioning (Task 7 / a bake-off candidate): admin_region MUST be re-derived with a deliberate cross-country granularity choice (#14) and the corpus reopened. Do NOT train value-bearing conditioning on the existing admin_region values — EU is all-`None` and SG is hardcoded.** Also recorded in spec §7 and the Phase-2 handoff.
+**BEFORE enabling any value-bearing conditioning (Task 7 / a bake-off candidate): admin_region MUST be re-derived with a deliberate cross-country granularity choice (#14) and the corpus reopened. Do NOT train value-bearing conditioning on the existing admin_region values — EU is all-`None` and SG is hardcoded.** Also recorded in spec §7 and the Phase-2 handoff. **BUNDLED WITH #22:** the same re-derive MUST also fix the morphology_class/country/climate_zone SG-constant leak (#22) — one re-derive, all SG value-bearing leaks, never separately (the partial-fix trap).
 
 ### Tracking
 
