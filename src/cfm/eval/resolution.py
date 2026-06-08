@@ -13,9 +13,9 @@ Two pins:
   permissive or silently no-ops (a resolution check that no-ops when it can't find
   its threshold is the trigger-3 version of path-synthesized lineage).
 - Two failure KINDS with distinct messages + escalations: in [floor, resolved) the
-  frozen set can't resolve it but a larger / second-region set could (extract a
-  second region); below the floor no single-region set can EVER resolve it
-  (categorically a multi-region need, not an N-tuning knob).
+  frozen set can't resolve it but more/larger held-out data could; below the floor
+  the gap is finer than any single held-out region can resolve (resolvable-gap
+  ceiling — needs more/larger held-out data, not an N-tuning knob).
 """
 
 from __future__ import annotations
@@ -55,14 +55,14 @@ def assert_resolution_sufficient(
         return
     if needed_gap >= floor:
         raise InsufficientResolutionError(
-            f"needed architecture-distinguishing gap {needed_gap} < this frozen set's "
-            f"resolved gap {resolved}: this frozen set CANNOT resolve it, but a LARGER / "
-            f"SECOND-REGION set could in principle. Escalate: extract a second region "
-            f"(the deferred B-decision)."
+            f"needed gap {needed_gap} < this held-out set's resolved gap {resolved}: this "
+            f"held-out set CANNOT resolve it; more/larger held-out data could (region-"
+            f"extraction is moot at 42 cities). NOTE: this is the KS-resolution concern only "
+            f"— it PRODUCES the resolved-gap NUMBER; the architecture-discrimination verdict "
+            f"and its escalation are owned by assert_coherence_power_sufficient (T12), not "
+            f"this check."
         )
     raise InsufficientResolutionError(
-        f"needed architecture-distinguishing gap {needed_gap} < single-region floor {floor}: "
-        f"no single-region set can EVER resolve this — single-region is FUNDAMENTALLY "
-        f"insufficient for this gap. Escalate: this requires multi-region data, not more "
-        f"Singapore tiles (categorically, not an N-tuning knob)."
+        f"needed gap {needed_gap} < single-region floor {floor}: the resolvable-gap CEILING "
+        f"— finer than any single held-out region can resolve; needs more/larger held-out data."
     )
