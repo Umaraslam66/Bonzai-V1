@@ -75,7 +75,9 @@ def build_holdout_manifest_multiregion(
     The whole-city declaration is proven correct-by-construction (spec §2.2), not merely
     claimed: a faithful §6 city-guard over a WRONG declaration still leaks, so we assert
     at build time. ``manifest_sha256`` and ``totals.train_tokens`` are added later at the
-    real build/freeze (T6), NOT here.
+    real build/freeze (T6), NOT here. ``n_tiles`` in the output is DERIVED from the
+    enumerated ``tiles`` list; any ``n_tiles`` present in the per-region payload is
+    IGNORED.
 
     Raises:
         HoldoutDeclarationError: if a city appears on both sides (§2.2a), or if an

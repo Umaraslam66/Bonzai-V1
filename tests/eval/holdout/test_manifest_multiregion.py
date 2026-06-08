@@ -34,6 +34,7 @@ def test_schema_and_whole_city_declaration():
     assert m["manifest_schema_version"] == "2.0"
     assert m["regions"]["krakow"]["holdout_kind"] == "whole_city"
     assert m["held_out_cities"] == ["krakow"]
+    assert m["totals"]["held_out_tokens"] == 100  # token-sum logic
 
 
 def test_assertion_a_holdout_train_disjoint():
@@ -57,6 +58,42 @@ def test_assertion_b_tiles_match_frozen_corpus_set():
             train_cities={"hamburg"},
             corpus_tile_counts={"krakow": 3},
         )
+
+
+def test_held_out_cities_and_tiles_sorted_deterministically():
+    reg2 = {
+        "munich": dict(
+            morphology="mixed",
+            density="moderate",
+            geography="DE",
+            crs="EPSG:25832",
+            tokens=50,
+            tiles=[
+                dict(tile_i=1, tile_j=1, provenance_sha256="m2", macro_vocab_sha256="v"),
+                dict(tile_i=0, tile_j=0, provenance_sha256="m1", macro_vocab_sha256="v"),
+            ],
+        ),
+        "krakow": dict(
+            morphology="medieval-organic",
+            density="moderate",
+            geography="PL",
+            crs="EPSG:25834",
+            tokens=70,
+            tiles=[dict(tile_i=5, tile_j=5, provenance_sha256="k1", macro_vocab_sha256="v")],
+        ),
+    }
+    m = build_holdout_manifest_multiregion(
+        reg2,
+        corpus_release="2026-04-15.0",
+        derivation_version="1.2",
+        train_cities={"hamburg"},
+        corpus_tile_counts={"munich": 2, "krakow": 1},
+    )
+    # cities sorted (krakow before munich), NOT insertion order
+    assert m["held_out_cities"] == ["krakow", "munich"]
+    # munich tiles sorted by (tile_i, tile_j): (0,0) before (1,1)
+    assert [(t["tile_i"], t["tile_j"]) for t in m["regions"]["munich"]["tiles"]] == [(0, 0), (1, 1)]
+    assert m["totals"]["held_out_tokens"] == 120
 
 
 def test_sg_builder_still_schema_1_0():
