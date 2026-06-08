@@ -148,6 +148,11 @@ still leaks, so the declaration is **proven at build, not claimed**:
 - **Pin + re-lock:** pinned to DERIVATION 1.2; a future #13/#22 value-bearing re-derive is a
   *new corpus generation* → a deliberate re-lock (consistent with write-once-per-version, not
   a silent move). `_EVAL_SET_LOCKED` marker, force-added to git, verified vs disk.
+- **Path (note-back from plan T1/T6):** the EU eval-set freezes to
+  **`data/processed/eval_set/2026-04-15.0/multiregion/`** — the frozen SG eval-set already
+  owns `eval_set/2026-04-15.0/` (same release, write-once), so the EU set lives in the
+  `multiregion/` subdir. `paths.py` gets `multiregion_holdout_manifest_path` /
+  `multiregion_eval_set_locked_marker`; the SG set is untouched.
 
 ---
 
