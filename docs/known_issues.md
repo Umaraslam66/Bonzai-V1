@@ -6,6 +6,27 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #21 — munich's fallback_bbox is inner-core only (~3.7× smaller than peer cities)
+
+- **Filed:** 2026-06-08 (eval-set-gen, held-out-set fork — munich tile-count trace)
+- **Severity:** low (frozen-corpus scoping fact; NOT a derivation/clip defect)
+- **Status:** ACCEPTED, WON'T-FIX for v1 (corpus is frozen). Revisit only at a corpus regen if munich full-extent is ever needed.
+- **Affects:** `configs/data/regions/munich.yaml` (`fallback_bbox: [11.36, 48.06, 11.72, 48.25]`)
+
+### Context
+
+munich's `fallback_bbox` is `0.360 × 0.190°` (≈561.7 km²) vs the peer-standard `0.600 × 0.480°` (≈2000+ km²) used by manchester/malmo/szczecin/lisbon — a **~3.7× smaller geographic extent** (and NOT zone-forced: a full box stays inside UTM zone 32). So munich = **inner-core only** → 171 tiles (vs mixed/moderate peer-median 588). Traced to source 2026-06-08: on-disk `sub_f/munich` = **171 tile dirs** (matches the G4 yaml); tile *density* is **30.45 tiles/100km², slightly ABOVE peers (~27–28)** — the derivation is consistent and nothing was clipped/dropped. **The low count is the small bbox, NOT under-derivation.**
+
+### Consequence
+
+**munich-derived statistics are core-scoped.** Any per-city aggregate (including the eval-set held-out coherence metric, where munich is the n=171 per-stratum power floor) reflects munich's inner core, not its metro extent. The held-out-set design accepts munich as a valid (real-count) city with this caveat recorded.
+
+### Tracking
+
+- Source: `configs/data/regions/munich.yaml`. Couples to **#15** (fallback bbox is the tiled extent). Surfaced: eval-set-gen held-out fork, munich-171 trace.
+
+---
+
 ## #20 — rotterdam + warsaw are DEGRADED SOURCE DATA (~12–13× quantum-inflation), not a pipeline bug
 
 - **Filed:** 2026-06-06 (Phase-2 corpus completion, the 6-city inflation gate)
