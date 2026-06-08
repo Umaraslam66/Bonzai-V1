@@ -107,6 +107,57 @@ def assemble_regions_payload(
     return regions_payload, corpus_tile_counts
 
 
+def _train_cities_and_tokens(g4_cities: list[dict], held_out: list[str]) -> tuple[set[str], int]:
+    """Derive the train city set + train_tokens from VALIDATED G4 rows only (Fix I1).
+
+    The G4 yaml carries ``validated: true|false`` per city. Unvalidated cities are
+    listed under top-level ``excluded_from_shipped`` and currently carry ``tokens: 0`` —
+    so summing over "all names" is right BY ACCIDENT. A future re-gen could stamp tokens
+    on an unvalidated city and silently inflate the IRREVERSIBLE ``train_tokens``.
+
+    So: ``train_cities = {validated G4 names} - held_out`` (a missing ``validated`` key is
+    treated as NOT validated — never silently included), and ``train_tokens`` sums G4
+    tokens over exactly that set. Also asserts every held-out city is itself validated.
+
+    Raises:
+        SystemExit: a held-out city is not ``validated: true`` in G4 (never freeze an
+            eval number against an unvalidated city's tokens).
+    """
+    g4_validated = {c["name"] for c in g4_cities if c.get("validated") is True}
+    missing = set(held_out) - g4_validated
+    if missing:
+        raise SystemExit(f"held-out cities not validated in G4: {sorted(missing)}")
+    train_cities = g4_validated - set(held_out)
+    train_tokens = sum(int(c["tokens"]) for c in g4_cities if c["name"] in train_cities)
+    return train_cities, train_tokens
+
+
+def _assert_usable_n_census_ok(usable_n: dict, held_out: list[str]) -> None:
+    """Fail loud if the usable-n census is degraded for any held-out city (Fix M1).
+
+    The usable-n yaml carries ``status`` and ``n_unreadable`` per city so a degraded
+    census is detectable. A degraded census must NOT silently freeze a wrong
+    ``n_usable_tiles``: for every held-out city assert ``status == "ok"`` and
+    ``n_unreadable == 0``.
+
+    Raises:
+        SystemExit: a held-out city's census is degraded (status != "ok" or
+            n_unreadable > 0), or the city is absent from the census entirely.
+    """
+    for city in held_out:
+        if city not in usable_n:
+            raise SystemExit(f"usable-n census missing held-out city: {city!r}")
+        entry = usable_n[city]
+        status = entry.get("status")
+        n_unreadable = int(entry.get("n_unreadable", 0))
+        if status != "ok" or n_unreadable != 0:
+            raise SystemExit(
+                f"usable-n census degraded for {city!r}: "
+                f"status={status!r} n_unreadable={n_unreadable} "
+                "(a degraded census must not silently freeze a wrong n_usable_tiles)"
+            )
+
+
 def _enumerate_city_tiles(release: str, city: str) -> list[dict]:
     """Read sub-D manifest tiles + per-tile provenance.yaml macro_vocab_sha256 for a city.
 
@@ -146,7 +197,8 @@ def _verify_frozen_end_state(
     Trusts NOTHING from in-memory state: a false DONE is worse than a false RC. Recompute
     ``manifest_sha256`` over the loaded dict and assert it matches the stored field; then
     assert the structural invariants (sorted 4 held-out cities, whole_city declaration,
-    n_tiles == G4 count, n_usable_tiles present).
+    n_tiles == G4 count, and a usable count that is present AND in ``[0, n_tiles]`` — a
+    usable count exceeding the tile count is impossible and fails loud, Fix M4).
     """
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     recomputed = manifest_sha256(loaded)
@@ -162,10 +214,16 @@ def _verify_frozen_end_state(
         assert region["holdout_kind"] == "whole_city", (
             f"{city}: holdout_kind {region['holdout_kind']!r} != 'whole_city'"
         )
-        assert region["n_tiles"] == corpus_tile_counts[city], (
-            f"{city}: n_tiles {region['n_tiles']} != G4 corpus count {corpus_tile_counts[city]}"
+        n_tiles = region["n_tiles"]
+        assert n_tiles == corpus_tile_counts[city], (
+            f"{city}: n_tiles {n_tiles} != G4 corpus count {corpus_tile_counts[city]}"
         )
-        assert region["n_usable_tiles"] is not None, f"{city}: n_usable_tiles is None"
+        n_usable = region["n_usable_tiles"]
+        assert n_usable is not None, f"{city}: n_usable_tiles is None"
+        assert 0 <= n_usable <= n_tiles, (
+            f"{city}: n_usable_tiles {n_usable} not in [0, n_tiles={n_tiles}] "
+            "(a usable count exceeding the tile count is impossible)"
+        )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -208,6 +266,10 @@ def main(argv: list[str] | None = None) -> int:
     usable_doc = yaml.safe_load(args.usable_n.read_text(encoding="utf-8"))
     usable_n: dict = usable_doc["cities"]
 
+    # 1b. Fix M1: a degraded usable-n census (status != "ok" / n_unreadable > 0) for any
+    # held-out city must NOT silently freeze a wrong n_usable_tiles — fail loud first.
+    _assert_usable_n_census_ok(usable_n, held_out)
+
     # 2. enumerate each held-out city's tiles (sub-D manifest + per-tile provenance).
     per_city_tiles = {city: _enumerate_city_tiles(release, city) for city in held_out}
     for city, tiles in per_city_tiles.items():
@@ -220,11 +282,13 @@ def main(argv: list[str] | None = None) -> int:
         per_city_tiles=per_city_tiles,
     )
 
-    # 4. train_cities = all G4 cities minus held-out.
-    g4_names = {c["name"] for c in g4_cities}
-    train_cities = g4_names - set(held_out)
+    # 4. Fix I1: train_cities + train_tokens derive from VALIDATED G4 rows only (asserts
+    # the held-out cities are themselves validated; unvalidated cities — even if a re-gen
+    # stamps nonzero tokens on them — never inflate the IRREVERSIBLE train_tokens).
+    train_cities, train_tokens = _train_cities_and_tokens(g4_cities, held_out)
 
     # 5. build the manifest — runs §2.2 (a) disjoint + (b) tile-count assertions (RAISE).
+    #    The §2.2(a) disjoint check now operates over the intended (validated) train set.
     man = build_holdout_manifest_multiregion(
         regions_payload,
         corpus_release=release,
@@ -233,9 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         corpus_tile_counts=corpus_tile_counts,
     )
 
-    # 6. train_tokens = sum of G4 tokens over the train cities.
-    g4_by_name = {c["name"]: c for c in g4_cities}
-    train_tokens = sum(int(g4_by_name[c]["tokens"]) for c in train_cities)
+    # 6. stamp train_tokens (summed over the validated train cities in step 4).
     man["totals"]["train_tokens"] = train_tokens
 
     held_out_tokens = man["totals"]["held_out_tokens"]
@@ -262,11 +324,35 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # 7. FREEZE write-once to the multiregion/ subdir (NEVER the SG paths).
+    #    Order (Fix I2 + M2): (a) freeze the manifest write-once, (b) VERIFY the manifest
+    #    end-state from disk (RAISES on any mismatch), (c) only THEN write the marker —
+    #    itself write-once — LAST, (d) re-read the marker from disk and verify its
+    #    irreversible operator-facing numbers. A verify failure leaves NO marker, so a
+    #    false "DONE" can never poison a future session.
     man_path = multiregion_holdout_manifest_path(release)
     freeze_holdout_manifest(man, man_path)
     logger.info("FROZE multi-region holdout manifest -> %s", man_path)
 
+    # (b) VERIFIED MANIFEST END-STATE: re-read from disk, recompute sha, assert invariants.
+    #     RAISES before any marker is written.
+    _verify_frozen_end_state(
+        path=man_path,
+        held_out=held_out,
+        corpus_tile_counts=corpus_tile_counts,
+    )
+    logger.info(
+        "VERIFIED manifest end-state: sha-recompute matches, %d held-out cities, all "
+        "whole_city, n_tiles==G4, 0<=n_usable<=n_tiles.",
+        len(held_out),
+    )
+
+    # (c) write the marker LAST, write-once (mirror freeze_holdout_manifest's posture).
     marker = multiregion_eval_set_locked_marker(release)
+    if marker.exists():
+        raise FileExistsError(
+            f"lock marker already present at {marker}; it is written once and never "
+            "regenerated. Delete deliberately only to re-lock the eval set."
+        )
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(
         yaml.safe_dump(
@@ -283,16 +369,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     logger.info("wrote lock marker -> %s", marker)
 
-    # VERIFIED END-STATE: re-read from disk, recompute sha, assert invariants.
-    _verify_frozen_end_state(
-        path=man_path,
-        held_out=held_out,
-        corpus_tile_counts=corpus_tile_counts,
+    # (d) VERIFIED MARKER END-STATE: re-read the marker FROM DISK and assert its
+    #     irreversible operator-facing numbers match the manifest (not trusted from memory).
+    marker_loaded = yaml.safe_load(marker.read_text(encoding="utf-8"))
+    assert marker_loaded["held_out_cities"] == man["held_out_cities"], (
+        f"marker held_out_cities {marker_loaded['held_out_cities']} != "
+        f"manifest {man['held_out_cities']}"
+    )
+    assert marker_loaded["held_out_tokens"] == man["totals"]["held_out_tokens"], (
+        f"marker held_out_tokens {marker_loaded['held_out_tokens']} != "
+        f"manifest {man['totals']['held_out_tokens']}"
+    )
+    assert marker_loaded["train_tokens"] == man["totals"]["train_tokens"], (
+        f"marker train_tokens {marker_loaded['train_tokens']} != "
+        f"manifest {man['totals']['train_tokens']}"
     )
     logger.info(
-        "VERIFIED end-state: sha-recompute matches, %d held-out cities, all whole_city, "
-        "n_tiles==G4, n_usable present. LOCK COMPLETE.",
-        len(held_out),
+        "VERIFIED marker end-state: held_out_cities/tokens + train_tokens match. LOCK COMPLETE."
     )
     return 0
 

@@ -27,10 +27,12 @@ sys.modules["build_multiregion_manifest"] = build_mod
 _spec.loader.exec_module(build_mod)
 
 assemble_regions_payload = build_mod.assemble_regions_payload
+_train_cities_and_tokens = build_mod._train_cities_and_tokens
+_assert_usable_n_census_ok = build_mod._assert_usable_n_census_ok
 
 
 def _g4_blocks() -> list[dict]:
-    # 2 held-out (krakow, munich) + 1 train (hamburg).
+    # 2 held-out (krakow, munich) + 1 train (hamburg). All validated.
     return [
         dict(
             name="krakow",
@@ -40,6 +42,7 @@ def _g4_blocks() -> list[dict]:
             crs="EPSG:25834",
             tiles=2,
             tokens=17118283,
+            validated=True,
         ),
         dict(
             name="munich",
@@ -49,6 +52,7 @@ def _g4_blocks() -> list[dict]:
             crs="EPSG:25832",
             tiles=1,
             tokens=10060491,
+            validated=True,
         ),
         dict(
             name="hamburg",
@@ -58,6 +62,7 @@ def _g4_blocks() -> list[dict]:
             crs="EPSG:25832",
             tiles=3,
             tokens=28620067,
+            validated=True,
         ),
     ]
 
@@ -140,3 +145,81 @@ def test_assemble_raises_on_unknown_city_in_per_city_tiles():
             usable_n=_usable_n(),
             per_city_tiles={"nowhere": []},
         )
+
+
+# --- Fix I1: train_cities derive from VALIDATED G4 rows only --------------------------
+
+
+def test_train_cities_exclude_unvalidated_ghostcity_with_nonzero_tokens():
+    # I1 REGRESSION: an unvalidated city carrying NONZERO tokens (a future re-gen could
+    # stamp tokens on it) must NOT inflate train_cities OR the IRREVERSIBLE train_tokens.
+    # This fixture FAILS against the old "all G4 names minus held_out" logic.
+    g4 = [
+        *_g4_blocks(),
+        dict(
+            name="ghostcity",
+            morphology="mixed",
+            density="moderate",
+            geography="DE",
+            crs="EPSG:25832",
+            tiles=5,
+            tokens=999,  # nonzero — the trap
+            validated=False,
+        ),
+    ]
+    held_out = ["krakow", "munich"]
+    train_cities, train_tokens = _train_cities_and_tokens(g4, held_out)
+    # ghostcity is excluded; only the validated, non-held-out city (hamburg) is a train city.
+    assert train_cities == {"hamburg"}
+    assert "ghostcity" not in train_cities
+    # The nonzero ghostcity tokens do NOT inflate the sum — train_tokens == hamburg only.
+    assert train_tokens == 28620067
+
+
+def test_train_cities_held_out_must_be_validated_else_raises():
+    # I1: a held-out city that is NOT validated in G4 must raise (never freeze an eval
+    # number against an unvalidated city's tokens).
+    g4 = _g4_blocks()
+    # Flip munich (a held-out city) to validated: False.
+    for c in g4:
+        if c["name"] == "munich":
+            c["validated"] = False
+    with pytest.raises(SystemExit, match="not validated"):
+        _train_cities_and_tokens(g4, ["krakow", "munich"])
+
+
+def test_train_cities_treats_missing_validated_key_as_unvalidated():
+    # Defensive: a G4 row lacking the `validated` key (legacy/partial yaml) is NOT
+    # treated as validated — it is excluded from the train set, never silently included.
+    g4 = _g4_blocks()
+    for c in g4:
+        if c["name"] == "hamburg":
+            del c["validated"]  # missing key
+    train_cities, train_tokens = _train_cities_and_tokens(g4, ["krakow", "munich"])
+    assert train_cities == set()  # hamburg dropped (not validated is True)
+    assert train_tokens == 0
+
+
+# --- Fix M1: respect the usable-n census status / n_unreadable -------------------------
+
+
+def test_usable_n_census_guard_raises_on_error_status():
+    # M1: a held-out city with status != "ok" must raise (degraded census must not
+    # silently freeze a wrong n_usable_tiles).
+    usable = _usable_n()
+    usable["krakow"]["status"] = "error"
+    with pytest.raises(SystemExit, match="census"):
+        _assert_usable_n_census_ok(usable, ["krakow", "munich"])
+
+
+def test_usable_n_census_guard_raises_on_nonzero_unreadable():
+    # M1: a held-out city with n_unreadable > 0 must raise even if status reads "ok".
+    usable = _usable_n()
+    usable["munich"]["n_unreadable"] = 1
+    with pytest.raises(SystemExit, match="census"):
+        _assert_usable_n_census_ok(usable, ["krakow", "munich"])
+
+
+def test_usable_n_census_guard_passes_clean_census():
+    # M1: a clean census ("ok", n_unreadable == 0) for every held-out city does NOT raise.
+    _assert_usable_n_census_ok(_usable_n(), ["krakow", "munich"])
