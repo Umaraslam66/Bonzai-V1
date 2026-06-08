@@ -18,7 +18,8 @@ Output YAML:
 
     release: "2026-04-15.0"
     cities:
-      glasgow: {n_tiles: <int>, n_usable_tiles: <int>}
+      glasgow: {n_tiles: <int>, n_usable_tiles: <int>, n_unreadable: <int>, status: ok}
+      missing_city: {n_tiles: 0, n_usable_tiles: 0, n_unreadable: 0, status: region_dir_missing}
       ...
 """
 
@@ -47,20 +48,33 @@ logger = logging.getLogger("measure_usable_tiles")
 MACRO_CORE_FILENAME = "macro_core.parquet"
 
 
-def measure_city(release: str, city: str) -> dict[str, int]:
+def measure_city(release: str, city: str) -> dict[str, int | str]:
     """Count total + usable tiles for one city's sub-D region dir.
 
-    A 'tile' is any ``tile=*`` dir that contains a ``macro_core.parquet``.
+    A 'tile' is any ``tile=*`` dir that contains a ``macro_core.parquet``
+    that can be read without error.
     'usable' is decided by the shared ``tile_is_usable`` predicate so it stays
     identical to what the coherence metric scores.
+
+    Returns a dict with keys:
+        n_tiles        — tiles successfully read (excludes unreadable)
+        n_usable_tiles — subset of n_tiles that pass ``tile_is_usable``
+        n_unreadable   — tiles whose parquet raised an exception (logged)
+        status         — "region_dir_missing" | "ok"
     """
     region_dir = sub_d_region_dir(release, city)
-    n_tiles = 0
-    n_usable = 0
     if not region_dir.is_dir():
         logger.warning("city %s: region dir missing (%s); 0 tiles", city, region_dir)
-        return {"n_tiles": 0, "n_usable_tiles": 0}
+        return {
+            "n_tiles": 0,
+            "n_usable_tiles": 0,
+            "n_unreadable": 0,
+            "status": "region_dir_missing",
+        }
 
+    n_tiles = 0
+    n_usable = 0
+    n_unreadable = 0
     for tile_dir in sorted(region_dir.glob("tile=*")):
         macro_core = tile_dir / MACRO_CORE_FILENAME
         if not macro_core.exists():
@@ -68,13 +82,25 @@ def measure_city(release: str, city: str) -> dict[str, int]:
                 "city %s: %s has no %s; skipping", city, tile_dir.name, MACRO_CORE_FILENAME
             )
             continue
-        rows = read_macro_core_parquet(macro_core)
+        try:
+            rows = read_macro_core_parquet(macro_core)
+        except Exception as exc:
+            logger.warning("city %s: could not read %s: %s", city, tile_dir, exc)
+            n_unreadable += 1
+            continue
         n_tiles += 1
         if tile_is_usable(rows):
             n_usable += 1
 
-    logger.info("city %s: %d tiles, %d usable", city, n_tiles, n_usable)
-    return {"n_tiles": n_tiles, "n_usable_tiles": n_usable}
+    logger.info(
+        "city %s: %d tiles, %d usable, %d unreadable", city, n_tiles, n_usable, n_unreadable
+    )
+    return {
+        "n_tiles": n_tiles,
+        "n_usable_tiles": n_usable,
+        "n_unreadable": n_unreadable,
+        "status": "ok",
+    }
 
 
 def measure(release: str, cities: list[str]) -> dict[str, object]:

@@ -50,5 +50,8 @@ def interior_road_graph(
             continue
         a, b = endpoints(r.lower_cell_i, r.lower_cell_j, r.axis)
         if interior(*a) and interior(*b):
+            # Bare append (no dedup) is correct: upstream macro_core guarantees
+            # one row per (slot_kind, slot_index) pair, so duplicate edges cannot
+            # arise from the source data.
             out.append((a, b))
     return out
