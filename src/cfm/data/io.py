@@ -7,6 +7,7 @@ their existing public names.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pyarrow as pa
@@ -26,8 +27,23 @@ PARQUET_WRITE_KWARGS: dict = {
 
 
 def write_parquet(table: pa.Table, path: Path) -> None:
-    """Write *table* to *path* using PARQUET_WRITE_KWARGS for byte determinism."""
-    pq.write_table(table, path, **PARQUET_WRITE_KWARGS)
+    """Write *table* to *path* using PARQUET_WRITE_KWARGS for byte determinism.
+
+    Crash-safe (known_issues #18): the bytes are first written to a temp file in
+    the SAME directory, then ``os.replace``-d into place. ``os.replace`` is atomic
+    on a POSIX same-filesystem rename, so a kill or write-failure mid-derive leaves
+    the destination untouched (a prior-good artifact is never truncated). The temp
+    is named per-pid and cleaned up on failure. Output bytes are unchanged — the
+    same kwargs write the same table — so byte-identity guarantees are preserved.
+    """
+    path = Path(path)
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    try:
+        pq.write_table(table, tmp, **PARQUET_WRITE_KWARGS)
+        os.replace(tmp, path)  # atomic on same-fs; replaces any prior file in one step
+    finally:
+        if tmp.exists():
+            tmp.unlink()  # only reached on failure (success already renamed it away)
 
 
 def canonicalize_yaml(data: dict) -> str:

@@ -387,6 +387,55 @@ def _extract_coords(geom: BaseGeometry) -> list[tuple[float, float]]:
     )
 
 
+def dedensify_coords(
+    coords: list[tuple[float, float]],
+    min_seg_m: float = DEFAULT_MAGNITUDE_QUANTUM_M,
+) -> list[tuple[float, float]]:
+    """Drop sub-quantum micro-vertices so no segment hits the magnitude floor.
+
+    Fixes known_issue #19 (quantum-inflation): ``_direction_magnitude_pair`` does
+    ``total_q = max(1, quantize_coord_m(seg))`` — a 0.04 m segment quantizes to 0 and
+    is forced to 1 quantum (0.5 m), so an over-densified ring of N sub-quantum segments
+    decodes ~``min_seg_m / seg`` x longer (e.g. Overture buildings sampled at ~0.0735 m
+    inflate 6.8x; degraded ~0.04 m → ~13x), tripping sub-G's
+    ``decoded_vertex_within_cell_bound``.
+
+    Radial-distance simplification — the GENTLEST simplifier: keep ``coords[0]``; keep
+    each later vertex only when its straight-line distance from the last KEPT vertex is
+    ``>= min_seg_m``; ALWAYS keep the final vertex. This preserves the anchor, the ring
+    closure, and road bref endpoints EXACTLY, and removes only vertices closer together
+    than the encoder can represent. A ring whose every segment is already ``>= min_seg_m``
+    is returned vertex-for-vertex unchanged (the over-simplify guard — it cannot destroy
+    representable geometry, only sub-resolution micro-vertices the 0.5 m quantum already
+    cannot encode).
+
+    # DECISION: applied uniformly to all geometry types (not polygons-only). The
+    # max(1, ...) floor fires for any sub-quantum segment regardless of type, and
+    # endpoint preservation keeps road bref/direction semantics intact. Simpler than a
+    # per-type branch; the over-simplify guard + full round-trip suite prove clean
+    # roads/polygons are untouched. Revisit if a road regime needs different handling.
+
+    Degenerate edge: if the result drops below a valid vertex count (a feature whose
+    whole extent is < ``min_seg_m``), the ORIGINAL coords are returned unchanged. Such
+    sub-resolution features stay bounded (and far below the cell bound) — documented v1
+    edge, known_issue #19 addendum.
+    """
+    if len(coords) <= 2:
+        return coords
+    closed = coords[0] == coords[-1]
+    kept: list[tuple[float, float]] = [coords[0]]
+    ax, ay = coords[0]
+    for x, y in coords[1:-1]:
+        if math.hypot(x - ax, y - ay) >= min_seg_m:
+            kept.append((x, y))
+            ax, ay = x, y
+    kept.append(coords[-1])
+    min_coords = 4 if closed else 2
+    if len(kept) < min_coords:
+        return coords  # sub-quantum-extent feature: keep original (no collapse)
+    return kept
+
+
 def encode_feature(
     geom: BaseGeometry,
     *,
@@ -416,7 +465,7 @@ def encode_feature(
     `reports/2026-05-23-phase-1-sub-F-close-checklist.md`.
     """
     tag_to_id = vocab_tag_to_id()
-    coords = _extract_coords(geom)
+    coords = dedensify_coords(_extract_coords(geom))  # known_issue #19 quantum-inflation fix
     n_vertices = len(coords)
     if n_vertices < 1:
         raise ValueError("encode_feature: empty coord list")

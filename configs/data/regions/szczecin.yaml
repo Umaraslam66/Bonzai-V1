@@ -1,0 +1,12 @@
+name: szczecin
+admin:
+  source: overture://divisions
+  country_code: PL
+  level: locality
+fallback_bbox:
+- 14.25
+- 53.19
+- 14.85
+- 53.67
+crs: EPSG:4326
+projected_crs: EPSG:25833

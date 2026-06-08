@@ -31,6 +31,7 @@ from cfm.data.sub_f.encoder import (
     DEFAULT_CHUNK_THRESHOLD_M,
     DEFAULT_MAGNITUDE_QUANTUM_M,
     DEFAULT_N_ANCHOR_TOKENS,
+    dedensify_coords,
     quantize_coord_m,
 )
 
@@ -71,7 +72,13 @@ def chunked_per_feature_tokens(
         tokens = 3 (structural) + n_anchor + 2 * sum_segments(chunked_segment_pairs)
 
     For ``len(coords) < 2`` (Point / degenerate): ``3 + n_anchor`` (no segments).
+
+    The encoder de-densifies sub-quantum micro-vertices before emitting (known_issue
+    #19); this twin applies the SAME ``dedensify_coords`` so the two never drift on
+    over-densified features (e.g. a zero-length segment is dropped, not floored to one
+    phantom 0.5 m pair).
     """
+    coords = dedensify_coords(coords)
     n = len(coords)
     if n < 2:
         return _STRUCTURAL_TOKENS + n_anchor

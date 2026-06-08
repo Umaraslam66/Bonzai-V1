@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from cfm.data.multiregion import driver, state
+from cfm.data.multiregion import driver, extract_lock, state
 from cfm.data.multiregion.stages import Stage, StageContext
 
 
@@ -83,6 +83,50 @@ def test_exit_zero_without_marker_is_a_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(driver.subprocess, "run", lambda *a, **k: None)
     with pytest.raises(RuntimeError, match="returned 0 but wrote no"):
         driver._run_stage_subprocess(stage, _ctx(tmp_path))
+
+
+def test_run_city_refuses_when_another_extract_holds_the_lock(tmp_path, monkeypatch):
+    # The double-nohup near-miss class: a second concurrent extract of the SAME
+    # city must refuse IMMEDIATELY and run NO stages (never touch the corpus).
+    monkeypatch.setattr(driver, "_head_sha", lambda repo: "HEAD0")
+    monkeypatch.setattr(state, "stages_to_run", lambda *a, **k: ["sub_c"])
+    ran: list[str] = []
+    monkeypatch.setattr(driver, "_run_stage_subprocess", lambda s, c: ran.append(s.name))
+
+    held = extract_lock.acquire_city_lock(extract_lock.city_lock_path(tmp_path, "x"))
+    try:
+        result = driver.run_city(_ctx(tmp_path), state.CityState(region="x"), repo_root=tmp_path)
+    finally:
+        held.close()
+
+    assert result.status == "failed"
+    assert "lock" in result.detail.lower() or "concurrent" in result.detail.lower()
+    assert ran == []  # NO stage ran while another extract held the lock
+
+
+def test_run_city_releases_lock_after_success(tmp_path, monkeypatch):
+    # A successful run must RELEASE the lock so the next run can re-acquire it.
+    monkeypatch.setattr(driver, "_head_sha", lambda repo: "HEADX")
+    monkeypatch.setattr(state, "stages_to_run", lambda *a, **k: ["sub_c"])
+    monkeypatch.setattr(driver, "_run_stage_subprocess", lambda s, c: None)  # "succeeds"
+    result = driver.run_city(_ctx(tmp_path), state.CityState(region="x"), repo_root=tmp_path)
+    assert result.status == "validated"
+    # re-acquire proves the lock was released (raises if still held)
+    extract_lock.acquire_city_lock(extract_lock.city_lock_path(tmp_path, "x")).close()
+
+
+def test_run_city_releases_lock_after_stage_failure(tmp_path, monkeypatch):
+    # Even on stage failure the lock must be released (finally), not leaked.
+    monkeypatch.setattr(driver, "_head_sha", lambda repo: "HEAD0")
+    monkeypatch.setattr(state, "stages_to_run", lambda *a, **k: ["sub_c"])
+
+    def boom(stage, ctx):
+        raise RuntimeError("regime: explosion")
+
+    monkeypatch.setattr(driver, "_run_stage_subprocess", boom)
+    result = driver.run_city(_ctx(tmp_path), state.CityState(region="x"), repo_root=tmp_path)
+    assert result.status == "failed"
+    extract_lock.acquire_city_lock(extract_lock.city_lock_path(tmp_path, "x")).close()  # released
 
 
 def test_run_batch_isolates_failure_and_continues(tmp_path, monkeypatch):

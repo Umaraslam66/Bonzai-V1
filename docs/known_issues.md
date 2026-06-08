@@ -6,11 +6,99 @@ Add new entries on top. Remove entries when they're fixed.
 
 ---
 
+## #20 — rotterdam + warsaw are DEGRADED SOURCE DATA (~12–13× quantum-inflation), not a pipeline bug
+
+- **Filed:** 2026-06-06 (Phase-2 corpus completion, the 6-city inflation gate)
+- **Severity:** medium (these two cities carry ~12–13× the corpus-normal building-inflation rate; an OVERTURE source-data quality problem)
+- **Status:** **OVERTURNED + RE-ADMITTED (2026-06-07).** The "degraded source, do-not-re-run" verdict was correct *given the encoder of the time* (a plain re-run reproduced the inflation), but the degradation was inflation **severity**, not a different corruption class — and the #19 de-densify fix removes it **at root**. After the de-densify re-derive, rotterdam + warsaw pass sub_g clean AND the path-length spot-check (`spotcheck_pathlength.py`) shows them undistorted vs the accepted eindhoven baseline (mean ≈1.0×, **zero** buildings >1.5×; worst real building ~1.3×, the same codec-quantization ceiling accepted cities show — see #19). PI re-admitted them as full corpus members (+77.1M). amsterdam (~3× borderline) likewise re-derived + validated and counts.
+- **Affects:** (historical) the shipped-corpus selection; Overture buildings in rotterdam/warsaw boxes — now re-admitted via the #19 fix.
+
+### Context
+
+The decoded-vertex inflation defect (#19) is a corpus-wide ~0.05% token-share tail. The 6-city prevalence gate (`measure_inflation_prevalence.py`, 2026-06-06) measured each sub-G-failed city's own building-inflation distribution against the 29-validated reference (≥2× building token-share = 0.05%):
+
+- **lodz 0.03%, a_coruna 0.04%, almere 0.04%** — indistinguishable from the corpus tail (corpus-normal, edge-tripped only).
+- **amsterdam 0.14%** (~3×) — elevated, borderline.
+- **rotterdam 0.64% (~13×), warsaw 0.62% (~12×)** — genuinely degraded: their Overture buildings are far more over-densified (sub-quantum vertices) than normal. rotterdam ≥4× token-share = 0.50% (50× the norm).
+
+These two are not the pipeline mis-handling normal data; they are abnormally-densified SOURCE polygons. A blanket "construction-identity exclusion" of the decoded-vertex check (recover-3 / B2) would have MASKED this degraded subset — caught by the per-city gate (the "aggregate hides subsets" / touch-as-cross discipline).
+
+### Fix / handling
+
+Initially excluded (B1-simple, 2026-06-06). The prescribed "de-densify the source first, don't just re-run" path was then executed: the #19 `dedensify_coords` fix + guarded sub_f re-derive (2026-06-07) — exactly the regen-era fix this entry pointed to. Re-admitted after the spot-check confirmed undistortion vs the accepted baseline (Status above). The 6-city prevalence numbers stand as the *historical* characterization of the pre-fix inflation severity; they are no longer an exclusion rationale.
+
+### Tracking
+
+- Source: Overture source densification, removed at encode by the #19 de-densify fix. Evidence: `reports/2026-06-06-inflation-prevalence-the6.txt` (pre-fix severity) + `logs/rederive/spotcheck_3city.txt` (post-fix undistortion). Couples to **#19**.
+
+---
+
+## #19 — 0.5 m magnitude-quantum inflates over-densified source polygons (decoded-vertex bloat)
+
+- **Filed:** 2026-06-06 (Phase-2 corpus completion)
+- **Severity:** low corpus-wide (0.05% building token-share at ≥2× inflation; 0.01% at ≥4×) — a documented v1 limitation alongside alpha-drop (0.114%) and touch-as-cross (#17, 0.0064%)
+- **Status:** FIX IN PROGRESS (2026-06-07, branch `phase-2-corpus-completion`). PI elevated Path A (de-densify + re-derive) to the critical path after add-cities failed to deliver — G4 failed all 3 gates (431M < 550M, eindhoven/tilburg/szczecin not validated, NL uncovered) and #19 recurred in the new NL cities, blocking NL coverage + ~170M corpus-normal tokens. Fix implemented + teeth-proven (see "Fix landed" below); corpus re-derive + G4 re-validation pending. Was ACCEPTED for v1 when this was a 0.05% tail; the cost-benefit inverted once it became the dominant failure in cities the corpus must include. The `decoded_vertex_within_cell_bound` sub-G check trips on the edge-adjacent worst cases.
+- **Affects:** `src/cfm/data/sub_f/encoder.py` magnitude quantization; over-densified Overture polygons (buildings) with sub-quantum segments.
+
+### Context
+
+The sub-F encoder quantizes each (dir, mag) segment to a **0.5 m magnitude floor** (`DEFAULT_MAGNITUDE_QUANTUM_M`). Overture buildings that are over-densified (segments as short as ~0.04 m — a curved-facade digitization artifact) have each sub-quantum segment **rounded UP to 0.5 m**, inflating decoded perimeter **1.5–6.8×** vs the sub_c source (proven 2026-06-06 by authoritative-pairing path-length trace + segment-level evidence: `SRC 0.04 m → DEC 0.5 m`). The decoded vertex lands past the 300 m structural bound because it was *inflated* there, not because the feature is there — so relaxing the bound would bless 2–6× bloated buildings ("coherent ≠ correct"). Prevalence measured corpus-wide (`measure_inflation_prevalence.py`): **≥2× = 0.05% / ≥4× = 0.01%** of building token-share, **uniform across morphologies** (medieval-cores hypothesis falsified).
+
+### Fix (regen era)
+
+De-densify / simplify source polygons to the ~0.5 m quantum BEFORE encoding (drop or merge sub-quantum vertices — no information loss at the representational floor), so the encoder stops rounding sub-quantum segments up. Then re-derive. Verify whether the spec intended a pre-simplification step (missing-step) vs a design gap. The recover-3 option (per-city-prevalence-gated structural exclusion of the decoded-vertex check, with a teeth-proof) is banked for this regen window — it was deliberately NOT shipped under deadline as new validator surface.
+
+### Fix landed — `dedensify_coords` (2026-06-07, pending corpus re-derive validation)
+
+`encoder.dedensify_coords` (called at the top of `encode_feature`, mirrored in the
+`token_cost.py` budget twin) does **radial-distance simplification at tolerance =
+magnitude quantum**: keep `coords[0]`; keep each later vertex only when its straight-line
+distance from the last KEPT vertex is `>= 0.5 m`; always keep the final vertex (preserves
+anchor, ring closure, road bref endpoints exactly). This removes only sub-quantum
+micro-vertices the 0.5 m quantum cannot represent anyway, so it CANNOT destroy
+representable geometry — a ring already spaced `>= quantum` is returned vertex-for-vertex.
+
+- **Teeth-proof:** `tests/data/sub_f/test_dedensify.py` — (a) an over-densified building
+  (0.0735 m segmentation) decoded **6.80× / max-coord 372 m before → ~1.0× / within the
+  300 m bound after**; (b) over-simplify GUARD — a legit-detailed building is untouched,
+  with a discrimination teeth test proving a large tolerance DOES drop vertices (the
+  preservation assertion is not vacuous).
+- **DERIVATION version bumped 1.1 → 1.2** (`sub_f/versions.py`): the fix changes
+  `cells.parquet` token bytes for the same input on over-densified features, so the axis
+  bump forces the whole-corpus re-derive and blocks a pre/post-fix version skew (same
+  defect class as the cycle-1 N/S bump).
+- **Degenerate-extent addendum (v1 edge):** a feature whose WHOLE extent is `< 0.5 m`
+  de-densifies below a valid vertex count; `dedensify_coords` falls back to the original
+  coords (no collapse to an invalid ring). Such sub-resolution features can still inflate
+  but stay far below the 300 m bound (bounded, and effectively non-existent in Overture —
+  min building footprints are several m²). Not gated; documented.
+- **Real-data confirmation (DONE 2026-06-07):** eindhoven gate — #19 cleared
+  (decoded_vertex 1→0), sub_c/d/e byte-untouched (sub_f-only), token yield 26.9M→26.0M
+  (−3.32%, correct shrinkage of sub-resolution noise), geometry valid. Corpus-wide:
+  tiles_changed ≈ 603/611 → over-densification is **pervasive**, not a rare tail, but the
+  shrink is small (NL ~3%, DE/FR <1.5%). rotterdam/warsaw recovered + re-admitted (#20).
+- **CODEC CEILING — distinct from #19, do NOT mistake for unfixed inflation:** after the
+  fix, the per-building decoded/source path-length ratio is centered at ~1.0× (mean 0.997–
+  0.999×, p99 ~1.05×) but has a thin upper tail — the **worst single building is ~1.3×
+  (max ~1.6×)** in EVERY city, INCLUDING accepted ones (eindhoven worst-large 1.314×). This
+  is the inherent encode/decode quantization ceiling (0.5 m magnitude + 1° direction bins
+  on certain building shapes), governed by the BP2 round-trip L_inf lock, NOT residual #19
+  inflation (#19 was pervasive and would lift the *mean/p99*, not a lone tail). The
+  spot-check therefore judges the BULK (mean/p99) against the accepted baseline, treating
+  the ~1.3× tail as info. Sub-quantum-extent clip slivers (source <2 m) decode to a bounded
+  ≤4 m and are the degenerate edge above, not distortion.
+
+### Tracking
+
+- Source: `encoder.py` magnitude quantization. Evidence: `reports/2026-06-06-inflation-prevalence.txt` (29-ref) + close-out. Couples to **#20**.
+
+---
+
 ## #18 — destructive in-place re-derives must use the guarded tool (not hand-rolled shell)
 
 - **Filed:** 2026-06-05 (sub-F v1.2 corpus re-derive; near-miss)
 - **Severity:** medium (process/safety — a corruption hazard against the single-copy corpus)
-- **Status:** MITIGATED by `scripts/multiregion/guarded_rederive.py`; this entry is the standing mandate.
+- **Status:** MITIGATED on BOTH layers — `scripts/multiregion/guarded_rederive.py` (sub-F destructive re-derive) **and** a baked-in guard on the sub-C run path (2026-06-05, branch `phase-2-corpus-completion`): `driver.run_city` holds a per-city `extract_lock` flock for the whole stage chain (a second concurrent extract refuses) and `io.write_parquet` is now atomic (temp + `os.replace`, the #18 truncation root cause). This entry is the standing mandate.
 - **Affects:** any operation that re-derives a region in place (sub-F re-derive; the upcoming sub_c re-runs for the 13 timeouts / almere).
 
 ### Context
@@ -20,6 +108,15 @@ Add new entries on top. Remove entries when they're fixed.
 ### Mandate / fix
 
 Use `python -m scripts.multiregion.guarded_rederive --city <c> ...` for ALL destructive re-derives. It enforces: **lockfile** (`fcntl.flock` — a second invocation refuses), **atomic temp-swap** (derive into a temp dir; replace live only on full success; live untouched during the kill-prone derive), and **halt-on-non-identical** (compare temp vs live before swap; HALT with live untouched unless `--allow-content-change`). 10 tests in `tests/data/multiregion/test_guarded_rederive.py`. This matters most for the **sub_c re-runs** (the EXPENSIVE extraction layer), where in-place corruption would destroy real compute, not cheaply-regenerable sub-F.
+
+### sub-C guard (added 2026-06-05, branch `phase-2-corpus-completion`)
+
+The sub-C re-runs go through the standard driver (`extract_region_batch.py → driver.run_batch → run_city`), not `guarded_rederive.py` (which is sub-F-only). So the guard is baked into that path instead of being an opt-in tool that can be forgotten:
+
+- **Per-city lock** (`src/cfm/data/multiregion/extract_lock.py`): `run_city` acquires an exclusive non-blocking `fcntl.flock` (`data/processed/multiregion/.locks/<city>.extract.lock`) before the stage chain; a second concurrent extract of the same city returns `failed` immediately (continue-but-loud). Different cities still extract concurrently. The flock auto-releases on process death, so a watchdog kill leaves NO stale lock.
+- **Crash-safe write** (`src/cfm/data/io.py::write_parquet`): now writes to a per-pid temp in the same dir and `os.replace`s into place — atomic on a POSIX same-fs rename, so a kill/write-failure mid-derive leaves the destination untouched (a prior-good tile is never truncated). Bytes are unchanged → byte-identity guarantees preserved. This is the direct fix for the `pq.write_table`-is-not-atomic root cause described above, and it covers ALL stages, not just sub-C.
+
+Tests: `tests/data/test_io.py` (crash-safety), `tests/data/multiregion/test_extract_lock.py` (lock), `tests/data/multiregion/test_driver.py` (refuse-when-held + release-on-success/failure).
 
 ### Tracking
 

@@ -1,0 +1,12 @@
+name: linz
+admin:
+  source: overture://divisions
+  country_code: AT
+  level: locality
+fallback_bbox:
+- 13.99
+- 48.07
+- 14.59
+- 48.55
+crs: EPSG:4326
+projected_crs: EPSG:25833

@@ -1,0 +1,12 @@
+name: tilburg
+admin:
+  source: overture://divisions
+  country_code: NL
+  level: locality
+fallback_bbox:
+- 4.78
+- 51.32
+- 5.38
+- 51.8
+crs: EPSG:4326
+projected_crs: EPSG:25831

@@ -1,0 +1,47 @@
+version: v1
+note: Add-cities (Path B token+NL-coverage lever, 2026-06-06). Shipped corpus = canary_v1
+  + batch2_v1 (minus the 6 inflation-excluded + paris/lyon/madrid) + these. eindhoven
+  closes NL. The G4 roll-up reads all three manifests.
+cities:
+- name: eindhoven
+  country_code: NL
+  projected_crs: EPSG:25831
+  morphology: modernist-sprawl
+  density: moderate
+  geography: NL
+- name: tilburg
+  country_code: NL
+  projected_crs: EPSG:25831
+  morphology: modernist-sprawl
+  density: moderate
+  geography: NL
+- name: wolfsburg
+  country_code: DE
+  projected_crs: EPSG:25832
+  morphology: modernist-sprawl
+  density: moderate
+  geography: DE
+- name: telford
+  country_code: GB
+  projected_crs: EPSG:25830
+  morphology: modernist-sprawl
+  density: moderate
+  geography: GB
+- name: szczecin
+  country_code: PL
+  projected_crs: EPSG:25833
+  morphology: mixed
+  density: moderate
+  geography: PL
+- name: linz
+  country_code: AT
+  projected_crs: EPSG:25833
+  morphology: planned-grid
+  density: moderate
+  geography: AT
+- name: debrecen
+  country_code: HU
+  projected_crs: EPSG:25834
+  morphology: planned-grid
+  density: moderate
+  geography: HU
