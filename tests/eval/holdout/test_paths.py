@@ -54,6 +54,10 @@ def test_epsg_label_for_region_reads_region_config():
     # munich's region config has projected_crs: EPSG:25832 -> label EPSG25832
     assert epsg_label_for_region("munich") == "EPSG25832"
     assert epsg_label_for_region("krakow") == "EPSG25834"
+    # Singapore round-trip: config has projected_crs: "EPSG:3414" (quoted in YAML);
+    # guards both colon-strip and the de-SG generalization being behavior-preserving
+    # against the legacy hardcoded _EPSG_LABEL value (spec §5).
+    assert epsg_label_for_region("singapore") == "EPSG3414"
 
 
 def test_multiregion_paths_distinct_from_sg():
