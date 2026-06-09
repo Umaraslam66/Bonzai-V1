@@ -42,6 +42,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
+import os
 import sys
 from pathlib import Path
 
@@ -98,6 +100,13 @@ def measure_stratum(
     Returns a dict with the per-stratum aggregates (means, standard deviations,
     usable count, tooth-3 positive fraction). This MEASURES + RECORDS only — it does
     NOT gate / pass-fail on the reference values.
+
+    Missing / unreadable tiles are skipped-and-logged (mirrors
+    ``scripts/eval/measure_usable_tiles.py``): they are counted in ``n_missing`` /
+    ``n_unreadable`` and the loop continues rather than aborting the whole
+    unattended run. Crucially the deterministic ``k`` (the RNG seed index) is bound
+    from ``enumerate`` over the FULL sorted stratum enumeration BEFORE any skip, so
+    skips never shift the per-tile RNG stream.
     """
     epsg_label = epsg_label_for_region(city)
     region_dir = sub_d_region_dir(release, city)
@@ -105,10 +114,26 @@ def measure_stratum(
     continuity_gaps: list[float] = []
     fragmentation_gaps: list[float] = []
     n_usable = 0
+    n_missing = 0
+    n_unreadable = 0
 
-    for k, (ti, tj) in enumerate(_enumerated_tiles(manifest, city)):
-        macro_core = region_dir / tile_dirname(ti, tj, epsg_label) / MACRO_CORE_FILENAME
-        rows = read_macro_core_parquet(macro_core)
+    enumerated = list(enumerate(_enumerated_tiles(manifest, city)))
+    n_total = len(enumerated)
+    for k, (ti, tj) in enumerated:
+        if k % 100 == 0:
+            logger.info("city %s: %d/%d tiles processed", city, k, n_total)
+        tile_dir = region_dir / tile_dirname(ti, tj, epsg_label)
+        macro_core = tile_dir / MACRO_CORE_FILENAME
+        if not macro_core.exists():
+            logger.warning("city %s: %s has no %s; skipping", city, tile_dir, MACRO_CORE_FILENAME)
+            n_missing += 1
+            continue
+        try:
+            rows = read_macro_core_parquet(macro_core)
+        except Exception as exc:
+            logger.warning("city %s: could not read %s: %s", city, tile_dir, exc)
+            n_unreadable += 1
+            continue
         if not tile_is_usable(rows):
             continue
         n_usable += 1
@@ -135,11 +160,14 @@ def measure_stratum(
     )
 
     logger.info(
-        "stratum %s: n_usable=%d continuity_gap=%.6f (sd %.6f) "
+        "stratum %s: n_usable=%d (n_missing=%d n_unreadable=%d) "
+        "continuity_gap=%.6f (sd %.6f) "
         "fragmentation_gap=%.6f (sd %.6f) real_vs_permuted_positive_fraction=%.4f "
         "[n_shuffle=%d]",
         city,
         n_usable,
+        n_missing,
+        n_unreadable,
         continuity_gap,
         continuity_gap_sd,
         fragmentation_gap,
@@ -154,6 +182,8 @@ def measure_stratum(
         "continuity_gap_sd": continuity_gap_sd,
         "fragmentation_gap_sd": fragmentation_gap_sd,
         "n_usable_tiles": n_usable,
+        "n_missing": n_missing,
+        "n_unreadable": n_unreadable,
         "real_vs_permuted_positive_fraction": positive_fraction,
     }
 
@@ -175,6 +205,38 @@ def measure(release: str, *, seed: int, n_shuffle: int) -> dict[str, object]:
         "seed": seed,
         "per_stratum": per_stratum,
     }
+
+
+#: Per-stratum gap fields that must be finite before the reference can be locked.
+_NAN_GUARDED_FIELDS = (
+    "continuity_gap",
+    "fragmentation_gap",
+    "continuity_gap_sd",
+    "fragmentation_gap_sd",
+    "real_vs_permuted_positive_fraction",
+)
+
+
+def assert_no_nan_reference(per_stratum: dict[str, dict]) -> None:
+    """Refuse to lock a nan / empty coherence reference (plan Step-3, in-script).
+
+    Scans every stratum's gap fields for nan and rejects any stratum that produced
+    no scored usable tiles (``n_usable_tiles == 0``). Raises ``SystemExit`` so the
+    process dies BEFORE any file write — the §7 gate must never calibrate against a
+    nan reference, and there must be no partial/nan artifact left on disk.
+    """
+    bad = {
+        c: s
+        for c, s in per_stratum.items()
+        if s["n_usable_tiles"] == 0
+        or any(isinstance(s[k], float) and math.isnan(s[k]) for k in _NAN_GUARDED_FIELDS)
+    }
+    if bad:
+        raise SystemExit(
+            f"refusing to lock a nan/empty coherence reference for strata: {sorted(bad)} "
+            "(a stratum produced no scored usable tiles; the §7 gate must not calibrate "
+            "against nan)"
+        )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -203,9 +265,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     payload = measure(args.release, seed=args.seed, n_shuffle=args.n_shuffle)
 
+    # Pre-write nan/empty-stratum guard: must fire BEFORE any file is touched so a
+    # killed/garbage run never leaves a nan reference on disk for the §7 gate.
+    assert_no_nan_reference(payload["per_stratum"])
+
     out_path: Path = args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    # Atomic write: render to a sibling temp path then os.replace, so a killed
+    # process never leaves a truncated locked file.
+    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    tmp.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    os.replace(tmp, out_path)
     logger.info("wrote %s", out_path)
     return 0
 

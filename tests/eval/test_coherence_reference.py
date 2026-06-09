@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,9 @@ def test_reference_is_per_stratum_measured_not_constant():
     ref = _load()
     assert set(ref["per_stratum"]) == _STRATA
     for s in ref["per_stratum"].values():
-        # measured, not a literal threshold
-        assert s["continuity_gap"] is not None and s["fragmentation_gap"] is not None
+        # measured, finite, not a literal threshold (and not a locked nan:
+        # `float("nan") is not None` is True, so assert FINITE, not just not-None)
+        assert math.isfinite(s["continuity_gap"]) and math.isfinite(s["fragmentation_gap"])
 
 
 def test_reference_records_measurement_regime():
