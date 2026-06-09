@@ -24,15 +24,28 @@ Leonardo against the real sub-D corpus (the controller runs the measurement):
         --seed 0 \
         --out reports/2026-06-08-coherence-reference.yaml
 
+We record BOTH measures per stratum (PI ruling): the shuffle-GAP (arrangement vs the
+interior-permuted null) AND the absolute coherence BAND (the real arrangement scores
+themselves), plus the structural ``mean_road_edges`` and a ``dense_core_saturated``
+flag. Dense-core strata (#21 inner-core, e.g. munich) saturate the shuffle-null and are
+exempt from the tooth-3 separation gate by a structural mean-road-edge threshold (set
+from the 60-edge interior capacity, NOT by city name); the full measure is still recorded.
+
 Output YAML:
 
     release: "2026-04-15.0"
     n_shuffle: 200
     seed: 0
+    dense_core_edge_threshold: 40.0
+    interior_edge_capacity: 60
+    notes: "Dense-core strata saturate the shuffle-null; exempt from tooth-3 ..."
     per_stratum:
       eisenhuttenstadt: {continuity_gap: <f>, fragmentation_gap: <f>,
                          continuity_gap_sd: <f>, fragmentation_gap_sd: <f>,
-                         n_usable_tiles: <int>, real_vs_permuted_positive_fraction: <f>}
+                         continuity_real: <f>, giant_real: <f>, zoning_real: <f>,
+                         mean_road_edges: <f>, dense_core_saturated: <bool>,
+                         n_usable_tiles: <int>, n_missing: <int>, n_unreadable: <int>,
+                         real_vs_permuted_positive_fraction: <f>}
       glasgow: {...}
       krakow: {...}
       munich: {...}
@@ -58,6 +71,12 @@ sys.path.insert(0, str(_REPO / "src"))
 
 from cfm.data.sub_d.io import read_macro_core_parquet  # noqa: E402
 from cfm.eval.holdout.coherence import coherence_gap  # noqa: E402
+from cfm.eval.holdout.coherence_reference import (  # noqa: E402
+    DENSE_CORE_EDGE_THRESHOLD,
+    INTERIOR_EDGE_CAPACITY,
+    is_dense_core_saturated,
+)
+from cfm.eval.holdout.macro_graph import interior_road_graph  # noqa: E402
 from cfm.eval.holdout.paths import (  # noqa: E402
     epsg_label_for_region,
     multiregion_holdout_manifest_path,
@@ -113,6 +132,14 @@ def measure_stratum(
 
     continuity_gaps: list[float] = []
     fragmentation_gaps: list[float] = []
+    # Absolute coherence band (the real arrangement score, not the shuffle-gap) + the
+    # structural road-edge count. Recorded alongside the gap per the PI ruling so the
+    # §7 gate sees BOTH the band and the gap, and so the tooth-3 dense-core exemption
+    # keys on a structural ``mean_road_edges`` rather than on a city name.
+    continuity_reals: list[float] = []
+    giant_reals: list[float] = []
+    zoning_reals: list[float] = []
+    road_edge_counts: list[int] = []
     n_usable = 0
     n_missing = 0
     n_unreadable = 0
@@ -137,12 +164,25 @@ def measure_stratum(
         if not tile_is_usable(rows):
             continue
         n_usable += 1
+        # Structural road-edge count: computed ONCE per tile from the shared
+        # ``interior_road_graph`` builder (the same source coherence_gap reads), then
+        # reused — we never recompute the gap. This is the per-tile interior road-edge
+        # count whose stratum mean drives the dense-core saturation exemption.
+        road_edge_counts.append(len(interior_road_graph(rows)))
         # Deterministic per-tile RNG: seed + k over the FULL sorted stratum index.
         gaps = coherence_gap(rows, rng=np.random.default_rng(seed + k), n_shuffle=n_shuffle)
         if gaps["continuity_gap"] is not None:
             continuity_gaps.append(float(gaps["continuity_gap"]))
         if gaps["fragmentation_gap"] is not None:
             fragmentation_gaps.append(float(gaps["fragmentation_gap"]))
+        # Absolute band (real arrangement scores) from the SAME gap return; skip None
+        # (no active edges/cells) so the mean is over the tiles that scored each term.
+        if gaps["continuity_real"] is not None:
+            continuity_reals.append(float(gaps["continuity_real"]))
+        if gaps["giant_real"] is not None:
+            giant_reals.append(float(gaps["giant_real"]))
+        if gaps["zoning_real"] is not None:
+            zoning_reals.append(float(gaps["zoning_real"]))
 
     # ddof=0 (population std over the held-out usable tiles): the held-out set is the
     # full population being characterised, not a sample drawn from a larger universe.
@@ -150,6 +190,15 @@ def measure_stratum(
     fragmentation_gap = float(np.mean(fragmentation_gaps)) if fragmentation_gaps else float("nan")
     continuity_gap_sd = float(np.std(continuity_gaps)) if continuity_gaps else float("nan")
     fragmentation_gap_sd = float(np.std(fragmentation_gaps)) if fragmentation_gaps else float("nan")
+
+    # Absolute coherence band (means of the real arrangement scores).
+    continuity_real = float(np.mean(continuity_reals)) if continuity_reals else float("nan")
+    giant_real = float(np.mean(giant_reals)) if giant_reals else float("nan")
+    zoning_real = float(np.mean(zoning_reals)) if zoning_reals else float("nan")
+
+    # Structural mean interior road-edge count → drives the dense-core saturation flag.
+    mean_road_edges = float(np.mean(road_edge_counts)) if road_edge_counts else float("nan")
+    dense_core_saturated = is_dense_core_saturated(mean_road_edges) if road_edge_counts else False
 
     # Tooth-3: fraction of usable tiles with fragmentation_gap > 0 (real beats permuted).
     # Denominator is the usable tiles that produced a fragmentation gap (the scored set).
@@ -163,7 +212,8 @@ def measure_stratum(
         "stratum %s: n_usable=%d (n_missing=%d n_unreadable=%d) "
         "continuity_gap=%.6f (sd %.6f) "
         "fragmentation_gap=%.6f (sd %.6f) real_vs_permuted_positive_fraction=%.4f "
-        "[n_shuffle=%d]",
+        "continuity_real=%.6f giant_real=%.6f zoning_real=%.6f "
+        "mean_road_edges=%.1f dense_core_saturated=%s [n_shuffle=%d]",
         city,
         n_usable,
         n_missing,
@@ -173,14 +223,28 @@ def measure_stratum(
         fragmentation_gap,
         fragmentation_gap_sd,
         positive_fraction,
+        continuity_real,
+        giant_real,
+        zoning_real,
+        mean_road_edges,
+        dense_core_saturated,
         n_shuffle,
     )
 
     return {
+        # Shuffle-gap (arrangement vs interior-permuted null).
         "continuity_gap": continuity_gap,
         "fragmentation_gap": fragmentation_gap,
         "continuity_gap_sd": continuity_gap_sd,
         "fragmentation_gap_sd": fragmentation_gap_sd,
+        # Absolute coherence band (the real arrangement scores themselves).
+        "continuity_real": continuity_real,
+        "giant_real": giant_real,
+        "zoning_real": zoning_real,
+        # Structural fields driving the tooth-3 dense-core exemption.
+        "mean_road_edges": mean_road_edges,
+        "dense_core_saturated": dense_core_saturated,
+        # Counts + tooth-3 separation fraction.
         "n_usable_tiles": n_usable,
         "n_missing": n_missing,
         "n_unreadable": n_unreadable,
@@ -203,17 +267,40 @@ def measure(release: str, *, seed: int, n_shuffle: int) -> dict[str, object]:
         "release": release,
         "n_shuffle": n_shuffle,
         "seed": seed,
+        # Structural threshold metadata: the tooth-3 dense-core exemption keys on
+        # mean_road_edges > dense_core_edge_threshold (= 2/3 of the 60-edge interior
+        # capacity), a capacity fraction set from the mechanism, NOT by city name.
+        "dense_core_edge_threshold": DENSE_CORE_EDGE_THRESHOLD,
+        "interior_edge_capacity": INTERIOR_EDGE_CAPACITY,
+        "notes": (
+            "Dense-core strata (#21 inner-core bbox, e.g. munich) fill a large fraction "
+            "of the 60-edge interior capacity, so a random interior rearrangement is itself "
+            "near-fully-connected and the shuffle-null SATURATES (real ~ permuted). Their "
+            "tooth-3 real-vs-permuted separation collapses toward 0 — a VALIDATION "
+            "limitation of the shuffle-null on dense tiles, NOT a power failure (the §7 gate "
+            "consumes resolution's KS number + the first-model effect, not this shuffle-gap). "
+            "Such strata are recorded in full but EXEMPT from the tooth-3 separation gate by "
+            "the structural mean_road_edges > dense_core_edge_threshold rule."
+        ),
         "per_stratum": per_stratum,
     }
 
 
-#: Per-stratum gap fields that must be finite before the reference can be locked.
+#: Per-stratum float fields that must be finite before the reference can be locked.
+#: Covers the shuffle-gap, the absolute coherence band, and the structural
+#: mean_road_edges (the dense-core exemption must not key off a nan). The bool
+#: ``dense_core_saturated`` is intentionally absent — the nan check below only
+#: inspects float fields, so a bool is naturally skipped.
 _NAN_GUARDED_FIELDS = (
     "continuity_gap",
     "fragmentation_gap",
     "continuity_gap_sd",
     "fragmentation_gap_sd",
     "real_vs_permuted_positive_fraction",
+    "continuity_real",
+    "giant_real",
+    "zoning_real",
+    "mean_road_edges",
 )
 
 
