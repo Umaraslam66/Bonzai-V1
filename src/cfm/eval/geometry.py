@@ -70,6 +70,7 @@ def holdout_polygons_per_active_cell(*, release: str, region: str) -> float:
     from cfm.data.sub_g.readers import read_sub_f_cells
     from cfm.data.sub_g.seam_decodability import split_cell_into_features
     from cfm.eval.holdout.paths import (
+        epsg_label_for_region,
         holdout_manifest_for_region,
         sub_f_region_dir,
         tile_dirname,
@@ -82,11 +83,18 @@ def holdout_polygons_per_active_cell(*, release: str, region: str) -> float:
     )
     tiles = manifest["regions"][region]["tiles"]
     sub_f_dir = sub_f_region_dir(release, region)
+    # Per-tile dir names embed the REGION's CRS label (e.g. EPSG25832), NOT the Singapore
+    # EPSG3414 default — without this an EU region's tiles resolve to a non-existent
+    # SG-named dir and every tile is silently skipped, returning a VACUOUS 0.0 (Task-9
+    # step-0 eval-side fix, the twin of the Task-8 build_shards fix).
+    epsg_label = epsg_label_for_region(region)
 
     n_polygons = 0
     n_active_cells = 0
     for tile in tiles:
-        cells_path = sub_f_dir / tile_dirname(tile["tile_i"], tile["tile_j"]) / "cells.parquet"
+        cells_path = (
+            sub_f_dir / tile_dirname(tile["tile_i"], tile["tile_j"], epsg_label) / "cells.parquet"
+        )
         if not cells_path.exists():
             continue
         for tokens in read_sub_f_cells(cells_path).values():

@@ -176,6 +176,9 @@ def generate_eval_set(
     inventory = _load_inventory(release, region)
     sub_d_dir = paths.sub_d_region_dir(release, region)
     sub_f_dir = paths.sub_f_region_dir(release, region)
+    # Per-tile dir names embed the REGION's CRS label (e.g. EPSG25832), NOT the Singapore
+    # EPSG3414 default (Task-9 step-0 eval-side fix, twin of the Task-8 build_shards fix).
+    epsg_label = paths.epsg_label_for_region(region)
 
     tile_labels: list[TileLabels] = []
     blocks: list[list[int]] = []
@@ -186,7 +189,7 @@ def generate_eval_set(
 
     for entry in inventory:
         ti, tj = int(entry["tile_i"]), int(entry["tile_j"])
-        dirname = paths.tile_dirname(ti, tj)
+        dirname = paths.tile_dirname(ti, tj, epsg_label)
         tile_dir = sub_d_dir / dirname
 
         tile_labels.append(read_tile_labels(tile_dir, tile_i=ti, tile_j=tj))
