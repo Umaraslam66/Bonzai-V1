@@ -2,8 +2,8 @@
 
 The runner (``scripts/build_multiregion_train_shards.py``) is a thin driver over the
 LOCKED build API: it resolves the train cities via ``train_cities`` (validated minus
-held-out), builds each city's per-region ``training_manifest.yaml`` via
-``build_training_shards``, and then VERIFIES the end-state by RE-READING every manifest
+held-out), builds each city's per-region ``training_manifest.yaml`` via the I1-safe
+``build_train_city_manifest``, and then VERIFIES the end-state by RE-READING every manifest
 from disk (never trusting the build call's return value). It also asserts a NEGATIVE
 end-state: no held-out city manifest was created by the run.
 
@@ -82,7 +82,7 @@ def _install_tmp_paths(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
 
 
 def _make_fake_build(monkeypatch, also_writes_heldout: str | None = None):
-    """Return a fake ``build_training_shards`` that writes a real per-city manifest.
+    """Return a fake ``build_train_city_manifest`` that writes a real per-city manifest.
 
     ``n_training_tiles`` is a deterministic per-city count (``len(city)``). If
     ``also_writes_heldout`` is set, the fake ALSO writes a stray manifest for that
@@ -121,7 +121,7 @@ def _make_fake_build(monkeypatch, also_writes_heldout: str | None = None):
             )
         return []
 
-    monkeypatch.setattr(R, "build_training_shards", fake_build)
+    monkeypatch.setattr(R, "build_train_city_manifest", fake_build)
     return fake_build
 
 

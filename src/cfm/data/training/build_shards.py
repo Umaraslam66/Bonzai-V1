@@ -129,6 +129,31 @@ def build_train_city_shards(release: str, city: str) -> list[TrainingShard]:
     return build_shards_in_memory(release, city, tile_ids=tile_ids)
 
 
+def build_train_city_manifest(
+    release: str, city: str, *, out_dir: Path | None = None
+) -> list[TrainingShard]:
+    """I1-SAFE writing build for a TRAIN city: build from ALL validated tiles AND write
+    the byte-deterministic per-city ``training_manifest.yaml``.
+
+    The persistence sibling of ``build_train_city_shards`` (which is in-memory only) and
+    the train-city counterpart of ``build_training_shards``. Unlike the latter — which
+    routes through ``compute_training_tile_ids`` -> ``_holdout_ids`` and therefore RAISES
+    ``ValueError`` for a train city (the I1 fail-closed boundary: a train city is neither
+    ``singapore`` nor a held-out city) — this builds via ``build_train_city_shards`` (all
+    validated tiles, no tile-level holdout, since whole-city exclusion already removed the
+    held-out cities). Task 8's multi-region driver calls THIS per train city; the locked
+    single-region Singapore/held-out writer ``build_training_shards`` stays untouched."""
+    out = out_dir or training_region_dir(release, city)
+    out.mkdir(parents=True, exist_ok=True)
+    prov_by_id = {
+        (int(e["tile_i"]), int(e["tile_j"])): e["provenance_sha256"]
+        for e in _validated_inventory(release, city)
+    }
+    shards = build_train_city_shards(release, city)
+    _write_training_manifest(out, release, city, shards, prov_by_id)
+    return shards
+
+
 def build_multiregion_shards(release: str, cities: list[str]) -> list[TrainingShard]:
     """Build the UNION of shards across all train cities (per-city all-validated-tiles
     build, concatenated). Cities are built in sorted order for deterministic output."""

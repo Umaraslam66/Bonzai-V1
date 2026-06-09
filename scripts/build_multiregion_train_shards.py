@@ -47,7 +47,7 @@ sys.path.insert(0, str(_REPO / "src"))
 from cfm.data.io import canonicalize_yaml  # noqa: E402
 from cfm.data.training.build_shards import (  # noqa: E402
     _load_or_pass,
-    build_training_shards,
+    build_train_city_manifest,
     train_cities,
 )
 from cfm.data.training.paths import (  # noqa: E402
@@ -93,10 +93,12 @@ def build_all_train_cities(
     held_pre = {h: training_manifest_path(release, h).exists() for h in sorted(held)}
 
     # 5. Build each train city's per-region manifest (the persistence call).
+    #    I1-SAFE writer: build_train_city_manifest uses the all-validated-tiles path; the
+    #    single-region build_training_shards RAISES for a train city (the I1 boundary).
     _LOG.info("building %d train cities: %s", len(cities), cities)
     for city in cities:
         _LOG.info("building city %s", city)
-        build_training_shards(release, city)
+        build_train_city_manifest(release, city)
 
     # 6. VERIFIED END-STATE — RE-READ from disk; never trust the build return value.
     per_city: dict[str, int] = {}

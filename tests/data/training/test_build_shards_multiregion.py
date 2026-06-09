@@ -189,6 +189,67 @@ def test_driver_all_validated_tiles_path_does_not_raise(monkeypatch):
 
 
 # =========================================================================== #
+# TOOTH 2b — the I1-SAFE WRITER (build_train_city_manifest) — Task-8 persistence
+# =========================================================================== #
+def test_build_train_city_manifest_writes_all_validated_tiles(tmp_path, monkeypatch):
+    """The I1-safe WRITER builds a train city from ALL validated tiles (no holdout
+    subtraction) and writes a schema-1.0 per-city manifest. This is the persistence the
+    Task-8 driver needs — build_train_city_shards is in-memory only."""
+    monkeypatch.setattr(
+        BS,
+        "_validated_inventory",
+        lambda release, region: [
+            {"tile_i": 0, "tile_j": 0, "provenance_sha256": "a"},
+            {"tile_i": 0, "tile_j": 1, "provenance_sha256": "b"},
+            {"tile_i": 1, "tile_j": 0, "provenance_sha256": "c"},
+        ],
+    )
+    monkeypatch.setattr(
+        BS,
+        "build_shards_in_memory",
+        lambda release, region, *, tile_ids=None: [
+            _shard(region, ti, tj, [_cell(0, 0, 5)]) for (ti, tj) in (tile_ids or [])
+        ],
+    )
+    shards = BS.build_train_city_manifest(_RELEASE, "prague", out_dir=tmp_path)
+    assert len(shards) == 3
+    import yaml
+
+    m = yaml.safe_load((tmp_path / "training_manifest.yaml").read_text())
+    assert m["region"] == "prague"
+    assert m["manifest_schema_version"] == "1.0"
+    assert m["n_training_tiles"] == 3  # ALL validated tiles — no tile-level holdout
+
+
+def test_i1_writer_does_not_raise_unlike_single_region_writer(tmp_path, monkeypatch):
+    """RED-ON-DIVERGENCE: the single-region writer ``build_training_shards`` RAISES the
+    I1 ValueError for a train city (it routes through _holdout_ids); the I1-safe writer
+    ``build_train_city_manifest`` does NOT. This contrast is the proof Task 8 must call
+    the I1-safe writer — the exact bug small-before-big caught on Leonardo (2026-06-10)."""
+    # _validated_inventory stubbed so build_training_shards gets PAST the prov step and
+    # reaches build_shards_in_memory(no tile_ids) -> compute_training_tile_ids ->
+    # _holdout_ids -> the I1 raise (build_shards_in_memory NOT yet stubbed).
+    monkeypatch.setattr(
+        BS,
+        "_validated_inventory",
+        lambda release, region: [{"tile_i": 0, "tile_j": 0, "provenance_sha256": "a"}],
+    )
+    with pytest.raises(ValueError, match="unknown region 'prague'"):
+        BS.build_training_shards(_RELEASE, "prague", out_dir=tmp_path)
+    # Now stub the in-memory build; the I1-safe writer does NOT raise and writes a manifest.
+    monkeypatch.setattr(
+        BS,
+        "build_shards_in_memory",
+        lambda release, region, *, tile_ids=None: [
+            _shard(region, ti, tj, [_cell(0, 0, 5)]) for (ti, tj) in (tile_ids or [])
+        ],
+    )
+    shards = BS.build_train_city_manifest(_RELEASE, "prague", out_dir=tmp_path)
+    assert len(shards) == 1
+    assert (tmp_path / "training_manifest.yaml").exists()
+
+
+# =========================================================================== #
 # TOOTH 3 — datamodule union spans BOTH regions
 # =========================================================================== #
 def _write_city_manifest(tmp, region, tiles):
