@@ -50,12 +50,14 @@ class LineageFailure:
 
 
 class HoldoutLeakError(Exception):
-    def __init__(self, failures: list[LineageFailure]) -> None:
+    def __init__(
+        self,
+        failures: list[LineageFailure],
+        *,
+        headline: str = "held-out lineage leak detected:",
+    ) -> None:
         self.failures = failures
-        super().__init__(
-            "held-out lineage leak detected:\n"
-            + "\n".join(f"  {f.path}: {f.reason}" for f in failures)
-        )
+        super().__init__(headline + "\n" + "\n".join(f"  {f.path}: {f.reason}" for f in failures))
 
 
 def _holdout_tile_refs(holdout_manifest: dict) -> set[TileRef]:

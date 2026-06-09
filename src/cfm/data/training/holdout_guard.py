@@ -69,6 +69,7 @@ def run_holdout_audit(
                     "stale SG 1.0) manifest must not be audited as the EU corpus; re-point to the "
                     "multi-region manifest or pass expected_schema_version explicitly.",
                 )
-            ]
+            ],
+            headline="held-out audit refused (schema mismatch):",
         )
     audit_no_holdout_leak(holdout_manifest, reachable)
