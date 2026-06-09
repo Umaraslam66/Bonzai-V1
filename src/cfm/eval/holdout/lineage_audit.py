@@ -16,12 +16,14 @@ Guards (each must FAIL in the leak regime):
   derivatives hide.
 - G-F5 (city-guard, spec §6): scoped to regions declared `holdout_kind ==
   "whole_city"`. Trips if any training artifact's lineage touches a wholly-held-out
-  REGION, independent of tile enumeration. The enumerated `(region,tile)` key
-  (G-F1/F2/F3) is only correct if the manifest enumerates EVERY tile of each
-  held-out city; our EU split is whole-city, so an un-enumerated held-out tile
-  (manifest drift, or a city-level manifest) would silently leak. The city-guard
-  decouples the guarantee from manifest completeness. It is reported ALWAYS - even
-  when the tile-key already fired - so a complete message names both leak classes.
+  REGION via a tile NOT already covered by the enumerated tile-key (G-F1/F2/F3),
+  catching un-enumerated held-out tiles (manifest drift / partial enumeration) within
+  a tiles-bearing whole-city region and decoupling the guarantee from per-tile
+  enumeration completeness for such regions. A payload missing the `tiles` key
+  entirely is NOT silently caught here — it raises KeyError at the enumerated-refs
+  step before G-F5 runs (fail-loud crash, unreachable under frozen schema-2.0 §2.2b).
+  It is reported ALWAYS - even when the tile-key already fired - so a complete message
+  names both leak classes.
 
 Region-keyed (spec §B): the audit iterates regions with one code path; a 2-region
 manifest exercises identical logic (no per-region special-casing).
