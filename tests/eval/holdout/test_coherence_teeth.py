@@ -145,6 +145,13 @@ def make_rows():
             # two squares are road-adjacent: each square occupies a 2x2 block, and
             # consecutive anchors are >=3 apart on each axis (one empty lane between
             # blocks). Anchor (4,4) -> cells up to (5,5), all interior (<=6).
+            #
+            # Spec §3.3 says "ten disconnected loops" — that is ILLUSTRATIVE of the
+            # property (many disjoint components: high continuity, low giant-component
+            # fraction), not a literal count.  Ten disjoint 2x2 loops (40 cells)
+            # cannot tile the 36-cell 6x6 interior; K=4 (16 cells) is the faithful
+            # realization.  giant=0.25=4/16 falls out of the real disjoint-loop
+            # topology — any K>=4 produces the divergence the tooth requires.
             anchors: list[Cell] = [(1, 1), (1, 4), (4, 1), (4, 4)]
             idx = 0
             for a in anchors:
