@@ -56,6 +56,12 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
         seed=cfg.seed,
         batch_size=cfg.batch_size,
         max_cell_tokens=cfg.max_len,
+        # Legacy SG thin-slice: audits the FROZEN, IMMUTABLE Singapore holdout manifest
+        # (schema 1.0), which can never be re-stamped to 2.0. EU/bake-off reuse of this
+        # script MUST flip this to "2.0" AND re-point holdout_manifest to
+        # multiregion_holdout_manifest_path, or the schema backstop is defeated here (the
+        # #16 failure, one layer over). See handoff residual.
+        expected_holdout_schema="1.0",
     )
 
 

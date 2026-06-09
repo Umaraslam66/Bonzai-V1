@@ -116,7 +116,10 @@ def test_collate_right_pads_and_reports_lengths():
 
 # ----- audit-halt wiring (synthetic manifests; no real data) -----
 
-_HOLDOUT = {"regions": {_REGION: {"tiles": [{"tile_i": 1, "tile_j": 7}]}}}
+_HOLDOUT = {
+    "manifest_schema_version": "2.0",
+    "regions": {_REGION: {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
+}
 
 
 def _write_holdout(tmp):

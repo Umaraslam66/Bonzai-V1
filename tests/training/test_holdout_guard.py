@@ -6,7 +6,10 @@ from cfm.data.training.holdout_guard import manifest_to_reachable, run_holdout_a
 from cfm.eval.holdout.lineage_audit import HoldoutLeakError
 
 # A frozen-holdout stand-in: one held-out tile (singapore, 1, 7).
-_HOLDOUT = {"regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}}}
+_HOLDOUT = {
+    "manifest_schema_version": "2.0",
+    "regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
+}
 
 
 def _train_manifest(tiles: list[dict]) -> dict:
@@ -53,3 +56,22 @@ def test_stamped_lineage_integrity_real_training_tile_passes_and_counts():
     reachable = manifest_to_reachable(m)
     assert reachable[0].lineage == frozenset({("singapore", 5, 9)})
     run_holdout_audit(_HOLDOUT, reachable)
+
+
+def test_schema_refused_under_default_2_0():
+    # a 1.0 manifest under the default-2.0 expectation -> REFUSED (the #16 backstop firing)
+    sg_like = {
+        "manifest_schema_version": "1.0",
+        "regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
+    }
+    with pytest.raises(HoldoutLeakError, match="schema"):
+        run_holdout_audit(sg_like, [])
+
+
+def test_schema_accepted_with_explicit_matching_version():
+    # explicit "1.0" -> schema accepted -> audit runs (clean -> no raise)
+    sg_like = {
+        "manifest_schema_version": "1.0",
+        "regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
+    }
+    run_holdout_audit(sg_like, [], expected_schema_version="1.0")

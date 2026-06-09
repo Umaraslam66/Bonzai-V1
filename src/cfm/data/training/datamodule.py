@@ -204,6 +204,7 @@ class CellDataModule(L.LightningDataModule):
         batch_size: int = 8,
         num_workers: int = 0,
         max_cell_tokens: int = DEFAULT_MAX_CELL_TOKENS,
+        expected_holdout_schema: str = "2.0",
     ) -> None:
         super().__init__()
         self._train_manifest = Path(training_manifest)
@@ -213,6 +214,7 @@ class CellDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.max_cell_tokens = max_cell_tokens
+        self._expected_holdout_schema = expected_holdout_schema
         self._train: list[CellExample] = []
         self._val: list[CellExample] = []
         self._batches_yielded = 0
@@ -222,7 +224,11 @@ class CellDataModule(L.LightningDataModule):
         # is constructed -> zero training steps execute on a leak.
         manifest = load_training_manifest(self._train_manifest)
         holdout = yaml.safe_load(self._holdout_manifest.read_text(encoding="utf-8"))
-        run_holdout_audit(holdout, manifest_to_reachable(manifest))  # raises on any leak
+        run_holdout_audit(
+            holdout,
+            manifest_to_reachable(manifest),
+            expected_schema_version=self._expected_holdout_schema,  # default "2.0"
+        )  # raises on any leak
 
         # Audit passed: build per-cell examples from the SAME tile set the manifest
         # lists (the manifest is the authoritative training inventory), then split.
