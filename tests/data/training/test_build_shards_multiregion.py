@@ -250,6 +250,40 @@ def test_i1_writer_does_not_raise_unlike_single_region_writer(tmp_path, monkeypa
 
 
 # =========================================================================== #
+# TOOTH — multi-region CRS: per-tile dir names use the REGION's CRS label
+# =========================================================================== #
+def test_build_shards_in_memory_uses_region_crs_label(monkeypatch):
+    """build_shards_in_memory must construct per-tile dir names with the REGION's CRS
+    label (e.g. EPSG25832), NOT the Singapore EPSG3414 default. RED-ON-DIVERGENCE:
+    reverting to ``tile_dirname(ti, tj)`` (defaulted) makes the path carry EPSG3414 and
+    fails the EPSG25832 assertion. Locks the multi-region read fix caught by the Task-8
+    small-before-big build on Leonardo (2026-06-10)."""
+    monkeypatch.setattr(
+        BS,
+        "_validated_inventory",
+        lambda release, region: [{"tile_i": 5, "tile_j": 9, "provenance_sha256": "x"}],
+    )
+    monkeypatch.setattr(BS, "epsg_label_for_region", lambda region: "EPSG25832")
+
+    captured: dict[str, str] = {}
+
+    class _Stop(Exception):
+        pass
+
+    def fake_read_tile_labels(tile_dir, *, tile_i, tile_j):
+        captured["dir"] = str(tile_dir)
+        raise _Stop  # short-circuit before the (absent) real parquet read
+
+    monkeypatch.setattr(BS, "read_tile_labels", fake_read_tile_labels)
+
+    with pytest.raises(_Stop):
+        BS.build_shards_in_memory(_RELEASE, "munich", tile_ids=[(5, 9)])
+
+    assert "tile=EPSG25832_i5_j9" in captured["dir"], captured["dir"]
+    assert "EPSG3414" not in captured["dir"]
+
+
+# =========================================================================== #
 # TOOTH 3 — datamodule union spans BOTH regions
 # =========================================================================== #
 def _write_city_manifest(tmp, region, tiles):

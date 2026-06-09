@@ -30,6 +30,7 @@ from cfm.data.sub_d.enums import SlotKind
 from cfm.data.sub_d.io import read_macro_core_parquet
 from cfm.data.sub_g.readers import read_sub_f_cells
 from cfm.data.training.paths import (
+    epsg_label_for_region,
     holdout_manifest_for_region,
     sub_d_region_dir,
     sub_f_region_dir,
@@ -202,9 +203,15 @@ def build_shards_in_memory(
     sub_f_dir = sub_f_region_dir(release, region)
     ids = sorted(tile_ids) if tile_ids is not None else compute_training_tile_ids(release, region)
 
+    # Per-tile dir names embed the REGION's CRS label (e.g. EPSG25834), NOT the Singapore
+    # EPSG3414 default — derive it once per region. Without this, an EU region's tiles
+    # resolve to a Singapore-named dir that does not exist (multi-region read bug, caught
+    # by the Task-8 small-before-big build on Leonardo 2026-06-10).
+    epsg_label = epsg_label_for_region(region)
+
     shards: list[TrainingShard] = []
     for ti, tj in ids:  # sorted -> deterministic
-        dirname = tile_dirname(ti, tj)
+        dirname = tile_dirname(ti, tj, epsg_label)
         labels = read_tile_labels(sub_d_dir / dirname, tile_i=ti, tile_j=tj)
         density = _cell_density_by_cell(sub_d_dir / dirname)
         tokens_by_cell = read_sub_f_cells(sub_f_dir / dirname / "cells.parquet")
