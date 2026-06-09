@@ -1,0 +1,88 @@
+generated_at: '2026-06-09T23:04:12.355576+00:00'
+git_commit: ed1138cd1f70f266c9c16a37005a11fe94a60247
+held_out_cities:
+- eisenhuttenstadt
+- glasgow
+- krakow
+- munich
+n_train_cities: 38
+per_city:
+  a_coruna: 695
+  almere: 593
+  amsterdam: 965
+  barcelona: 72
+  bologna: 685
+  bruges: 180
+  budapest: 1078
+  cergy: 633
+  copenhagen: 903
+  debrecen: 659
+  edinburgh: 560
+  eindhoven: 611
+  espoo: 150
+  hamburg: 950
+  helsinki: 497
+  karlsruhe: 627
+  linz: 621
+  lisbon: 756
+  ljubljana: 672
+  lodz: 609
+  malmo: 553
+  manchester: 586
+  mannheim: 636
+  milton_keynes: 42
+  prague: 253
+  rotterdam: 599
+  szczecin: 589
+  tallinn: 496
+  telford: 587
+  tilburg: 614
+  toledo: 210
+  turin: 696
+  tychy: 616
+  umea: 36
+  valencia: 746
+  vienna: 651
+  warsaw: 998
+  wolfsburg: 595
+release: 2026-04-15.0
+total_training_tiles: 22019
+train_cities:
+- a_coruna
+- almere
+- amsterdam
+- barcelona
+- bologna
+- bruges
+- budapest
+- cergy
+- copenhagen
+- debrecen
+- edinburgh
+- eindhoven
+- espoo
+- hamburg
+- helsinki
+- karlsruhe
+- linz
+- lisbon
+- ljubljana
+- lodz
+- malmo
+- manchester
+- mannheim
+- milton_keynes
+- prague
+- rotterdam
+- szczecin
+- tallinn
+- telford
+- tilburg
+- toledo
+- turin
+- tychy
+- umea
+- valencia
+- vienna
+- warsaw
+- wolfsburg
