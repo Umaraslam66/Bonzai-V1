@@ -62,6 +62,7 @@ def build_conditioning_prefix() -> list[int]:
 
 @dataclass(frozen=True)
 class CellExample:
+    region: str
     tile_i: int
     tile_j: int
     cell_i: int
@@ -71,8 +72,10 @@ class CellExample:
     cell_density_bucket: int | None
 
     @property
-    def key(self) -> tuple[int, int, int, int]:
-        return (self.tile_i, self.tile_j, self.cell_i, self.cell_j)
+    def key(self) -> tuple[str, int, int, int, int]:
+        # region-keyed so a multi-region union is unambiguous (two cities can share a
+        # (tile_i, tile_j)); the single-region split keys are a stable subset of this.
+        return (self.region, self.tile_i, self.tile_j, self.cell_i, self.cell_j)
 
     @property
     def ids(self) -> list[int]:
@@ -116,6 +119,7 @@ def flatten_shards_to_cells(
                 continue
             examples.append(
                 CellExample(
+                    region=shard.region,
                     tile_i=shard.tile_i,
                     tile_j=shard.tile_j,
                     cell_i=cell.cell_i,
@@ -144,14 +148,23 @@ def split_train_val(
 ) -> tuple[list[CellExample], list[CellExample]]:
     """Deterministic TILE-LEVEL split: shuffle the unique tile ids with ``seed`` and
     assign a ``val_fraction`` slice to val. A tile's cells never span train and val,
-    so the val set is disjoint from holdout by construction."""
-    tiles = sorted({(e.tile_i, e.tile_j) for e in examples})
+    so the val set is disjoint from holdout by construction.
+
+    The tile key is ``(region, tile_i, tile_j)`` — region-scoped so a multi-region
+    union (where two cities may share a ``(tile_i, tile_j)``) splits cleanly; for a
+    single region this is identical to the legacy ``(tile_i, tile_j)`` behavior.
+    ``val_fraction == 0`` yields an empty val set (whole-union train), used by the
+    union span/CRS checks; otherwise at least one tile goes to val (non-vacuous)."""
+    tiles = sorted({(e.region, e.tile_i, e.tile_j) for e in examples})
     rng = random.Random(seed)
     rng.shuffle(tiles)
-    n_val = max(1, round(len(tiles) * val_fraction)) if tiles else 0
+    if not tiles or val_fraction <= 0:
+        n_val = 0
+    else:
+        n_val = max(1, round(len(tiles) * val_fraction))
     val_tiles = set(tiles[:n_val])
-    train = [e for e in examples if (e.tile_i, e.tile_j) not in val_tiles]
-    val = [e for e in examples if (e.tile_i, e.tile_j) in val_tiles]
+    train = [e for e in examples if (e.region, e.tile_i, e.tile_j) not in val_tiles]
+    val = [e for e in examples if (e.region, e.tile_i, e.tile_j) in val_tiles]
     return train, val
 
 
@@ -197,7 +210,8 @@ class CellDataModule(L.LightningDataModule):
     def __init__(
         self,
         *,
-        training_manifest: Path,
+        training_manifest: Path | None = None,
+        training_manifests: list[Path] | None = None,
         holdout_manifest: Path,
         seed: int = 7,
         val_fraction: float = 0.1,
@@ -206,8 +220,27 @@ class CellDataModule(L.LightningDataModule):
         max_cell_tokens: int = DEFAULT_MAX_CELL_TOKENS,
         expected_holdout_schema: str = "2.0",
     ) -> None:
+        """Two construction modes, ONE audit-then-build-then-split pipeline:
+
+          - SINGLE-REGION (legacy, Singapore): pass ``training_manifest`` — one per-region
+            manifest is loaded, its tiles built, split.
+          - MULTI-REGION UNION (bake-off EU corpus): pass ``training_manifests`` — a LIST
+            of per-city schema-1.0 manifests; their cells are CONCATENATED (the union),
+            audited as one reachable set against the (schema-2.0) holdout, then split.
+
+        Exactly one of ``training_manifest`` / ``training_manifests`` must be given. The
+        per-city manifests stay schema 1.0 — the union lives in this loader, NOT a new
+        manifest schema."""
         super().__init__()
-        self._train_manifest = Path(training_manifest)
+        if (training_manifest is None) == (training_manifests is None):
+            raise ValueError(
+                "CellDataModule: pass exactly one of training_manifest (single-region) "
+                "or training_manifests (multi-region union)"
+            )
+        if training_manifest is not None:
+            self._train_manifests = [Path(training_manifest)]
+        else:
+            self._train_manifests = [Path(p) for p in training_manifests]  # type: ignore[union-attr]
         self._holdout_manifest = Path(holdout_manifest)
         self.seed = seed
         self.val_fraction = val_fraction
@@ -221,20 +254,31 @@ class CellDataModule(L.LightningDataModule):
 
     def setup(self, stage: str | None = None) -> None:
         # Runs on ALL ranks. The audit raises (halts) BEFORE any DataLoader/sampler
-        # is constructed -> zero training steps execute on a leak.
-        manifest = load_training_manifest(self._train_manifest)
+        # is constructed -> zero training steps execute on a leak. The audit covers the
+        # UNION of all per-city manifests' reachable artifacts against the one holdout
+        # manifest (single-region is the 1-manifest case of the same code path).
+        manifests = [load_training_manifest(p) for p in self._train_manifests]
         holdout = yaml.safe_load(self._holdout_manifest.read_text(encoding="utf-8"))
+        reachable = [a for m in manifests for a in manifest_to_reachable(m)]
         run_holdout_audit(
             holdout,
-            manifest_to_reachable(manifest),
+            reachable,
             expected_schema_version=self._expected_holdout_schema,  # default "2.0"
-        )  # raises on any leak
+        )  # raises on any leak across the union
 
-        # Audit passed: build per-cell examples from the SAME tile set the manifest
-        # lists (the manifest is the authoritative training inventory), then split.
-        tile_ids = [(int(t["tile_i"]), int(t["tile_j"])) for t in manifest.get("tiles", [])]
-        shards = build_shards_in_memory(manifest["release"], manifest["region"], tile_ids=tile_ids)
-        examples, _ = flatten_shards_to_cells(shards, max_cell_tokens=self.max_cell_tokens)
+        # Audit passed: build per-city shards from the SAME tile set each manifest
+        # lists (the manifest is the authoritative per-city training inventory), UNION
+        # the cells across cities, then split. Per-city manifests stay schema 1.0; the
+        # union lives here, not in a new manifest schema.
+        examples: list[CellExample] = []
+        for manifest in manifests:
+            tile_ids = [(int(t["tile_i"]), int(t["tile_j"])) for t in manifest.get("tiles", [])]
+            shards = build_shards_in_memory(
+                manifest["release"], manifest["region"], tile_ids=tile_ids
+            )
+            city_examples, _ = flatten_shards_to_cells(shards, max_cell_tokens=self.max_cell_tokens)
+            examples.extend(city_examples)
+        examples.sort(key=lambda e: e.key)  # deterministic union order across cities
         self._train, self._val = split_train_val(
             examples, seed=self.seed, val_fraction=self.val_fraction
         )
@@ -247,7 +291,7 @@ class CellDataModule(L.LightningDataModule):
     def val_cells(self) -> list[CellExample]:
         return self._val
 
-    def train_order(self) -> list[tuple[int, int, int, int]]:
+    def train_order(self) -> list[tuple[str, int, int, int, int]]:
         """The seeded training order (epoch 0) as example keys — same seed yields the
         same order, so a checkpoint resumes at the same data position."""
         sampler = _distributed_sampler(CellDataset(self._train), seed=self.seed, shuffle=True)
