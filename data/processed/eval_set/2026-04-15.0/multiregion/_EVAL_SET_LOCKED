@@ -1,0 +1,9 @@
+release: 2026-04-15.0
+derivation_version: '1.2'
+held_out_cities:
+- eisenhuttenstadt
+- glasgow
+- krakow
+- munich
+held_out_tokens: 46130102
+train_tokens: 623900790

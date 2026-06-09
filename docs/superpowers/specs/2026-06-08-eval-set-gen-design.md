@@ -405,6 +405,31 @@ There is **ONE** power/resolution gate, evaluated at the **first trained model**
   CLEARED — munich's usable-n is 156 (91%), healthy, in the band where the probe showed clean
   discrimination. The *definitive* check is inherently at first model (model-vs-real effect
   size cannot exist pre-model); munich→manchester stays in reserve.
+- **AMENDED 2026-06-09 (T11 reference measured — experiments win over the claim above):** the
+  "CLEARED" line was a POWER assessment (usable-n 156 healthy — TRUE) that never tested
+  SATURATION — aggregate-hides-subsets, the §3.2 d≈0.8 was POOLED, never per-munich. The
+  measured per-stratum reference (`reports/2026-06-08-coherence-reference.yaml`, n_shuffle=200)
+  shows munich's tooth-3 real-vs-permuted separation is **0.43** (the 3 moderate strata
+  0.81–0.95). Cause: munich's held-out tiles are **dense-core** (#21 inner-core bbox; mean
+  **47.8** road-edges > **40** = 2/3 of the 60-edge interior capacity), so a *random*
+  rearrangement is itself near-fully-connected → the shuffle-null **saturates** (real ≈ permuted
+  ≈ ceiling). munich's *absolute* coherence is in fact the HIGHEST of the four (continuity 0.92 /
+  giant 0.98). **This is a metric-VALIDATION limitation, NOT a power failure** — this §7 gate
+  consumes resolution's KS number + the (opaque, first-model) `model_vs_real_effect`, **NOT** the
+  saturating shuffle-gap. **PI ruling: munich STAYS** — no swap (manchester is itself dense at 40
+  edges, just under the knee; a swap buys a cosmetic 0.43→0.82 at the cost of a write-once
+  re-freeze + held-out z-diversity, z32 lost), no re-freeze. tooth-3 is gated **≥0.70 on the
+  moderate strata only**; dense-core strata are reported-not-gated by a **structural** exclusion
+  (`mean_road_edges > 40`, set from capacity — NOT by city name; `coherence_reference.py`).
+- **OPEN — `model_vs_real_effect` definition (first-model; binding constraint):** its computation
+  is NOT pinned. Whatever it is later defined as, it MUST be **anti-leak-proven** — a model that
+  merely ECHOES the handed tile-mode conditioning (scoring high *absolute* continuity/giant
+  without generating coherent structure) MUST FAIL it (the same anti-leak property the shuffle-gap
+  provides; real−shuffled subtracts the echo off). The absolute coherence band **alone** is
+  conditioning-contaminated and cannot silently replace the gap to dodge munich's saturation.
+  munich's saturated shuffle-gap cannot be its munich reference. Both measures (absolute band +
+  shuffle-gap) are recorded per stratum so first-model has both. **Carry to the bake-off handoff**
+  alongside the T8.5 datamodule re-point + DDP schema flips.
 
 ---
 

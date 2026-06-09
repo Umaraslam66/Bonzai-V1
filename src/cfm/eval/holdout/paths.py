@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 #: Phase-1 validated Singapore release (sub-G _PHASE1_VALIDATED, 494 tiles).
 DEFAULT_RELEASE: str = "2026-04-15.0"
 DEFAULT_REGION: str = "singapore"
@@ -31,6 +33,17 @@ def _data_processed() -> Path:
 def tile_dirname(tile_i: int, tile_j: int, epsg_label: str = _EPSG_LABEL) -> str:
     """Per-tile directory name, identical to sub-D (sub_d/pipeline.py:156)."""
     return f"tile={epsg_label}_i{int(tile_i)}_j{int(tile_j)}"
+
+
+def _region_config_path(region: str) -> Path:
+    return _repo_root() / "configs" / "data" / "regions" / f"{region}.yaml"
+
+
+def epsg_label_for_region(region: str) -> str:
+    """CRS label embedded in a region's sub-D tile dir names, from its config's
+    projected_crs (e.g. 'EPSG:25832' -> 'EPSG25832')."""
+    cfg = yaml.safe_load(_region_config_path(region).read_text(encoding="utf-8"))
+    return cfg["projected_crs"].replace(":", "")
 
 
 def sub_c_region_dir(release: str, region: str) -> Path:
@@ -60,6 +73,20 @@ def macro_vocab_path() -> Path:
 
 def eval_set_dir(release: str) -> Path:
     return _data_processed() / "eval_set" / release
+
+
+# Distinct multi-region eval-set dir — the SG eval-set already occupies
+# eval_set/<release>/ (frozen 2026-06-01, write-once), so the EU set CANNOT reuse it.
+def multiregion_eval_set_dir(release: str) -> Path:
+    return eval_set_dir(release) / "multiregion"
+
+
+def multiregion_holdout_manifest_path(release: str) -> Path:
+    return multiregion_eval_set_dir(release) / "holdout_manifest.yaml"
+
+
+def multiregion_eval_set_locked_marker(release: str) -> Path:
+    return multiregion_eval_set_dir(release) / "_EVAL_SET_LOCKED"
 
 
 def holdout_partition_dir(release: str, region: str) -> Path:

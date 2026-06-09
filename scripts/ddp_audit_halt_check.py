@@ -33,7 +33,13 @@ _REGION = "singapore"
 def _planted_leak_manifests(tmp: Path) -> tuple[Path, Path]:
     holdout = tmp / "holdout.yaml"
     holdout.write_text(
-        yaml.safe_dump({"regions": {_REGION: {"tiles": [{"tile_i": 1, "tile_j": 7}]}}})
+        yaml.safe_dump(
+            {
+                # schema 2.0 so the planted-leak audit halts on the LEAK, not on a schema refusal
+                "manifest_schema_version": "2.0",
+                "regions": {_REGION: {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
+            }
+        )
     )
     training = tmp / "training_manifest.yaml"
     training.write_text(

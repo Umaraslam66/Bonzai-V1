@@ -1,0 +1,22 @@
+release: 2026-04-15.0
+cities:
+  glasgow:
+    n_tiles: 549
+    n_usable_tiles: 523
+    n_unreadable: 0
+    status: ok
+  eisenhuttenstadt:
+    n_tiles: 616
+    n_usable_tiles: 579
+    n_unreadable: 0
+    status: ok
+  munich:
+    n_tiles: 171
+    n_usable_tiles: 156
+    n_unreadable: 0
+    status: ok
+  krakow:
+    n_tiles: 616
+    n_usable_tiles: 601
+    n_unreadable: 0
+    status: ok

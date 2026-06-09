@@ -17,23 +17,38 @@ def test_gap_at_or_above_resolved_passes(tmp_path):
     assert_resolution_sufficient(0.10, marker_path=m)  # no raise
 
 
-def test_gap_between_floor_and_resolved_fails_with_second_region_message(tmp_path):
+def test_gap_between_floor_and_resolved_escalates_generically(tmp_path):
     m = _marker(tmp_path, ks_resolved_gap_binding=0.076, ks_single_region_floor=0.049)
     with pytest.raises(InsufficientResolutionError) as e:
         assert_resolution_sufficient(0.06, marker_path=m)
-    assert "second-region" in str(e.value).lower()
-    assert "fundamentally" not in str(e.value).lower()
+    msg = str(e.value).lower()
+    assert "more/larger held-out" in msg
+    assert "second region" not in msg
+    assert "munich" not in msg
 
 
 def test_gap_below_floor_fails_with_categorical_message_distinct_from_second_region(tmp_path):
     m = _marker(tmp_path, ks_resolved_gap_binding=0.076, ks_single_region_floor=0.049)
     with pytest.raises(InsufficientResolutionError) as e_below:
         assert_resolution_sufficient(0.03, marker_path=m)
-    assert "fundamentally" in str(e_below.value).lower()
+    msg_below = str(e_below.value).lower()
+    # below message: conveys it is the resolvable-gap ceiling
+    assert "ceiling" in msg_below
+    assert "second region" not in msg_below
     # the two failure KINDS must produce DIFFERENT messages
     with pytest.raises(InsufficientResolutionError) as e_between:
         assert_resolution_sufficient(0.06, marker_path=m)
     assert str(e_below.value) != str(e_between.value)
+
+
+def test_escalation_is_multiregion_not_second_region(tmp_path):
+    m = _marker(tmp_path, ks_resolved_gap_binding=0.10, ks_single_region_floor=0.05)
+    with pytest.raises(InsufficientResolutionError) as e:
+        assert_resolution_sufficient(0.07, marker_path=m)
+    msg = str(e.value).lower()
+    assert "second region" not in msg
+    assert "munich" not in msg  # the swap is the COHERENCE gate's (T12), NOT KS-resolution's
+    assert "more/larger held-out" in msg
 
 
 def test_marker_absent_raises_not_no_ops(tmp_path):

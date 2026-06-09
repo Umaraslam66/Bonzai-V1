@@ -56,6 +56,14 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
         seed=cfg.seed,
         batch_size=cfg.batch_size,
         max_cell_tokens=cfg.max_len,
+        # Legacy SG thin-slice: audits the FROZEN, IMMUTABLE Singapore holdout manifest (schema 1.0;
+        # can never be re-stamped to 2.0). This "1.0" opt-down makes THIS site ACCEPT a 1.0
+        # manifest — correct ONLY for the SG set. DANGER on EU/bake-off reuse: leaving "1.0" here
+        # while the manifest is (or defaults to) the SG 1.0 set silently audits the EU corpus
+        # against the WRONG holdout (the #16 failure, one layer over). EU reuse MUST set "2.0" AND
+        # re-point to multiregion_holdout_manifest_path. (Re-pointing to the EU 2.0 manifest but
+        # forgetting to flip "1.0" fails loud — 2.0≠1.0 — which is fine.) See handoff residual.
+        expected_holdout_schema="1.0",
     )
 
 

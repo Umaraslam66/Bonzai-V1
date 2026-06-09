@@ -17,7 +17,12 @@ from pathlib import Path
 
 import yaml
 
-from cfm.eval.holdout.lineage_audit import Artifact, audit_no_holdout_leak
+from cfm.eval.holdout.lineage_audit import (
+    Artifact,
+    HoldoutLeakError,
+    LineageFailure,
+    audit_no_holdout_leak,
+)
 
 
 def load_training_manifest(path: Path) -> dict:
@@ -41,6 +46,30 @@ def manifest_to_reachable(manifest: dict) -> list[Artifact]:
     return out
 
 
-def run_holdout_audit(holdout_manifest: dict, reachable: list[Artifact]) -> None:
-    """Raise HoldoutLeakError on any leak/absent-lineage; return None iff clean."""
+def run_holdout_audit(
+    holdout_manifest: dict,
+    reachable: list[Artifact],
+    *,
+    expected_schema_version: str = "2.0",
+) -> None:
+    """Raise HoldoutLeakError on any leak/absent-lineage; return None iff clean.
+
+    Fail-closed schema backstop: refuses a manifest whose ``manifest_schema_version``
+    != ``expected_schema_version`` (default "2.0", the EU multi-region schema). This is
+    the #16 backstop: a forgotten bake-off re-point that hands the stale SG 1.0 manifest
+    is refused, never silently audited as the EU corpus."""
+    got = holdout_manifest.get("manifest_schema_version")
+    if got != expected_schema_version:
+        raise HoldoutLeakError(
+            [
+                LineageFailure(
+                    "<manifest>",
+                    f"expected holdout manifest schema {expected_schema_version!r}, got {got!r} — "
+                    "refusing to audit (fail-closed schema backstop). A non-multi-region (e.g. "
+                    "stale SG 1.0) manifest must not be audited as the EU corpus; re-point to the "
+                    "multi-region manifest or pass expected_schema_version explicitly.",
+                )
+            ],
+            headline="held-out audit refused (schema mismatch):",
+        )
     audit_no_holdout_leak(holdout_manifest, reachable)
