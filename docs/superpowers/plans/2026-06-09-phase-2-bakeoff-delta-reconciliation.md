@@ -367,6 +367,8 @@ def conditioning_discrimination_gate(
 
 **Files:** Create `src/cfm/eval/multiregion_realism.py` (the per-city driver — keep `realism.py` a leaf); Modify `curve.py` / `feature_resolution.py` call sites to consume the worst-case aggregate; Test `tests/eval/test_realism_multiregion.py`.
 
+> **[REC-2 from Phase-B batched review — the dict→list composition seam, with a regression-lock test].** `per_city_ks` returns `{city: PerCityKS}` (a **dict**) but `worst_case_city` takes a **`list[PerCityKS]`**. `decision_ks` MUST bridge it explicitly — `worst_case_city(list(per_city.values())).ks` — and that adaptation lives ONCE inside `multiregion_realism.py`, never leaked to another caller. **Why a test and not a comment:** passing the dict directly does NOT fail loudly — `max(dict, key=lambda c: c.ks)` iterates the dict's KEYS (strings) → `AttributeError` (`'str' has no 'ks'`) at the wrong layer. **Add a regression-lock test** that `decision_ks` returns the WORST city's KS from a multi-city dict (so a dict-passed-as-list bug would surface here, not in Phase D). Forward note for Task 12: when it assembles `{backbone: list(per_city_ks(...).values())}` for `binding_city_verdict`, every backbone must cover the same cities or the Phase-B I1 guard raises a clear `ValueError`.
+
 - [ ] **Step 1: Write the failing test (teeth).**
 ```python
 from __future__ import annotations
