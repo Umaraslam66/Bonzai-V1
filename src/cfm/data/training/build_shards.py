@@ -30,7 +30,7 @@ from cfm.data.sub_d.enums import SlotKind
 from cfm.data.sub_d.io import read_macro_core_parquet
 from cfm.data.sub_g.readers import read_sub_f_cells
 from cfm.data.training.paths import (
-    holdout_manifest_path,
+    holdout_manifest_for_region,
     sub_d_region_dir,
     sub_f_region_dir,
     tile_dirname,
@@ -51,8 +51,13 @@ def _validated_inventory(release: str, region: str) -> list[dict]:
 
 
 def _holdout_ids(release: str, region: str) -> set[tuple[int, int]]:
-    """SINGLE SOURCE: the frozen holdout manifest, by tile ID. No re-derivation."""
-    m = yaml.safe_load(holdout_manifest_path(release).read_text(encoding="utf-8"))
+    """SINGLE SOURCE: the frozen holdout manifest, by tile ID. No re-derivation.
+
+    REGION-AWARE (obligation (a), delta-spec §3 CORRECTION): ``region`` selects the
+    manifest — ``singapore`` -> SG manifest (schema 1.0); the 4 EU held-out cities ->
+    multiregion manifest (schema 2.0); unknown region -> raise. Both manifests share the
+    ``regions[<region>]["tiles"][{tile_i, tile_j}]`` nesting, so the read is identical."""
+    m = yaml.safe_load(holdout_manifest_for_region(release, region).read_text(encoding="utf-8"))
     return {(int(t["tile_i"]), int(t["tile_j"])) for t in m["regions"][region]["tiles"]}
 
 

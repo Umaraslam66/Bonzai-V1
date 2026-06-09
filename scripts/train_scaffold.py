@@ -26,7 +26,11 @@ from cfm.data.sub_g.seam_decodability import split_cell_into_features
 from cfm.data.training.build_shards import build_training_shards
 from cfm.data.training.datamodule import CellDataModule, build_conditioning_prefix
 from cfm.data.training.paths import training_manifest_path
-from cfm.eval.holdout.paths import eval_set_locked_marker, holdout_manifest_path
+from cfm.eval.holdout.paths import (
+    eval_set_locked_marker,
+    expected_holdout_schema_for_region,
+    holdout_manifest_for_region,
+)
 from cfm.eval.slice_metrics import slice_eval
 from cfm.inference.generate import generate_cell_tokens, try_decode_block
 from cfm.training.config import ScaffoldConfig
@@ -52,18 +56,16 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
         build_training_shards(cfg.release, cfg.region)  # writes the lineage manifest
     return CellDataModule(
         training_manifest=training_manifest_path(cfg.release, cfg.region),
-        holdout_manifest=holdout_manifest_path(cfg.release),
+        # REGION-AWARE (obligation (a), delta-spec §3 CORRECTION): manifest AND schema are
+        # derived from cfg.region and TRAVEL TOGETHER, so the local SG smoke path stays
+        # 1.0/SG (behavior unchanged) while an EU run picks the 2.0 multiregion manifest.
+        # The old hazard (a "1.0" pin silently auditing the EU corpus against the wrong
+        # holdout — the #16 failure) is now structurally impossible: region selects both.
+        holdout_manifest=holdout_manifest_for_region(cfg.release, cfg.region),
         seed=cfg.seed,
         batch_size=cfg.batch_size,
         max_cell_tokens=cfg.max_len,
-        # Legacy SG thin-slice: audits the FROZEN, IMMUTABLE Singapore holdout manifest (schema 1.0;
-        # can never be re-stamped to 2.0). This "1.0" opt-down makes THIS site ACCEPT a 1.0
-        # manifest — correct ONLY for the SG set. DANGER on EU/bake-off reuse: leaving "1.0" here
-        # while the manifest is (or defaults to) the SG 1.0 set silently audits the EU corpus
-        # against the WRONG holdout (the #16 failure, one layer over). EU reuse MUST set "2.0" AND
-        # re-point to multiregion_holdout_manifest_path. (Re-pointing to the EU 2.0 manifest but
-        # forgetting to flip "1.0" fails loud — 2.0≠1.0 — which is fine.) See handoff residual.
-        expected_holdout_schema="1.0",
+        expected_holdout_schema=expected_holdout_schema_for_region(cfg.region),
     )
 
 

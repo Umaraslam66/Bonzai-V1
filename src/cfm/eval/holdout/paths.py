@@ -89,6 +89,57 @@ def multiregion_eval_set_locked_marker(release: str) -> Path:
     return multiregion_eval_set_dir(release) / "_EVAL_SET_LOCKED"
 
 
+#: The EU multiregion held-out cities (the multiregion manifest's ``held_out_cities``).
+#: Hard-coded as the schema/manifest selector (NOT read from the manifest) so the
+#: SELECTION is independent of the file it selects — a region picks SG-vs-EU before any
+#: manifest is opened. The single source of truth for WHICH tiles each city holds out
+#: stays the manifest itself; this set only routes region -> (manifest, schema).
+_EU_HELD_OUT_CITIES: frozenset[str] = frozenset({"eisenhuttenstadt", "glasgow", "krakow", "munich"})
+
+
+def holdout_manifest_for_region(release: str, region: str) -> Path:
+    """REGION-AWARE holdout manifest (obligation (a), delta-spec §3 CORRECTION).
+
+    The holdout-manifest readers are dual-region — reached with ``region="singapore"``
+    (the local test fixture) AND the 4 EU held-out cities (runtime). The ``region`` arg
+    selects the manifest:
+
+      - ``"singapore"``               -> the SG single-region manifest (schema 1.0)
+      - one of the 4 EU held-out cities -> the multiregion manifest (schema 2.0)
+      - anything else                 -> raise (fail-closed; never silently mis-route)
+
+    Manifest-path and schema selection travel together: ``expected_holdout_schema_for_region``
+    returns the matching schema for the SAME region, so a flip-ahead-of-repoint (or a
+    repoint-ahead-of-flip) cannot happen.
+    """
+    if region == DEFAULT_REGION:
+        return holdout_manifest_path(release)
+    if region in _EU_HELD_OUT_CITIES:
+        return multiregion_holdout_manifest_path(release)
+    raise ValueError(
+        f"holdout_manifest_for_region: unknown region {region!r}; expected "
+        f"{DEFAULT_REGION!r} (SG) or one of the EU held-out cities "
+        f"{sorted(_EU_HELD_OUT_CITIES)}"
+    )
+
+
+def expected_holdout_schema_for_region(region: str) -> str:
+    """REGION-AWARE holdout schema version, the twin of ``holdout_manifest_for_region``.
+
+    SG -> ``"1.0"`` (the frozen, immutable Singapore manifest); the 4 EU held-out cities
+    -> ``"2.0"`` (the multiregion manifest). Unknown region -> raise. Manifest and schema
+    selection MUST travel together (delta-spec §3 CORRECTION)."""
+    if region == DEFAULT_REGION:
+        return "1.0"
+    if region in _EU_HELD_OUT_CITIES:
+        return "2.0"
+    raise ValueError(
+        f"expected_holdout_schema_for_region: unknown region {region!r}; expected "
+        f"{DEFAULT_REGION!r} (SG) or one of the EU held-out cities "
+        f"{sorted(_EU_HELD_OUT_CITIES)}"
+    )
+
+
 def holdout_partition_dir(release: str, region: str) -> Path:
     """spec §F: region-keyed holdout partition the training loader excludes."""
     return eval_set_dir(release) / "holdout" / f"region={region}"

@@ -69,9 +69,17 @@ def holdout_polygons_per_active_cell(*, release: str, region: str) -> float:
     from cfm.data.sub_f.decoder import decode_feature
     from cfm.data.sub_g.readers import read_sub_f_cells
     from cfm.data.sub_g.seam_decodability import split_cell_into_features
-    from cfm.eval.holdout.paths import holdout_manifest_path, sub_f_region_dir, tile_dirname
+    from cfm.eval.holdout.paths import (
+        holdout_manifest_for_region,
+        sub_f_region_dir,
+        tile_dirname,
+    )
 
-    manifest = yaml.safe_load(holdout_manifest_path(release).read_text(encoding="utf-8"))
+    # REGION-AWARE (obligation (a)): singapore -> SG manifest (1.0); EU held-out cities
+    # -> multiregion manifest (2.0). The tile-data round-trip below is Leonardo-only.
+    manifest = yaml.safe_load(
+        holdout_manifest_for_region(release, region).read_text(encoding="utf-8")
+    )
     tiles = manifest["regions"][region]["tiles"]
     sub_f_dir = sub_f_region_dir(release, region)
 
