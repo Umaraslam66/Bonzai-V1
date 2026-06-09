@@ -27,6 +27,14 @@ LADDER_SCALES_PARAMS: tuple[int, ...] = (
 
 @dataclass(frozen=True)
 class LadderDecision:
+    """Outcome of the ladder feasibility rule (delta-spec §2).
+
+    Note: ``escalate_more_data`` is equivalent to
+    ``decision_basis(len(feasible)) is DecisionBasis.ESCALATE_MORE_DATA`` -- both derive from
+    ``feasible`` being empty. A caller MUST NOT branch on ``escalate_more_data`` while computing
+    the decision basis from a different count; read both from this same ``feasible`` tuple.
+    """
+
     feasible: tuple[int, ...]
     dropped: tuple[int, ...]
     escalate_more_data: bool  # True iff feasible is empty (the empty-ladder case)
@@ -55,10 +63,22 @@ def feasible_ladder(
     )
 
 
-def feasible_ladder_conservative(r_ci_high: float, **kw: object) -> LadderDecision:
-    """Boundary-straddle rule: size by the UPPER r-CI bound so we never add a rung
-    the data can't clearly support."""
-    return feasible_ladder(r_ci_high, **kw)  # type: ignore[arg-type]
+def feasible_ladder_conservative(
+    r_ci_high: float,
+    *,
+    epoch_factor: float = 1.0,
+    train_tokens: int = TRAIN_TOKENS,
+    scales: tuple[int, ...] = LADDER_SCALES_PARAMS,
+) -> LadderDecision:
+    """Boundary-straddle rule: size by the UPPER r-CI bound so we never add a rung the
+    data can't clearly support. (Mirrors ``feasible_ladder``'s signature so the conservative
+    entry point — the one Task 10 calls — keeps full kwarg type-checking.)"""
+    return feasible_ladder(
+        r_ci_high,
+        epoch_factor=epoch_factor,
+        train_tokens=train_tokens,
+        scales=scales,
+    )
 
 
 class DecisionBasis(Enum):

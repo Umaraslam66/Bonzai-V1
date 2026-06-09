@@ -32,7 +32,11 @@ class BindingVerdict:
 
 def worst_case_city(per_city: list[PerCityKS]) -> PerCityKS:
     """The worst (highest-KS) held-out city. Generalization binds on the WORST city, never
-    a mean and never a cell-count-weighted pool."""
+    a mean and never a cell-count-weighted pool.
+
+    Note: ties (equal-worst cities) are broken by input order (``max`` returns the first) and
+    are decision-irrelevant -- equally-worst cities bind the same KS regardless of which is
+    returned."""
     if not per_city:
         raise ValueError("no per-city KS supplied")
     return max(per_city, key=lambda c: c.ks)
@@ -43,8 +47,26 @@ def binding_city_verdict(
 ) -> BindingVerdict:
     """Worst-case decision with the #21 power gate. Cities are considered worst-first; a city
     whose winner-vs-runner-up KS gap < its own C/sqrt(n) floor is DEMOTED (under-powered); the
-    decision uses the first city that is both binding and resolved."""
+    decision uses the first city that is both binding and resolved.
+
+    Precondition: every backbone must cover the SAME set of held-out cities. A city present in
+    one backbone but missing from another is rejected with a ``ValueError`` (not a bare
+    ``StopIteration`` from the ``_ks``/``_n`` lookups, and never silently dropped — a silent drop
+    of a city present only in a non-first backbone could skip the real worst city and defeat the
+    worst-case bar). This also rejects an empty backbone mapping.
+    """
     backbones = list(per_backbone_per_city)
+    if not backbones:
+        raise ValueError("binding_city_verdict: no backbones supplied")
+    cities = {c.city for c in per_backbone_per_city[backbones[0]]}
+    for b in backbones:
+        bc = {c.city for c in per_backbone_per_city[b]}
+        if bc != cities:
+            raise ValueError(
+                f"binding_city_verdict: backbone {b!r} covers cities {sorted(bc)}, "
+                f"expected {sorted(cities)} (from {backbones[0]!r}); all backbones must "
+                "cover the same held-out cities"
+            )
     cities = [c.city for c in per_backbone_per_city[backbones[0]]]
 
     def city_mean(city: str) -> float:

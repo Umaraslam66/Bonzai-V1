@@ -9,6 +9,8 @@ bind").
 
 from __future__ import annotations
 
+import pytest
+
 from cfm.eval.city_aggregate import (
     PerCityKS,
     binding_city_verdict,
@@ -53,3 +55,28 @@ def test_powered_binding_city_decides_not_demoted() -> None:
     assert v.binding_city == "munich"  # powered -> munich itself decides
     assert v.demoted_from == ()  # nobody demoted
     assert v.winner == "AR"  # munich: 0.42 < 0.58 -> AR wins
+
+
+def test_binding_verdict_raises_on_city_missing_from_a_backbone() -> None:
+    # ragged shape (a): a city in the first backbone is MISSING from another -> clear ValueError,
+    # NOT a bare StopIteration.
+    per_backbone = {
+        "AR": [PerCityKS("munich", 0.42, 156), PerCityKS("glasgow", 0.30, 5000)],
+        "diff": [PerCityKS("glasgow", 0.20, 5000)],  # munich missing
+    }
+    with pytest.raises(ValueError, match="same held-out cities"):
+        binding_city_verdict(per_backbone)
+
+
+def test_binding_verdict_raises_on_city_only_in_a_noninitial_backbone() -> None:
+    # ragged shape (b): a city present ONLY in a non-first backbone -> must RAISE, not be
+    # silently dropped (which could skip the real worst city).
+    per_backbone = {
+        "AR": [PerCityKS("glasgow", 0.30, 5000)],
+        "diff": [
+            PerCityKS("glasgow", 0.20, 5000),
+            PerCityKS("munich", 0.42, 156),
+        ],  # munich only here
+    }
+    with pytest.raises(ValueError, match="same held-out cities"):
+        binding_city_verdict(per_backbone)
