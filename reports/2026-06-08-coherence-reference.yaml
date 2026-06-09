@@ -1,0 +1,70 @@
+release: 2026-04-15.0
+n_shuffle: 200
+seed: 0
+dense_core_edge_threshold: 40.0
+interior_edge_capacity: 60
+notes: "Dense-core strata (#21 inner-core bbox, e.g. munich) fill a large fraction\
+  \ of the 60-edge interior capacity, so a random interior rearrangement is itself\
+  \ near-fully-connected and the shuffle-null SATURATES (real ~ permuted). Their tooth-3\
+  \ real-vs-permuted separation collapses toward 0 \u2014 a VALIDATION limitation\
+  \ of the shuffle-null on dense tiles, NOT a power failure (the \xA77 gate consumes\
+  \ resolution's KS number + the first-model effect, not this shuffle-gap). Such strata\
+  \ are recorded in full but EXEMPT from the tooth-3 separation gate by the structural\
+  \ mean_road_edges > dense_core_edge_threshold rule."
+per_stratum:
+  eisenhuttenstadt:
+    continuity_gap: 0.2232682418860959
+    fragmentation_gap: 0.3092808573331038
+    continuity_gap_sd: 0.1526367029914921
+    fragmentation_gap_sd: 0.21857668662131113
+    continuity_real: 0.752295892929491
+    giant_real: 0.912471472697456
+    zoning_real: 0.8368290750017788
+    mean_road_edges: 24.716753022452504
+    dense_core_saturated: false
+    n_usable_tiles: 579
+    n_missing: 0
+    n_unreadable: 0
+    real_vs_permuted_positive_fraction: 0.9447322970639033
+  glasgow:
+    continuity_gap: 0.18402401241761154
+    fragmentation_gap: 0.26626566672140284
+    continuity_gap_sd: 0.16849700612699403
+    fragmentation_gap_sd: 0.24685478466289668
+    continuity_real: 0.7688469028634217
+    giant_real: 0.9228503655634132
+    zoning_real: 0.6572331320371732
+    mean_road_edges: 29.15869980879541
+    dense_core_saturated: false
+    n_usable_tiles: 523
+    n_missing: 0
+    n_unreadable: 0
+    real_vs_permuted_positive_fraction: 0.8107074569789675
+  krakow:
+    continuity_gap: 0.0802000427672988
+    fragmentation_gap: 0.13242926145360037
+    continuity_gap_sd: 0.11746718127592916
+    fragmentation_gap_sd: 0.17419732906381422
+    continuity_real: 0.815735521623207
+    giant_real: 0.9606104140843506
+    zoning_real: 0.685749353745096
+    mean_road_edges: 36.306156405990016
+    dense_core_saturated: false
+    n_usable_tiles: 601
+    n_missing: 0
+    n_unreadable: 0
+    real_vs_permuted_positive_fraction: 0.8785357737104825
+  munich:
+    continuity_gap: 0.007808765480219754
+    fragmentation_gap: 0.011086252519073648
+    continuity_gap_sd: 0.04617089012833051
+    fragmentation_gap_sd: 0.0552446806515983
+    continuity_real: 0.9149174880336546
+    giant_real: 0.9818174319115969
+    zoning_real: 0.7381928169393134
+    mean_road_edges: 47.756410256410255
+    dense_core_saturated: true
+    n_usable_tiles: 156
+    n_missing: 0
+    n_unreadable: 0
+    real_vs_permuted_positive_fraction: 0.42948717948717946
