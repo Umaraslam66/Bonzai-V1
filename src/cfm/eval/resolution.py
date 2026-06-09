@@ -67,3 +67,43 @@ def assert_resolution_sufficient(
         f"needed gap {needed_gap} < single-region floor {floor}: the resolvable-gap CEILING "
         f"— finer than any single held-out region can resolve; needs more/larger held-out data."
     )
+
+
+class CoherencePowerInsufficientError(Exception):
+    """Held-out usable-n cannot resolve the model-vs-real coherence effect for architecture
+    discrimination on this stratum (spec §7). SOLE verdict for that question."""
+
+
+def assert_coherence_power_sufficient(
+    *,
+    stratum: str,
+    usable_n: int,
+    resolved_gap: float,
+    model_vs_real_effect: float,
+) -> None:
+    """The ONE architecture-discrimination POWER verdict (spec §7). Fires at the first trained
+    model checkpoint; dormant until then.
+
+    Inputs (all supplied by callers — this gate does NOT compute them):
+    - ``resolved_gap``: the NUMBER produced by ``assert_resolution_sufficient`` (train-split KS).
+    - ``usable_n``: the held-out power side (munich's 156 is the floor).
+    - ``model_vs_real_effect``: the model-vs-real coherence effect size, arriving at the first
+      trained model. **Its DEFINITION is an OPEN first-model decision, deliberately NOT pinned
+      here** — whatever it is later defined as, it MUST be anti-leak-proven (a model that merely
+      ECHOES the handed tile-mode conditioning, scoring high ABSOLUTE coherence without generating
+      real structure, MUST fail it; the absolute band alone is conditioning-contaminated). This
+      gate only CONSUMES the effect; it never computes it.
+
+    NOTE: this POWER gate is distinct from the T11 metric-VALIDATION finding. munich's tooth-3
+    shuffle-gap saturates (dense-core #21) — that did NOT trigger a swap (structural exclusion,
+    munich stays). The munich->manchester swap below is the POWER escalation that fires only if,
+    at first model, usable-n cannot resolve the effect.
+    """
+    if model_vs_real_effect < resolved_gap:  # finer than the train split can resolve
+        raise CoherencePowerInsufficientError(
+            f"stratum {stratum!r}: model-vs-real coherence effect {model_vs_real_effect} is finer "
+            f"than the train-resolved gap {resolved_gap}; held-out usable_n={usable_n} cannot "
+            f"discriminate architectures here. Escalate (owned by THIS gate): munich->manchester "
+            f"(swap the floor stratum to a larger held-out city) or add-a-train-city, then re-lock "
+            f"the multi-region eval set (write-once-per-version)."
+        )
