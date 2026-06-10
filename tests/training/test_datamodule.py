@@ -20,19 +20,37 @@ import pytest
 import yaml
 
 from cfm.data.training import datamodule as DM
-from cfm.data.training.conditioning import CONDITIONING_ID_BASE, conditioning_field_to_id
+from cfm.data.training.conditioning import (
+    CONDITIONING_ID_BASE,
+    build_value_bearing_prefix,
+    conditioning_field_to_id,
+)
 from cfm.data.training.shard_schema import CellPayload, TrainingShard
 from cfm.eval.holdout.lineage_audit import HoldoutLeakError
 
 _REGION = "singapore"
 
+#: The full 6-key tile conditioning the production writer always emits
+#: (build_shards._tile_conditioning_dict); flatten indexes these keys STRICTLY,
+#: so a partial fixture dict would KeyError — which is the wanted loud failure.
+_TILE_CONDITIONING = {
+    "population_density_bucket": 0,
+    "dominant_zoning_class": 0,
+    "modal_road_skeleton_class": 1,
+    "admin_region": None,
+    "coastal_inland_river": 0,
+    "sub_c_morphology_class": "Asian-megacity",
+}
 
-def _shard(ti, tj, cells):
+
+def _shard(ti, tj, cells, tile_conditioning=None):
     return TrainingShard(
         region=_REGION,
         tile_i=ti,
         tile_j=tj,
-        tile_conditioning={},
+        tile_conditioning=dict(
+            _TILE_CONDITIONING if tile_conditioning is None else tile_conditioning
+        ),
         macro_tokens=(),
         cells=tuple(cells),
         lineage=frozenset({(_REGION, ti, tj)}),
@@ -60,10 +78,43 @@ def _synthetic_shards():
     ]
 
 
-def test_conditioning_prefix_is_the_field_slot_id_block():
+def test_legacy_slot_builder_is_the_field_slot_id_block():
+    """Pure unit test of the LEGACY value-agnostic slot builder — NOT the live
+    training path (flatten now builds the value-bearing prefix; F6 delivery).
+    Deliberate re-aim of the former test_conditioning_prefix_is_the_field_slot_id_block."""
     prefix = DM.build_conditioning_prefix()
     n = len(conditioning_field_to_id())
     assert prefix == [CONDITIONING_ID_BASE + i for i in range(n)]
+
+
+def test_model_input_prefix_differs_across_differing_tile_conditioning():
+    """THE F6 tooth: two shards differing in tile_conditioning must produce different
+    example prefixes. RED on the constant slot prefix, GREEN after the value wire-in."""
+    a = _shard(0, 0, [_cell(0, 0, 10)])
+    b = _shard(0, 0, [_cell(0, 0, 10)], {**_TILE_CONDITIONING, "dominant_zoning_class": 1})
+    ca = DM.flatten_shards_to_cells([a])[0][0]
+    cb = DM.flatten_shards_to_cells([b])[0][0]
+    assert ca.prefix_ids != cb.prefix_ids
+
+
+def test_prefix_is_exactly_the_value_bearing_layout():
+    """Mutual-exclusivity: the live prefix must equal build_value_bearing_prefix(...) of
+    the shard's conditioning — no slot ids, no mixing (slot block == field-0 value block,
+    so equality against the value layout rules the slot layout out entirely)."""
+    shard = _shard(0, 0, [_cell(0, 0, 10, density=2)])
+    examples, _ = DM.flatten_shards_to_cells([shard])
+    ex = examples[0]
+    expected = build_value_bearing_prefix(
+        population_density_bucket=0,
+        zoning_class=0,
+        road_skeleton_class=1,
+        cell_density_bucket=2,  # per-CELL value, from the cell payload (not the tile dict)
+        region=None,
+        coastal_inland_river=0,
+        sub_c_morphology_class="Asian-megacity",
+        seed=0,  # flatten's default seed; inert — the seed slot is constant-bucketed
+    )
+    assert list(ex.prefix_ids) == expected
 
 
 def test_flatten_drops_empty_and_overlength_cells():
@@ -75,7 +126,17 @@ def test_flatten_drops_empty_and_overlength_cells():
     ex = next(e for e in examples if (e.tile_i, e.tile_j, e.cell_i, e.cell_j) == (0, 0, 0, 2))
     assert ex.prefix_len == len(conditioning_field_to_id())
     assert ex.seq_len == ex.prefix_len + 50
-    assert list(ex.ids[: ex.prefix_len]) == DM.build_conditioning_prefix()
+    # value-bearing layout (F6 delivery): the fixture's conditioning + this cell's density
+    assert list(ex.ids[: ex.prefix_len]) == build_value_bearing_prefix(
+        population_density_bucket=0,
+        zoning_class=0,
+        road_skeleton_class=1,
+        cell_density_bucket=1,  # _cell default density
+        region=None,
+        coastal_inland_river=0,
+        sub_c_morphology_class="Asian-megacity",
+        seed=0,  # inert (constant-bucketed)
+    )
 
 
 def test_split_is_tile_level_and_val_disjoint_from_train():

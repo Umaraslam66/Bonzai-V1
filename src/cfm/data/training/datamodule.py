@@ -6,8 +6,11 @@ DataLoader/sampler is built — so a leak yields zero training steps on every ra
 Only after the audit passes does it build per-cell examples and the seeded split.
 
 Sequence unit = CELL (spec §7). Each example is ``[conditioning prefix | cell
-tokens]``: the prefix is the field-slot conditioning id-block (value-agnostic in
-slice v1 — see ``micro_ar`` DECISION); the body is the cell's sub-F token sequence.
+tokens]``: the prefix is the VALUE-BEARING conditioning id-block (F6 delivery —
+``build_value_bearing_prefix`` of the shard's tile conditioning + the cell's own
+density bucket); the body is the cell's sub-F token sequence. The legacy
+value-agnostic field-slot block (``build_conditioning_prefix``) is retained for
+reference but is no longer the training path.
 Empty cells (nothing to learn) and cells exceeding the sub-F P99.9 length lock are
 dropped, with counts LOGGED (no silent truncation).
 
@@ -32,7 +35,7 @@ import yaml
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
 from cfm.data.training.build_shards import build_shards_in_memory
-from cfm.data.training.conditioning import conditioning_field_to_id
+from cfm.data.training.conditioning import build_value_bearing_prefix, conditioning_field_to_id
 from cfm.data.training.holdout_guard import (
     load_training_manifest,
     manifest_to_reachable,
@@ -51,13 +54,41 @@ PAD_ID = 0
 
 
 def build_conditioning_prefix() -> list[int]:
-    """The slice-v1 conditioning prefix: the field-slot id-block, in recorded order.
+    """LEGACY slice-v1 prefix: the field-slot id-block, in recorded order.
 
-    Value-agnostic (one id per field) — see ``micro_ar`` DECISION. The tier-1
-    conditioning VALUES live on the shard / ``conditioning_prefix_ids`` for trigger-2
-    identity + future compliance scoring (out-of-slice)."""
+    Value-agnostic (one id per field) — see ``micro_ar`` DECISION. NO LONGER the
+    training path: ``flatten_shards_to_cells`` builds the VALUE-BEARING prefix
+    (F6 delivery). Retained as the documented slot layout (unit-tested as such)."""
     field_to_id = conditioning_field_to_id()
     return [field_to_id[f] for f in field_to_id]  # dict preserves recorded order
+
+
+def _cell_prefix_ids(
+    shard: TrainingShard, cell_density_bucket: int | None, seed: int
+) -> tuple[int, ...]:
+    """The VALUE-BEARING prefix for one (shard, cell).
+
+    EXPLICIT field mapping (spec §3.1): never ``**tile_conditioning`` — a splat would
+    let wrong-keyed constants ride in silently; strict ``tc[...]`` indexing makes key
+    drift fail LOUD as KeyError. Note the deliberate renames at this seam:
+    dominant_zoning_class -> zoning_class, modal_road_skeleton_class ->
+    road_skeleton_class, admin_region -> region (the admin DIVISION, never the city —
+    see build_shards._tile_conditioning_dict). cell_density_bucket is PER-CELL (from
+    the cell payload; None allowed — the builder buckets absence to 0). ``seed`` is
+    constant-bucketed by the builder, so its value is inert in the ids."""
+    tc = shard.tile_conditioning
+    return tuple(
+        build_value_bearing_prefix(
+            population_density_bucket=tc["population_density_bucket"],
+            zoning_class=tc["dominant_zoning_class"],
+            road_skeleton_class=tc["modal_road_skeleton_class"],
+            cell_density_bucket=cell_density_bucket,
+            region=tc["admin_region"],
+            coastal_inland_river=tc["coastal_inland_river"],
+            sub_c_morphology_class=tc["sub_c_morphology_class"],
+            seed=seed,
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -99,13 +130,17 @@ def flatten_shards_to_cells(
     shards: list[TrainingShard],
     *,
     max_cell_tokens: int = DEFAULT_MAX_CELL_TOKENS,
+    seed: int = 0,
 ) -> tuple[list[CellExample], dict[str, int]]:
     """Flatten shards to per-cell examples, dropping empty + over-length cells.
+
+    Each example's prefix is the VALUE-BEARING conditioning block of its (shard, cell)
+    — see ``_cell_prefix_ids``. ``seed`` is wired from the datamodule's run seed but is
+    constant-bucketed in the prefix (the value is inert in the ids; see conditioning).
 
     Returns ``(examples, dropped)`` where ``dropped`` counts ``{"empty", "too_long"}``
     (LOGGED, never silently truncated). Examples are ordered by (tile, cell) so the
     flatten itself is deterministic."""
-    prefix = tuple(build_conditioning_prefix())
     examples: list[CellExample] = []
     dropped = {"empty": 0, "too_long": 0}
     for shard in shards:
@@ -124,7 +159,7 @@ def flatten_shards_to_cells(
                     tile_j=shard.tile_j,
                     cell_i=cell.cell_i,
                     cell_j=cell.cell_j,
-                    prefix_ids=prefix,
+                    prefix_ids=_cell_prefix_ids(shard, cell.cell_density_bucket, seed),
                     tokens=tuple(cell.tokens),
                     cell_density_bucket=cell.cell_density_bucket,
                 )
@@ -276,7 +311,12 @@ class CellDataModule(L.LightningDataModule):
             shards = build_shards_in_memory(
                 manifest["release"], manifest["region"], tile_ids=tile_ids
             )
-            city_examples, _ = flatten_shards_to_cells(shards, max_cell_tokens=self.max_cell_tokens)
+            city_examples, _ = flatten_shards_to_cells(
+                # seed: the run seed, constant-bucketed in the prefix (value inert in ids)
+                shards,
+                max_cell_tokens=self.max_cell_tokens,
+                seed=self.seed,
+            )
             examples.extend(city_examples)
         examples.sort(key=lambda e: e.key)  # deterministic union order across cities
         self._train, self._val = split_train_val(

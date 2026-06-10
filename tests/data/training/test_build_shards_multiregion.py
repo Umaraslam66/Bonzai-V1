@@ -90,7 +90,17 @@ def _shard(region: str, ti: int, tj: int, cells: list[CellPayload]) -> TrainingS
         region=region,
         tile_i=ti,
         tile_j=tj,
-        tile_conditioning={"admin_region": None},  # division (None for EU), never the city
+        # Full 6-key dict the production writer always emits (flatten indexes STRICTLY,
+        # so a partial dict KeyErrors loud). admin_region is the DIVISION (None for
+        # every EU tile), never the city — the city lives on TrainingShard.region.
+        tile_conditioning={
+            "population_density_bucket": 0,
+            "dominant_zoning_class": 0,
+            "modal_road_skeleton_class": 1,
+            "admin_region": None,
+            "coastal_inland_river": 0,
+            "sub_c_morphology_class": None,
+        },
         macro_tokens=(),
         cells=tuple(cells),
         lineage=frozenset({(region, ti, tj)}),
