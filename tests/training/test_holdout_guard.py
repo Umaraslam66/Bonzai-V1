@@ -139,5 +139,22 @@ def test_f9_leak_still_detected_after_sha_and_marker_pass(tmp_path):
     marker-locked manifest must STILL raise (leak detection stays observable)."""
     p, stamped = _stamp_and_write(tmp_path, _HOLDOUT)
     leak = _train_manifest([{"tile_i": 2, "tile_j": 2, "lineage": [["singapore", 1, 7]]}])
-    with pytest.raises(HoldoutLeakError):
+    with pytest.raises(HoldoutLeakError, match="held-out lineage leak detected"):
         run_holdout_audit(stamped, manifest_to_reachable(leak), manifest_path=p)
+
+
+def test_real_frozen_manifests_verify_under_current_sha_grammar():
+    """Gate-must-distinguish-regimes: the F9 tests above stamp synthetic manifests
+    with the same in-process manifest_sha256 the verifier recomputes, so a grammar
+    drift in canonicalize_yaml/manifest_sha256 keeps them green while the production
+    reader refuses the REAL manifests stamped under the old grammar. Verify both
+    git-tracked frozen manifests directly (real-artifact idiom: test_ladder.py::
+    test_train_tokens_matches_the_frozen_multiregion_marker)."""
+    from cfm.eval.holdout.paths import holdout_manifest_path, multiregion_holdout_manifest_path
+
+    for path in (
+        holdout_manifest_path("2026-04-15.0"),
+        multiregion_holdout_manifest_path("2026-04-15.0"),
+    ):
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert loaded["manifest_sha256"] == manifest_sha256(loaded), path
