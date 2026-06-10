@@ -26,7 +26,11 @@ from cfm.data.sub_g.seam_decodability import split_cell_into_features
 from cfm.data.training.build_shards import build_training_shards
 from cfm.data.training.datamodule import CellDataModule, build_conditioning_prefix
 from cfm.data.training.paths import training_manifest_path
-from cfm.eval.holdout.paths import eval_set_locked_marker, holdout_manifest_path
+from cfm.eval.holdout.paths import (
+    eval_set_locked_marker,
+    expected_holdout_schema_for_region,
+    holdout_manifest_for_region,
+)
 from cfm.eval.slice_metrics import slice_eval
 from cfm.inference.generate import generate_cell_tokens, try_decode_block
 from cfm.training.config import ScaffoldConfig
@@ -52,36 +56,50 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
         build_training_shards(cfg.release, cfg.region)  # writes the lineage manifest
     return CellDataModule(
         training_manifest=training_manifest_path(cfg.release, cfg.region),
-        holdout_manifest=holdout_manifest_path(cfg.release),
+        # REGION-AWARE (obligation (a), delta-spec §3 CORRECTION): manifest AND schema are
+        # derived from cfg.region and TRAVEL TOGETHER, so the local SG smoke path stays
+        # 1.0/SG (behavior unchanged) while an EU run picks the 2.0 multiregion manifest.
+        # The old hazard (a "1.0" pin silently auditing the EU corpus against the wrong
+        # holdout — the #16 failure) is now structurally impossible: region selects both.
+        holdout_manifest=holdout_manifest_for_region(cfg.release, cfg.region),
         seed=cfg.seed,
         batch_size=cfg.batch_size,
         max_cell_tokens=cfg.max_len,
-        # Legacy SG thin-slice: audits the FROZEN, IMMUTABLE Singapore holdout manifest (schema 1.0;
-        # can never be re-stamped to 2.0). This "1.0" opt-down makes THIS site ACCEPT a 1.0
-        # manifest — correct ONLY for the SG set. DANGER on EU/bake-off reuse: leaving "1.0" here
-        # while the manifest is (or defaults to) the SG 1.0 set silently audits the EU corpus
-        # against the WRONG holdout (the #16 failure, one layer over). EU reuse MUST set "2.0" AND
-        # re-point to multiregion_holdout_manifest_path. (Re-pointing to the EU 2.0 manifest but
-        # forgetting to flip "1.0" fails loud — 2.0≠1.0 — which is fine.) See handoff residual.
-        expected_holdout_schema="1.0",
+        expected_holdout_schema=expected_holdout_schema_for_region(cfg.region),
     )
 
 
 def _generate_and_score(
-    model: ScaffoldLit, cfg: ScaffoldConfig, *, n_cells: int, max_new: int
+    model: ScaffoldLit,
+    cfg: ScaffoldConfig,
+    *,
+    n_cells: int,
+    max_new: int,
+    emergence_floor_per_cell: float | None = None,
 ) -> dict:
     """Generate cells from the conditioning prefix, decode via the sealed decoder,
     and score the per-cell slice metrics (decoded / attempted; OGC validity; 90-corner;
-    bref-collapse via the shared instrument). One real per-cell number for the loop."""
+    bref-collapse via the shared instrument). One real per-cell number for the loop.
+
+    Diagnostic instrumentation (bake-off Task 4): counts building-token presence in the
+    GENERATED streams (the §5 stage-1 truncation discriminator -- did the model emit
+    building-class tokens at all, vs they didn't close into polygons), and passes
+    ``n_cells`` + ``emergence_floor_per_cell`` so slice_eval emits the §2 emergence verdict.
+    """
+    from cfm.eval.emergence import sequence_has_building_tokens
+
     prefix = build_conditioning_prefix()
     blocks: list[list[int]] = []
     geoms: list[dict] = []
     strata: list[int] = []
     n_attempted = 0
+    n_cells_with_building_tokens = 0
     for i in range(n_cells):
         tokens = generate_cell_tokens(
             model.model, prefix=prefix, max_new=max_new, seed=cfg.seed + i
         )
+        if sequence_has_building_tokens(tokens):
+            n_cells_with_building_tokens += 1
         cell_blocks = split_cell_into_features(tokens)
         n_attempted += len(cell_blocks)
         for block in cell_blocks:
@@ -90,7 +108,19 @@ def _generate_and_score(
                 blocks.append(block)
                 geoms.append(decoded)
                 strata.append(0)  # single stratum: conditioning is value-agnostic in slice v1
-    return slice_eval(blocks, geoms, strata, n_attempted_blocks=n_attempted)
+    metrics = slice_eval(
+        blocks,
+        geoms,
+        strata,
+        n_attempted_blocks=n_attempted,
+        n_cells=n_cells,
+        emergence_floor_per_cell=emergence_floor_per_cell,
+    )
+    # stage-1 truncation discriminator: NO building tokens => never tried / truncated;
+    # building tokens present but n_polygons low => didn't close (a different cause).
+    metrics["n_cells_generated"] = n_cells
+    metrics["n_cells_with_building_tokens"] = n_cells_with_building_tokens
+    return metrics
 
 
 def run_smoke(devices: int = 4) -> dict:
@@ -214,21 +244,12 @@ def _cost(cfg: ScaffoldConfig, *, fit_seconds: float, steps: int) -> dict:
 
 
 def _param_count(cfg: ScaffoldConfig) -> int:
-    from cfm.data.sub_f.vocab import vocab_tag_to_id
-    from cfm.data.training.conditioning import conditioning_field_to_id
-    from cfm.models.micro_ar import MicroAR, MicroARConfig
+    # Use the ONE backbone factory so the count matches the real model (value-bearing
+    # embedding span = conditioning_id_span(), not the 8-field count -- the build_backbone
+    # sizing, Task 7). Reconstructing MicroAR by hand here would drift.
+    from cfm.models.backbone import build_backbone
 
-    n_subf = max(vocab_tag_to_id().values()) + 1
-    m = MicroAR(
-        MicroARConfig(
-            d_model=cfg.d_model,
-            n_layers=cfg.n_layers,
-            n_heads=cfg.n_heads,
-            n_subf_vocab=n_subf,
-            n_cond=len(conditioning_field_to_id()),
-            max_len=cfg.max_len + len(conditioning_field_to_id()),
-        )
-    )
+    m = build_backbone(cfg.backbone, cfg)
     return sum(p.numel() for p in m.parameters())
 
 
@@ -239,6 +260,8 @@ def run_short(
     max_time: str | None = None,
     eval_cells: int = 64,
     eval_max_new: int = 512,
+    emergence_floor_per_cell: float | None = None,
+    ckpt_every_n_steps: int | None = None,
 ) -> dict:
     """The real pre-deadline run (Leonardo 4xA100). Trains for cfg.max_steps (or until
     ``max_time`` wall-clock, used by the scale-up probe), evals once, writes the
@@ -254,7 +277,7 @@ def run_short(
 
     dm = _datamodule(cfg, build=build_shards)
     lit = maybe_compile(ScaffoldLit(cfg), cfg)
-    trainer = build_trainer(cfg, max_time=max_time)
+    trainer = build_trainer(cfg, max_time=max_time, ckpt_every_n_steps=ckpt_every_n_steps)
     t0 = time.time()
     trainer.fit(lit, dm)
     fit_seconds = time.time() - t0
@@ -264,7 +287,20 @@ def run_short(
     if not trainer.is_global_zero:
         return {"trained_steps": int(trainer.global_step)}
     cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step))
-    metrics = _generate_and_score(lit, cfg, n_cells=eval_cells, max_new=eval_max_new)
+    # Time the eval EXPLICITLY: autoregressive generation is the binding bake-off cost,
+    # so price it rather than assume it is free (the eval-cost reframe).
+    e0 = time.time()
+    metrics = _generate_and_score(
+        lit,
+        cfg,
+        n_cells=eval_cells,
+        max_new=eval_max_new,
+        emergence_floor_per_cell=emergence_floor_per_cell,
+    )
+    eval_seconds = time.time() - e0
+    cost["eval_seconds"] = round(eval_seconds, 1)
+    cost["eval_node_h"] = round(eval_seconds / 3600.0, 4)
+    cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, eval_cells), 6)
     report = _write_report(cfg, metrics, trained_steps=int(trainer.global_step), cost=cost)
     logger.info("wrote %s", report)
     return {
@@ -275,11 +311,15 @@ def run_short(
     }
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO)
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Phase-1 training scaffold runner")
     parser.add_argument("--smoke", action="store_true", help="tiny loop-closing smoke")
     parser.add_argument("--devices", type=int, default=4, help="DDP devices (Leonardo node = 4)")
+    parser.add_argument(
+        "--backbone",
+        default=None,
+        help="bake-off backbone: transformer-ar (default) | mamba-hybrid | discrete-diffusion",
+    )
     parser.add_argument(
         "--max-steps", type=int, default=None, help="override ScaffoldConfig.max_steps"
     )
@@ -288,6 +328,12 @@ def main() -> None:
     parser.add_argument("--n-layers", type=int, default=None, help="scale-up: depth")
     parser.add_argument("--n-heads", type=int, default=None, help="scale-up: attention heads")
     parser.add_argument("--batch-size", type=int, default=None, help="per-GPU batch size")
+    parser.add_argument(
+        "--grad-accum",
+        type=int,
+        default=None,
+        help="gradient accumulation; holds effective batch constant across scales (§10)",
+    )
     parser.add_argument(
         "--no-compile",
         action="store_true",
@@ -309,18 +355,38 @@ def main() -> None:
         action="store_true",
         help="DDP: manifest already built by the sbatch preamble; ranks only read it",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--emergence-floor",
+        type=float,
+        default=None,
+        help="emergence floor (polys/active-cell) for the §2 verdict; diagnostic: 1.96 "
+        "(0.25x the real holdout density 7.85)",
+    )
+    parser.add_argument(
+        "--ckpt-every-n-steps",
+        type=int,
+        default=None,
+        help="save step-interval checkpoints (diagnostic: for the emergence-vs-step trajectory)",
+    )
+    return parser
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    args = _build_parser().parse_args()
     if args.smoke:
         print(json.dumps(run_smoke(devices=args.devices)))
         return
     overrides: dict = {"devices": args.devices, "accelerator": _accelerator_for(args.devices)}
     for flag, key in [
+        ("backbone", "backbone"),
         ("max_steps", "max_steps"),
         ("max_len", "max_len"),
         ("d_model", "d_model"),
         ("n_layers", "n_layers"),
         ("n_heads", "n_heads"),
         ("batch_size", "batch_size"),
+        ("grad_accum", "grad_accum"),
     ]:
         val = getattr(args, flag)
         if val is not None:
@@ -333,6 +399,8 @@ def main() -> None:
         max_time=args.max_time,
         eval_cells=args.eval_cells,
         eval_max_new=args.eval_max_new,
+        emergence_floor_per_cell=args.emergence_floor,
+        ckpt_every_n_steps=args.ckpt_every_n_steps,
     )
     print(json.dumps(result, default=str))
 

@@ -17,13 +17,35 @@ Three construction-identity contracts (one source, never reimplemented):
 from __future__ import annotations
 
 import math
+from enum import Enum
 from typing import Any
 
 from shapely.geometry import shape
 
 # sub-G's construction-identity predicate, imported BY REFERENCE (protocol v2 §9).
 from cfm.data.sub_g.seam_decodability import _is_bref_placeholder_collapse as _is_bref_collapse
+from cfm.eval.emergence import buildings_emerged  # one source for the emergence floor
+from cfm.eval.geometry import promote_building_rings  # one source for building-ring promotion
 from cfm.eval.holdout.bref_rate import bref_placeholder_rate
+
+
+class EmergenceVerdict(Enum):
+    """§2 paired structural check: did buildings emerge densely enough to score?
+
+    ROADS_ONLY means the building-geometry metrics are FLOORED (a failure to produce
+    buildings), never a vacuous pass like ``ogc_valid_rate=1.0`` over zero polygons.
+    """
+
+    SCOREABLE = "scoreable"
+    ROADS_ONLY = "roads_only"
+
+
+def emergence_verdict(*, n_polygons: int, n_cells: int, floor_per_cell: float) -> EmergenceVerdict:
+    """SCOREABLE iff the run clears the holdout-density-tied floor (one source: emergence)."""
+    if buildings_emerged(n_polygons=n_polygons, n_cells=n_cells, floor_per_cell=floor_per_cell):
+        return EmergenceVerdict.SCOREABLE
+    return EmergenceVerdict.ROADS_ONLY
+
 
 #: identity-locked shared D3 instrument (the test asserts `is` identity).
 _bref_rate_fn = bref_placeholder_rate
@@ -87,6 +109,8 @@ def slice_eval(
     strata: list[int],
     *,
     n_attempted_blocks: int | None = None,
+    n_cells: int | None = None,
+    emergence_floor_per_cell: float | None = None,
 ) -> dict[str, Any]:
     """Per-cell metrics over the DECODED (block, geom) pairs.
 
@@ -94,9 +118,19 @@ def slice_eval(
     in stratum ``strata[i]`` (the decoded subset; undecodable blocks are dropped
     upstream). ``n_attempted_blocks`` is the count BEFORE dropping failures so
     decodability is decoded/attempted; it defaults to ``len(blocks)`` (all decoded).
+
+    When both ``n_cells`` and ``emergence_floor_per_cell`` are given, the §2 emergence
+    guard runs: a run below the holdout-density floor gets ``emergence_verdict ==
+    ROADS_ONLY`` and ``building_metrics_floored == True`` so the curve never reads its
+    ``ogc_valid_rate``/``right_angle_rate`` over ~zero polygons as a good score.
     """
     n_decoded = len(geoms)
     attempted = n_attempted_blocks if n_attempted_blocks is not None else len(blocks)
+
+    # Promote building closed-ring LineStrings to polygons (Task 1.5) BEFORE any
+    # building-geometry metric: the sealed decoder returns building rings as LineString by
+    # contract, so without this n_polygons / right-angle / OGC-on-polygons read a vacuous 0.
+    geoms = promote_building_rings(blocks, geoms)
 
     # OGC validity over the NON-bref-collapse decoded geoms (structural exclusion):
     # bref-collapse is a known v1 limitation, removed from the denominator and
@@ -113,6 +147,14 @@ def slice_eval(
     bref = _bref_rate_fn(blocks, geoms, strata)  # shared instrument; reported-not-gated
     right_angle_rate, n_polygons, n_corners = _right_angle_stats(geoms)
 
+    verdict: EmergenceVerdict | None = None
+    floored = False
+    if n_cells is not None and emergence_floor_per_cell is not None:
+        verdict = emergence_verdict(
+            n_polygons=n_polygons, n_cells=n_cells, floor_per_cell=emergence_floor_per_cell
+        )
+        floored = verdict is EmergenceVerdict.ROADS_ONLY
+
     return {
         "decodability_rate": n_decoded / attempted if attempted else 0.0,
         "ogc_valid_rate": gated_valid / gated_total if gated_total else 0.0,
@@ -122,5 +164,7 @@ def slice_eval(
         "n_attempted": attempted,
         "n_polygons": n_polygons,  # disambiguates right_angle_rate==0.0
         "n_corners": n_corners,
+        "emergence_verdict": verdict.value if verdict is not None else None,
+        "building_metrics_floored": floored,
         "scope": "per-cell; tile-coherence UNSCORED",
     }

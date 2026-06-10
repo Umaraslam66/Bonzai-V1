@@ -68,6 +68,7 @@ def build_trainer(
     limit_train_batches: int | float | None = None,
     default_root_dir: str | None = None,
     max_time: str | None = None,
+    ckpt_every_n_steps: int | None = None,
 ) -> L.Trainer:
     """Construct the Trainer. ``accelerator="cpu"`` (tests / login node) downgrades
     precision to fp32 and strategy to single-process; the real run uses cfg's
@@ -90,6 +91,17 @@ def build_trainer(
         monitor="val_loss",  # internal val split ONLY; never the holdout
     )
     callbacks: list[Callback] = [checkpoint]
+    if ckpt_every_n_steps:
+        # Step-interval checkpoints (save ALL) for the diagnostic's emergence-vs-step
+        # trajectory: evaluated post-hoc (Task 4 trajectory follow-on), so generation
+        # never runs mid-DDP-training (avoids the rank-0-only-work hazard).
+        callbacks.append(
+            ModelCheckpoint(
+                every_n_train_steps=ckpt_every_n_steps,
+                save_top_k=-1,
+                filename="step{step}",
+            )
+        )
     if cfg.devices > 1:
         callbacks.append(WorldSizeGuard(cfg.devices))  # non-vacuous DDP guard
 
@@ -103,6 +115,7 @@ def build_trainer(
         max_steps=-1 if epoch_mode else cfg.max_steps,
         max_epochs=max_epochs,
         limit_train_batches=limit_train_batches,
+        accumulate_grad_batches=cfg.grad_accum,  # holds effective batch constant across scales
         fast_dev_run=fast_dev_run,
         deterministic=True,
         use_distributed_sampler=False,  # the DataModule owns the seeded sampler
@@ -110,6 +123,15 @@ def build_trainer(
         logger=_build_logger(),
         default_root_dir=default_root_dir,
     )
+
+
+def effective_batch_size(cfg: ScaffoldConfig) -> int:
+    """The comparability-relevant batch: per-GPU batch * devices * grad accumulation.
+
+    Held constant across scales (§10) so a memory-forced smaller per-GPU batch at 300M/1B
+    is compensated by grad_accum rather than silently changing the optimization regime.
+    """
+    return cfg.batch_size * cfg.devices * cfg.grad_accum
 
 
 def maybe_compile(lit: ScaffoldLit, cfg: ScaffoldConfig) -> ScaffoldLit:

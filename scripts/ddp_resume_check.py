@@ -30,7 +30,10 @@ import torch
 
 from cfm.data.training.datamodule import CellDataModule
 from cfm.data.training.paths import training_manifest_path
-from cfm.eval.holdout.paths import holdout_manifest_path
+from cfm.eval.holdout.paths import (
+    expected_holdout_schema_for_region,
+    holdout_manifest_for_region,
+)
 from cfm.training.config import ScaffoldConfig
 from cfm.training.env_lock import assert_training_env_locked
 from cfm.training.lit_module import ScaffoldLit
@@ -58,18 +61,16 @@ def _cfg() -> ScaffoldConfig:
 def _datamodule(cfg: ScaffoldConfig) -> CellDataModule:
     return CellDataModule(
         training_manifest=training_manifest_path(cfg.release, cfg.region),
-        holdout_manifest=holdout_manifest_path(cfg.release),
+        # REGION-AWARE (obligation (a), delta-spec §3 CORRECTION): manifest AND schema are
+        # derived from cfg.region (here _REGION="singapore") and TRAVEL TOGETHER, so this
+        # SG resume check stays 1.0/SG (behavior unchanged) while an EU run would pick the
+        # 2.0 multiregion manifest. Region selects both, so a manifest/schema mismatch
+        # (the #16 failure) is structurally impossible.
+        holdout_manifest=holdout_manifest_for_region(cfg.release, cfg.region),
         seed=cfg.seed,
         batch_size=cfg.batch_size,
         max_cell_tokens=cfg.max_len,
-        # Legacy SG thin-slice: audits the FROZEN, IMMUTABLE Singapore holdout manifest (schema 1.0;
-        # can never be re-stamped to 2.0). This "1.0" opt-down makes THIS site ACCEPT a 1.0
-        # manifest — correct ONLY for the SG set. DANGER on EU/bake-off reuse: leaving "1.0" here
-        # while the manifest is (or defaults to) the SG 1.0 set silently audits the EU corpus
-        # against the WRONG holdout (the #16 failure, one layer over). EU reuse MUST set "2.0" AND
-        # re-point to multiregion_holdout_manifest_path. (Re-pointing to the EU 2.0 manifest but
-        # forgetting to flip "1.0" fails loud — 2.0≠1.0 — which is fine.) See handoff residual.
-        expected_holdout_schema="1.0",
+        expected_holdout_schema=expected_holdout_schema_for_region(cfg.region),
     )
 
 

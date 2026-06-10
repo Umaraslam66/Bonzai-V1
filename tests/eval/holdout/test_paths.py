@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import yaml
+
 from cfm.eval.holdout import paths
 from cfm.eval.holdout.paths import (
+    _EU_HELD_OUT_CITIES,
     epsg_label_for_region,
     multiregion_eval_set_locked_marker,
     multiregion_holdout_manifest_path,
@@ -79,3 +82,19 @@ def test_multiregion_eval_set_locked_marker():
     # must be distinct from the frozen SG marker
     sg_marker = paths.eval_set_locked_marker(release)
     assert marker != sg_marker
+
+
+def test_eu_held_out_cities_constant_matches_manifest():
+    # DRIFT GUARD (finding M3 / Gate-6): the hardcoded `_EU_HELD_OUT_CITIES` selector
+    # is a SECOND copy of the multiregion manifest's own `held_out_cities` field. The
+    # copy is intentional (the selector must pick SG-vs-EU before opening any manifest),
+    # but a hardcoded duplicate can DRIFT: if the manifest's held-out cities change and
+    # this constant goes stale, a held-out city could leak into training and the
+    # generalization test would silently break. Cross-reference the constant against the
+    # manifest read DIRECTLY (the external source of truth), WITHOUT routing through any
+    # paths.py helper in the assertion logic. GREEN on disk (both =
+    # eisenhuttenstadt/glasgow/krakow/munich); RED the moment either side diverges.
+    manifest = yaml.safe_load(
+        multiregion_holdout_manifest_path("2026-04-15.0").read_text(encoding="utf-8")
+    )
+    assert _EU_HELD_OUT_CITIES == set(manifest["held_out_cities"])

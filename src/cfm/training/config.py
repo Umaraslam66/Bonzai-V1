@@ -16,7 +16,11 @@ class ScaffoldConfig(BaseModel):
     region: str = "singapore"
     seed: int = 7
 
-    # model (toy ~10-30M; the simplest block shared by bake-off candidates 1-3)
+    # model
+    #: Bake-off backbone: "transformer-ar" (today) | "mamba-hybrid" | "discrete-diffusion"
+    #: (the latter two gated behind Task 5's mamba-ssm verify-before-lock).
+    backbone: str = "transformer-ar"
+    # toy ~10-30M; the simplest block shared by bake-off candidates 1-3
     d_model: int = 256
     n_layers: int = 6
     n_heads: int = 8
@@ -27,6 +31,10 @@ class ScaffoldConfig(BaseModel):
     # optimisation
     lr: float = 3e-4
     batch_size: int = 8
+    #: Gradient accumulation: holds the EFFECTIVE batch (batch_size * devices * grad_accum)
+    #: constant across scales when per-GPU memory forces a smaller batch_size at 300M/1B
+    #: (§10 comparability -- per-scale memory limits must not be an uncontrolled variable).
+    grad_accum: int = 1
     max_steps: int = 2000
 
     # trainer / hardware

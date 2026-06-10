@@ -30,7 +30,8 @@ from cfm.data.sub_d.enums import SlotKind
 from cfm.data.sub_d.io import read_macro_core_parquet
 from cfm.data.sub_g.readers import read_sub_f_cells
 from cfm.data.training.paths import (
-    holdout_manifest_path,
+    epsg_label_for_region,
+    holdout_manifest_for_region,
     sub_d_region_dir,
     sub_f_region_dir,
     tile_dirname,
@@ -51,13 +52,25 @@ def _validated_inventory(release: str, region: str) -> list[dict]:
 
 
 def _holdout_ids(release: str, region: str) -> set[tuple[int, int]]:
-    """SINGLE SOURCE: the frozen holdout manifest, by tile ID. No re-derivation."""
-    m = yaml.safe_load(holdout_manifest_path(release).read_text(encoding="utf-8"))
+    """SINGLE SOURCE: the frozen holdout manifest, by tile ID. No re-derivation.
+
+    REGION-AWARE (obligation (a), delta-spec §3 CORRECTION): ``region`` selects the
+    manifest — ``singapore`` -> SG manifest (schema 1.0); the 4 EU held-out cities ->
+    multiregion manifest (schema 2.0); unknown region -> raise. Both manifests share the
+    ``regions[<region>]["tiles"][{tile_i, tile_j}]`` nesting, so the read is identical."""
+    m = yaml.safe_load(holdout_manifest_for_region(release, region).read_text(encoding="utf-8"))
     return {(int(t["tile_i"]), int(t["tile_j"])) for t in m["regions"][region]["tiles"]}
 
 
 def compute_training_tile_ids(release: str, region: str) -> list[tuple[int, int]]:
-    """validated minus holdout, by ID. Sorted for deterministic build order."""
+    """validated minus holdout, by ID. Sorted for deterministic build order.
+
+    SINGLE-REGION path (Singapore + the held-out cities). For a multi-region TRAIN
+    city this RAISES via ``_holdout_ids`` (the city is neither singapore nor a held-out
+    city) — that is the I1 fail-closed boundary. The multi-region driver
+    (``build_train_city_shards``) DELIBERATELY does not call this for a train city; it
+    builds with ALL validated tiles instead (whole-city exclusion already removed the
+    held-out cities, so a train city has no tile-level holdout)."""
     holdout = _holdout_ids(release, region)
     ids = [
         (int(e["tile_i"]), int(e["tile_j"]))
@@ -65,6 +78,90 @@ def compute_training_tile_ids(release: str, region: str) -> list[tuple[int, int]
         if (int(e["tile_i"]), int(e["tile_j"])) not in holdout
     ]
     return sorted(ids)
+
+
+def _load_or_pass(obj: dict | Path | str) -> dict:
+    """Accept a parsed mapping OR a path to a YAML file (injectable for tests)."""
+    if isinstance(obj, dict):
+        return obj
+    return yaml.safe_load(Path(obj).read_text(encoding="utf-8"))
+
+
+def train_cities(
+    release: str,
+    *,
+    g4_rollup: dict | Path | str,
+    holdout_manifest: dict | Path | str,
+) -> list[str]:
+    """The multi-region TRAIN-city names: validated cities MINUS the held-out cities.
+
+    Parse the G4 roll-up's ``per_city`` list, keep ``validated: true`` names, and
+    EXCLUDE the held-out cities read from ``holdout_manifest["held_out_cities"]``.
+
+    The 4 held-out cities are present in the roll-up with ``validated: true`` (they
+    passed validation; they are simply reserved for evaluation), so this exclusion is
+    ACTIVE — the held-out set is removed here, BY CONSTRUCTION, before any shard is
+    built. Unvalidated cities are dropped too (they are not corpus-eligible).
+
+    ``g4_rollup`` / ``holdout_manifest`` accept a parsed dict OR a path so the real
+    on-disk artifacts (Task 8 / Leonardo) and synthetic fixtures share one code path.
+    Result is sorted for deterministic build order. The ``release`` arg is carried for
+    call-site symmetry with the rest of the builder API (the roll-up is already
+    release-scoped by the caller)."""
+    rollup = _load_or_pass(g4_rollup)
+    held = set(_load_or_pass(holdout_manifest).get("held_out_cities", []))
+    names = [c["name"] for c in rollup["per_city"] if c.get("validated") and c["name"] not in held]
+    return sorted(names)
+
+
+def build_train_city_shards(release: str, city: str) -> list[TrainingShard]:
+    """Build one TRAIN city's shards from ALL its validated tiles — the I1-boundary
+    bypass (handled AT THE LOOP, never by touching ``_holdout_ids``).
+
+    A train city has NO tile-level holdout: whole-city exclusion (``train_cities``)
+    already removed the 4 held-out cities, so every validated tile of a train city is
+    a training tile. Building with ``tile_ids=<all validated ids>`` routes straight to
+    ``build_shards_in_memory`` and DELIBERATELY skips ``compute_training_tile_ids`` /
+    ``_holdout_ids`` — which would otherwise RAISE ``ValueError`` for a train city
+    (the Task-1 fail-closed guarantee, left intact as the backstop)."""
+    tile_ids = sorted(
+        (int(e["tile_i"]), int(e["tile_j"])) for e in _validated_inventory(release, city)
+    )
+    return build_shards_in_memory(release, city, tile_ids=tile_ids)
+
+
+def build_train_city_manifest(
+    release: str, city: str, *, out_dir: Path | None = None
+) -> list[TrainingShard]:
+    """I1-SAFE writing build for a TRAIN city: build from ALL validated tiles AND write
+    the byte-deterministic per-city ``training_manifest.yaml``.
+
+    The persistence sibling of ``build_train_city_shards`` (which is in-memory only) and
+    the train-city counterpart of ``build_training_shards``. Unlike the latter — which
+    routes through ``compute_training_tile_ids`` -> ``_holdout_ids`` and therefore RAISES
+    ``ValueError`` for a train city (the I1 fail-closed boundary: a train city is neither
+    ``singapore`` nor a held-out city) — this builds via ``build_train_city_shards`` (all
+    validated tiles, no tile-level holdout, since whole-city exclusion already removed the
+    held-out cities). Task 8's multi-region driver calls THIS per train city; the locked
+    single-region Singapore/held-out writer ``build_training_shards`` stays untouched."""
+    out = out_dir or training_region_dir(release, city)
+    out.mkdir(parents=True, exist_ok=True)
+    prov_by_id = {
+        (int(e["tile_i"]), int(e["tile_j"])): e["provenance_sha256"]
+        for e in _validated_inventory(release, city)
+    }
+    shards = build_train_city_shards(release, city)
+    _write_training_manifest(out, release, city, shards, prov_by_id)
+    return shards
+
+
+def build_multiregion_shards(release: str, cities: list[str]) -> list[TrainingShard]:
+    """Build the UNION of shards across all train cities (per-city all-validated-tiles
+    build, concatenated). Cities are built in sorted order for deterministic output."""
+    shards: list[TrainingShard] = []
+    for city in sorted(cities):
+        shards.extend(build_train_city_shards(release, city))
+    return shards
 
 
 def _cell_density_by_cell(sub_d_tile_dir: Path) -> dict[tuple[int, int], int]:
@@ -106,9 +203,15 @@ def build_shards_in_memory(
     sub_f_dir = sub_f_region_dir(release, region)
     ids = sorted(tile_ids) if tile_ids is not None else compute_training_tile_ids(release, region)
 
+    # Per-tile dir names embed the REGION's CRS label (e.g. EPSG25834), NOT the Singapore
+    # EPSG3414 default — derive it once per region. Without this, an EU region's tiles
+    # resolve to a Singapore-named dir that does not exist (multi-region read bug, caught
+    # by the Task-8 small-before-big build on Leonardo 2026-06-10).
+    epsg_label = epsg_label_for_region(region)
+
     shards: list[TrainingShard] = []
     for ti, tj in ids:  # sorted -> deterministic
-        dirname = tile_dirname(ti, tj)
+        dirname = tile_dirname(ti, tj, epsg_label)
         labels = read_tile_labels(sub_d_dir / dirname, tile_i=ti, tile_j=tj)
         density = _cell_density_by_cell(sub_d_dir / dirname)
         tokens_by_cell = read_sub_f_cells(sub_f_dir / dirname / "cells.parquet")

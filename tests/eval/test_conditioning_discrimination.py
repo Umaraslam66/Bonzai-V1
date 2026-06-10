@@ -1,0 +1,248 @@
+"""Pure-logic tests for the Task-9 conditioning-discrimination gate (input (i)).
+
+NO real tiles — synthetic per-(city, stratum, metric) feature lists only. The IO
+function ``extract_features_by_city_stratum_metric`` runs on Leonardo against the
+real corpus and is exercised there, not here.
+
+The 6 TDD teeth (design note §"TDD teeth") plus unit tests for the pure stats
+helpers (``noise_floor``, ``ks_pvalue``, ``benjamini_hochberg``).
+"""
+
+from __future__ import annotations
+
+import math
+import random
+
+from cfm.eval.conditioning_discrimination import (
+    benjamini_hochberg,
+    conditioning_discrimination_verdict,
+    ks_pvalue,
+    noise_floor,
+)
+from cfm.eval.realism import FeatureMetric, ks_distance
+
+_BUILDING = FeatureMetric.BUILDING_AREA.value
+_ROAD = FeatureMetric.ROAD_LENGTH.value
+
+
+def _gauss(rng: random.Random, *, mu: float, sigma: float, n: int) -> list[float]:
+    return [rng.gauss(mu, sigma) for _ in range(n)]
+
+
+# --------------------------------------------------------------------------- #
+# Pure stats helpers
+# --------------------------------------------------------------------------- #
+
+
+def test_noise_floor_matches_ks_critical_value_formula() -> None:
+    # 1.36 * sqrt((n1+n2)/(n1*n2)) — the alpha=0.05 two-sample KS critical value.
+    assert noise_floor(50, 50) == 1.36 * math.sqrt(100 / 2500)
+    assert noise_floor(100, 200) == 1.36 * math.sqrt(300 / 20000)
+
+
+def test_ks_pvalue_identical_samples_is_one() -> None:
+    # D == 0 -> p == 1.0 (no evidence of difference).
+    assert ks_pvalue(0.0, 50, 50) == 1.0
+
+
+def test_ks_pvalue_disjoint_samples_is_near_zero() -> None:
+    # D == 1 with large n -> p ~ 0 (overwhelming evidence of difference).
+    p = ks_pvalue(1.0, 500, 500)
+    assert p < 1e-6
+
+
+def test_ks_pvalue_in_unit_interval() -> None:
+    for d in (0.0, 0.1, 0.3, 0.5, 0.8, 1.0):
+        p = ks_pvalue(d, 80, 120)
+        assert 0.0 <= p <= 1.0
+
+
+def test_benjamini_hochberg_hand_computed_example() -> None:
+    # m=4, sorted p = [0.005, 0.01, 0.03, 0.5].
+    # adj_(4)=0.5, adj_(3)=min(0.5, 0.03*4/3=0.04)=0.04,
+    # adj_(2)=min(0.04, 0.01*4/2=0.02)=0.02, adj_(1)=min(0.02, 0.005*4/1=0.02)=0.02.
+    # Input order [0.01, 0.5, 0.005, 0.03] -> [0.02, 0.5, 0.02, 0.04].
+    out = benjamini_hochberg([0.01, 0.5, 0.005, 0.03])
+    assert out == [0.02, 0.5, 0.02, 0.04]
+
+
+def test_benjamini_hochberg_preserves_input_order_and_monotone() -> None:
+    out = benjamini_hochberg([0.5, 0.005, 0.01, 0.03])
+    assert out == [0.5, 0.02, 0.02, 0.04]
+
+
+# --------------------------------------------------------------------------- #
+# Verdict — the 6 TDD teeth
+# --------------------------------------------------------------------------- #
+
+
+def test_tooth1_pass_same_distribution_across_cities() -> None:
+    """Same distribution, same stratum, across cities -> all D <= floor -> PASS."""
+    rng = random.Random(7)
+    n = 200
+    features: dict[tuple[str, tuple, str], list[float]] = {}
+    for stratum in ((1, 1, 0, 0), (2, 1, 1, 0)):
+        for city in ("a", "b", "c"):
+            features[(city, stratum, _BUILDING)] = _gauss(rng, mu=10.0, sigma=2.0, n=n)
+    result = conditioning_discrimination_verdict(features, min_n=50)
+    assert result.verdict == "PASS"
+    assert result.n_qualifying_comparisons > 0
+    assert all(not p.significant for p in result.pairs)
+
+
+def test_tooth2_fail_genuine_difference_survives_bh() -> None:
+    """One stratum, two cities from clearly different distributions -> FAIL."""
+    rng = random.Random(7)
+    n = 300
+    stratum = (1, 1, 0, 0)
+    features = {
+        ("a", stratum, _BUILDING): _gauss(rng, mu=0.0, sigma=1.0, n=n),
+        ("b", stratum, _BUILDING): _gauss(rng, mu=100.0, sigma=1.0, n=n),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50)
+    assert result.verdict == "FAIL"
+    assert result.per_metric_verdict[_BUILDING] == "FAIL"
+    assert any(p.significant for p in result.pairs)
+
+
+def test_tooth3_mc_guard_noise_tail_does_not_reopen_t5() -> None:
+    """~40+ same-distribution pairs: BH suppresses chance raw exceedances -> PASS.
+
+    Non-vacuous guard: at least one pair has raw ks > floor (a raw exceedance that
+    WOULD have fired the un-corrected HALT), yet none is BH-significant -> PASS.
+    """
+    rng = random.Random(7)
+    n = 60
+    features: dict[tuple[str, tuple, str], list[float]] = {}
+    # 14 strata x C(3,2)=3 pairs = 42 same-distribution comparisons.
+    for s in range(14):
+        stratum = (s, 0, 0, 0)
+        for city in ("a", "b", "c"):
+            features[(city, stratum, _BUILDING)] = _gauss(rng, mu=5.0, sigma=1.0, n=n)
+    result = conditioning_discrimination_verdict(features, min_n=50)
+
+    # The guard must hold: a noise-tail outlier does NOT reopen T5.
+    assert result.verdict == "PASS"
+    assert all(not p.significant for p in result.pairs)
+
+    # Non-vacuity: prove a RAW exceedance existed (ks > floor) that BH suppressed.
+    # If none exists, this test is vacuous and must fail.
+    raw_exceedances = [p for p in result.pairs if p.ks > p.floor]
+    assert raw_exceedances, "MC-guard test is vacuous: no raw ks>floor exceedance to suppress"
+    # And confirm BH actually neutralised them (none is significant).
+    assert all(not p.significant for p in raw_exceedances)
+
+
+def test_tile_features_promotes_building_rings_to_area() -> None:
+    """A building (closed-ring LineString by decoder contract) must become building_area,
+    NOT road_length. RED-ON-DIVERGENCE: drop ``promote_building_rings`` and the closed
+    ring stays LineString -> miscounted as a road -> building_area empty (the munich
+    building_area=0 bug caught by the Leonardo sanity-extract 2026-06-10)."""
+    from cfm.eval.conditioning_discrimination import _tile_features
+    from cfm.eval.emergence import building_token_ids
+
+    bid = min(building_token_ids())
+    closed_ring = {"type": "LineString", "coordinates": [[0, 0], [1, 0], [1, 1], [0, 0]]}
+    open_road = {"type": "LineString", "coordinates": [[0, 0], [2, 0]]}
+    blocks = [[bid], [0]]  # block 0 carries a building token; block 1 does not
+    out = _tile_features(blocks, [closed_ring, open_road], [1, 1])
+
+    areas = [v for m, v, _ in out if m == "building_area_m2"]
+    lengths = [v for m, v, _ in out if m == "road_length_m"]
+    assert len(areas) == 1 and areas[0] > 0, "building closed-ring not promoted to area"
+    assert len(lengths) == 1 and lengths[0] > 0, "open road not classified as road_length"
+
+
+def test_tooth4_thin_n_excluded_and_counted() -> None:
+    """A (city, stratum, metric) below min_n is excluded, counted, in no pair."""
+    rng = random.Random(7)
+    stratum = (1, 1, 0, 0)
+    features = {
+        ("a", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
+        ("b", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
+        # thin: below min_n=50, excluded from the qualified set.
+        ("c", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=10),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50)
+    assert result.n_excluded_thin == 1
+    # Only a<->b qualifies; c never appears in any pair.
+    cities_in_pairs = {p.city_a for p in result.pairs} | {p.city_b for p in result.pairs}
+    assert "c" not in cities_in_pairs
+    assert result.n_qualifying_comparisons == 1
+
+
+def test_tooth5_unsupported_when_all_strata_thin() -> None:
+    """All cells thin -> verdict UNSUPPORTED, 0 qualifying comparisons (not PASS)."""
+    rng = random.Random(7)
+    stratum = (1, 1, 0, 0)
+    features = {
+        ("a", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=10),
+        ("b", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=20),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50)
+    assert result.verdict == "UNSUPPORTED"
+    assert result.n_qualifying_comparisons == 0
+    assert result.n_excluded_thin == 2
+
+
+def test_tooth6_per_metric_road_fails_building_passes() -> None:
+    """Identical building_area, clearly different road_length -> overall FAIL,
+    road FAIL, building PASS."""
+    rng = random.Random(7)
+    n = 300
+    stratum = (1, 1, 0, 0)
+    features = {
+        # building_area: same distribution -> PASS
+        ("a", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=n),
+        ("b", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=n),
+        # road_length: clearly different -> FAIL
+        ("a", stratum, _ROAD): _gauss(rng, mu=0.0, sigma=1.0, n=n),
+        ("b", stratum, _ROAD): _gauss(rng, mu=100.0, sigma=1.0, n=n),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50)
+    assert result.verdict == "FAIL"
+    assert result.per_metric_verdict[_ROAD] == "FAIL"
+    assert result.per_metric_verdict[_BUILDING] == "PASS"
+
+
+def test_strata_too_few_cities_counted() -> None:
+    """A stratum with only one qualified city contributes no pair and is counted."""
+    rng = random.Random(7)
+    features = {
+        # stratum X: only one qualified city -> too few
+        ("a", (9, 0, 0, 0), _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
+        # stratum Y: two qualified cities -> a pair
+        ("a", (1, 1, 0, 0), _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
+        ("b", (1, 1, 0, 0), _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50)
+    assert result.n_strata_too_few_cities == 1
+    assert result.n_qualifying_comparisons == 1
+
+
+def test_n_by_city_stratum_metric_reports_every_n() -> None:
+    """Every (city, stratum, metric) key's n is recorded, thin or not."""
+    rng = random.Random(7)
+    stratum = (1, 1, 0, 0)
+    features = {
+        ("a", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
+        ("b", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=7),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50)
+    assert result.n_by_city_stratum_metric[("a", stratum, _BUILDING)] == 200
+    assert result.n_by_city_stratum_metric[("b", stratum, _BUILDING)] == 7
+
+
+def test_ks_distance_consistency_with_realism() -> None:
+    """The verdict's ks matches realism.ks_distance for a known pair (one source)."""
+    rng = random.Random(7)
+    stratum = (1, 1, 0, 0)
+    a = _gauss(rng, mu=0.0, sigma=1.0, n=120)
+    b = _gauss(rng, mu=3.0, sigma=1.0, n=120)
+    features = {
+        ("a", stratum, _BUILDING): a,
+        ("b", stratum, _BUILDING): b,
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50)
+    pair = result.pairs[0]
+    assert pair.ks == ks_distance(a, b)
