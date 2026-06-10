@@ -6,8 +6,8 @@ Thin DRIVER over the LOCKED verdict API
 
   1. Extracts per-(city, full-stratum, metric) real feature scalars from the held-out
      EU tiles (``extract_features_by_city_stratum_metric``).
-  2. Computes the conditioning-discrimination verdict (BH multiple-comparison guard;
-     ``conditioning_discrimination_verdict``).
+  2. Computes the conditioning-discrimination verdict (BH multiple-comparison guard
+     + δ=0.15 effect-size floor, PI-call #1; ``conditioning_discrimination_verdict``).
   3. Writes a canonical-YAML report with every n reported beside its denominator:
      the verdict, per-metric verdict, the full per-(city, stratum, metric) n map,
      the per-city tile coverage (n_tiles_expected/read/skipped — the F3 shrinkage
@@ -89,6 +89,7 @@ def _result_to_report_dict(result: ConditioningDiscriminationResult) -> dict:
             "n_tiles_expected": cov.n_tiles_expected,
             "n_tiles_read": cov.n_tiles_read,
             "n_tiles_skipped": cov.n_tiles_skipped,
+            "n_bref_excluded": cov.n_bref_excluded,
         }
         for city, cov in sorted(result.tile_coverage.items())
     }
@@ -97,6 +98,9 @@ def _result_to_report_dict(result: ConditioningDiscriminationResult) -> dict:
         "per_metric_verdict": dict(result.per_metric_verdict),
         "min_n": result.min_n,
         "alpha": result.alpha,
+        "effect_size_floor": result.effect_size_floor,
+        "n_significant_raw_bh": result.n_significant_raw_bh,
+        "n_significant_effect": result.n_significant_effect,
         "n_qualifying_comparisons": result.n_qualifying_comparisons,
         "n_excluded_thin": result.n_excluded_thin,
         "n_strata_too_few_cities": result.n_strata_too_few_cities,
@@ -114,15 +118,18 @@ def _print_summary(result: ConditioningDiscriminationResult, report_path: Path) 
     print(f"  VERDICT                  : {result.verdict}")
     print(f"  per-metric verdict       : {result.per_metric_verdict}")
     print(f"  min_n / alpha            : {result.min_n} / {result.alpha}")
+    print(f"  effect-size floor (δ)    : {result.effect_size_floor}")
     print(f"  qualifying comparisons   : {result.n_qualifying_comparisons}")
     print(f"  thin-n cells excluded    : {result.n_excluded_thin}")
     print(f"  strata <2 cities         : {result.n_strata_too_few_cities}")
     for city, cov in sorted(result.tile_coverage.items()):
         print(
             f"  tiles {city:<18}: expected={cov.n_tiles_expected} "
-            f"read={cov.n_tiles_read} skipped={cov.n_tiles_skipped}"
+            f"read={cov.n_tiles_read} skipped={cov.n_tiles_skipped} "
+            f"bref_excluded={cov.n_bref_excluded}"
         )
-    print(f"  BH-significant pairs     : {len(sig)}")
+    print(f"  raw-BH significant pairs : {result.n_significant_raw_bh}")
+    print(f"  effect-significant pairs : {result.n_significant_effect} (drives verdict)")
     for p in sig:
         print(
             f"    FAIL  metric={p.metric} stratum={p.stratum} "
@@ -142,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cities", nargs="+", default=list(DEFAULT_CITIES))
     parser.add_argument("--min-n", type=int, default=50)
     parser.add_argument("--alpha", type=float, default=0.05)
+    # δ=0.15 (PI-call #1, spec §4.3): the effect-size floor's default lives HERE,
+    # at the decision-making layer — the pure verdict takes it as a required kwarg.
+    parser.add_argument("--effect-size-floor", type=float, default=0.15)
     parser.add_argument("--report-out", default=_DEFAULT_REPORT_OUT)
     args = parser.parse_args(argv)
 
@@ -150,7 +160,10 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("extracted %d (city, stratum, metric) cells", len(extraction.features))
 
     result = conditioning_discrimination_verdict(
-        extraction.features, min_n=args.min_n, alpha=args.alpha
+        extraction.features,
+        min_n=args.min_n,
+        alpha=args.alpha,
+        effect_size_floor=args.effect_size_floor,
     )
     # Thread extraction coverage into the result; the verdict fn stays pure.
     result = dataclasses.replace(result, tile_coverage=extraction.tile_coverage)

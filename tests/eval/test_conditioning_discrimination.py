@@ -91,7 +91,7 @@ def test_tooth1_pass_same_distribution_across_cities() -> None:
     for stratum in ((1, 1, 0, 0), (2, 1, 1, 0)):
         for city in ("a", "b", "c"):
             features[(city, stratum, _BUILDING)] = _gauss(rng, mu=10.0, sigma=2.0, n=n)
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.verdict == "PASS"
     assert result.n_qualifying_comparisons > 0
     assert all(not p.significant for p in result.pairs)
@@ -106,7 +106,7 @@ def test_tooth2_fail_genuine_difference_survives_bh() -> None:
         ("a", stratum, _BUILDING): _gauss(rng, mu=0.0, sigma=1.0, n=n),
         ("b", stratum, _BUILDING): _gauss(rng, mu=100.0, sigma=1.0, n=n),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.verdict == "FAIL"
     assert result.per_metric_verdict[_BUILDING] == "FAIL"
     assert any(p.significant for p in result.pairs)
@@ -126,7 +126,7 @@ def test_tooth3_mc_guard_noise_tail_does_not_reopen_t5() -> None:
         stratum = (s, 0, 0, 0)
         for city in ("a", "b", "c"):
             features[(city, stratum, _BUILDING)] = _gauss(rng, mu=5.0, sigma=1.0, n=n)
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
 
     # The guard must hold: a noise-tail outlier does NOT reopen T5.
     assert result.verdict == "PASS"
@@ -152,12 +152,13 @@ def test_tile_features_promotes_building_rings_to_area() -> None:
     closed_ring = {"type": "LineString", "coordinates": [[0, 0], [1, 0], [1, 1], [0, 0]]}
     open_road = {"type": "LineString", "coordinates": [[0, 0], [2, 0]]}
     blocks = [[bid], [0]]  # block 0 carries a building token; block 1 does not
-    out = _tile_features(blocks, [closed_ring, open_road], [1, 1])
+    out, n_bref_excluded = _tile_features(blocks, [closed_ring, open_road], [1, 1])
 
     areas = [v for m, v, _ in out if m == "building_area_m2"]
     lengths = [v for m, v, _ in out if m == "road_length_m"]
     assert len(areas) == 1 and areas[0] > 0, "building closed-ring not promoted to area"
     assert len(lengths) == 1 and lengths[0] > 0, "open road not classified as road_length"
+    assert n_bref_excluded == 0  # no outbound-bref block in this fixture
 
 
 def test_tooth4_thin_n_excluded_and_counted() -> None:
@@ -170,7 +171,7 @@ def test_tooth4_thin_n_excluded_and_counted() -> None:
         # thin: below min_n=50, excluded from the qualified set.
         ("c", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=10),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.n_excluded_thin == 1
     # Only a<->b qualifies; c never appears in any pair.
     cities_in_pairs = {p.city_a for p in result.pairs} | {p.city_b for p in result.pairs}
@@ -186,7 +187,7 @@ def test_tooth5_unsupported_when_all_strata_thin() -> None:
         ("a", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=10),
         ("b", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=20),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.verdict == "UNSUPPORTED"
     assert result.n_qualifying_comparisons == 0
     assert result.n_excluded_thin == 2
@@ -206,7 +207,7 @@ def test_tooth6_per_metric_road_fails_building_passes() -> None:
         ("a", stratum, _ROAD): _gauss(rng, mu=0.0, sigma=1.0, n=n),
         ("b", stratum, _ROAD): _gauss(rng, mu=100.0, sigma=1.0, n=n),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.verdict == "FAIL"
     assert result.per_metric_verdict[_ROAD] == "FAIL"
     assert result.per_metric_verdict[_BUILDING] == "PASS"
@@ -222,7 +223,7 @@ def test_strata_too_few_cities_counted() -> None:
         ("a", (1, 1, 0, 0), _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
         ("b", (1, 1, 0, 0), _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.n_strata_too_few_cities == 1
     assert result.n_qualifying_comparisons == 1
 
@@ -235,7 +236,7 @@ def test_n_by_city_stratum_metric_reports_every_n() -> None:
         ("a", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
         ("b", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=7),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.n_by_city_stratum_metric[("a", stratum, _BUILDING)] == 200
     assert result.n_by_city_stratum_metric[("b", stratum, _BUILDING)] == 7
 
@@ -250,7 +251,7 @@ def test_ks_distance_consistency_with_realism() -> None:
         ("a", stratum, _BUILDING): a,
         ("b", stratum, _BUILDING): b,
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     pair = result.pairs[0]
     assert pair.ks == ks_distance(a, b)
 
@@ -386,7 +387,111 @@ def test_extraction_uses_region_crs_label(tmp_path, monkeypatch) -> None:
 def test_result_tile_coverage_defaults_empty_and_threads_via_replace() -> None:
     """The verdict fn stays coverage-agnostic (default {}); the runner threads
     extraction coverage in via dataclasses.replace — pin that seam."""
-    result = conditioning_discrimination_verdict({}, min_n=50)
+    result = conditioning_discrimination_verdict({}, min_n=50, effect_size_floor=0.15)
     assert result.tile_coverage == {}
     cov = {"x": CD.TileCoverage(n_tiles_expected=2, n_tiles_read=2, n_tiles_skipped=0)}
     assert dataclasses.replace(result, tile_coverage=cov).tile_coverage == cov
+
+
+# --------------------------------------------------------------------------- #
+# Task 22 recalibration: δ effect-size floor + outbound-bref exclusion-by-identity
+# --------------------------------------------------------------------------- #
+
+
+def test_recalibrated_gate_CAN_pass_at_real_n() -> None:
+    """Huge-n tiny-shift (KS≈0.03 << δ=0.15) is BH-significant but NOT a FAIL — the δ floor
+    makes PASS reachable at real sample sizes (the structural-incapacity fix)."""
+    rng = random.Random(7)
+    n = 20000
+    stratum = (1, 1, 0, 0)
+    features = {
+        ("a", stratum, _ROAD): _gauss(rng, mu=0.0, sigma=1.0, n=n),
+        ("b", stratum, _ROAD): _gauss(rng, mu=0.1, sigma=1.0, n=n),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
+
+    # Fixture regime self-check: the shift is real but tiny (0 < KS < δ), and at
+    # huge n it IS BH-significant — exactly the structurally-incapable-of-PASS trap.
+    pair = result.pairs[0]
+    assert 0.0 < pair.ks < 0.15, f"fixture out of regime: ks={pair.ks}"
+    assert pair.p_bh < result.alpha, f"fixture out of regime: p_bh={pair.p_bh}"
+
+    # The δ's effect made visible: raw-BH fires, the effect-floored rule does not.
+    assert result.n_significant_raw_bh > 0
+    assert result.n_significant_effect == 0
+    assert result.verdict == "PASS"
+    assert all(not p.significant for p in result.pairs)
+
+
+def test_recalibrated_gate_still_FAILS_on_large_effects() -> None:
+    """KS≈0.4 at modest n → FAIL survives the recalibration (glasgow-vs-krakow regime)."""
+    rng = random.Random(7)
+    n = 150
+    stratum = (1, 1, 0, 0)
+    features = {
+        ("a", stratum, _ROAD): _gauss(rng, mu=0.0, sigma=1.0, n=n),
+        ("b", stratum, _ROAD): _gauss(rng, mu=1.0, sigma=1.0, n=n),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
+
+    pair = result.pairs[0]
+    assert pair.ks >= 0.15, f"fixture out of regime: ks={pair.ks}"
+    assert result.verdict == "FAIL"
+    assert result.n_significant_raw_bh > 0
+    assert result.n_significant_effect > 0
+    assert any(p.significant for p in result.pairs)
+
+
+def test_bref_features_excluded_from_road_length_by_construction_identity_and_counted(
+    tmp_path, monkeypatch
+) -> None:
+    """Outbound-bref road excluded + counted (n_bref_excluded per city); a zero-length
+    geometry WITHOUT the bref identity is NOT excluded (regime-distinguishing twin —
+    symptom-keyed exclusion would pass this; identity-keyed must)."""
+    from cfm.eval.conditioning_discrimination import _tile_features
+    from cfm.eval.emergence import building_token_ids
+
+    _BREF = 1500  # BP7 boundary-reference token band is 1500..1507 (sub-F decoder)
+    bid = min(building_token_ids())
+
+    bref_road = {"type": "LineString", "coordinates": [[0, 0], [3, 0]]}
+    zero_len_road = {"type": "LineString", "coordinates": [[0, 0], [0, 0]]}
+    plain_road = {"type": "LineString", "coordinates": [[0, 0], [2, 0]]}
+    building_ring = {"type": "LineString", "coordinates": [[0, 0], [1, 0], [1, 1], [0, 0]]}
+    blocks = [
+        [0, 5, _BREF, 0],  # body ends in bref -> outbound-bref road: EXCLUDED
+        [0, 5, 0],  # zero-length but NO bref identity: KEPT (symptom != identity)
+        [0, 5, 0],  # plain open road: KEPT
+        [0, bid, _BREF, 0],  # building ring (promoted to Polygon): NEVER bref-excluded
+    ]
+    out, n_bref_excluded = _tile_features(
+        blocks, [bref_road, zero_len_road, plain_road, building_ring], [1, 1, 1, 1]
+    )
+
+    assert n_bref_excluded == 1
+    lengths = [v for m, v, _ in out if m == _ROAD]
+    areas = [v for m, v, _ in out if m == _BUILDING]
+    # The bref road's length (3.0) is gone; the zero-length non-bref twin survives.
+    assert sorted(lengths) == [0.0, 2.0]
+    assert len(areas) == 1 and areas[0] > 0
+
+    # Per-city accounting: TileCoverage carries n_bref_excluded — excluded features
+    # are COUNTED, never silently dropped (structural-exclusion discipline).
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=2, missing=set())
+    # Each tile decodes to one outbound-bref road + one plain road.
+    monkeypatch.setattr(
+        CD,
+        "decode_region_blocks",
+        lambda tokens, cdbc: (
+            [[0, 5, 1500, 0], [0, 5, 0]],
+            [
+                {"type": "LineString", "coordinates": [[0.0, 0.0], [3.0, 0.0]]},
+                {"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0]]},
+            ],
+            [1, 1],
+        ),
+    )
+    out = CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+    assert out.tile_coverage["testcity"].n_bref_excluded == 2  # 1 per tile x 2 tiles
+    # Only the plain road per tile survives into the feature pool.
+    assert sum(len(v) for v in out.features.values()) == 2
