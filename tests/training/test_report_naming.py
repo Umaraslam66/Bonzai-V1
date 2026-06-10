@@ -10,7 +10,13 @@ checkpoints. This pins the fix:
 - two configs differing ONLY in backbone (or ONLY in seed) produce different paths;
 - ``build_trainer(cfg, ckpt_dirpath=...)`` routes BOTH ModelCheckpoint callbacks to
   the given per-run dir (and ``None`` keeps today's Lightning-default behavior);
-- ``run_short`` wires ``ckpt_dirpath=work_checkpoint_dir(backbone, scale_label)``.
+- ``run_short`` wires ``ckpt_dirpath=work_checkpoint_dir(backbone, scale_label,
+  region=..., seed=...)`` — the FULL run key, so two runs differing only in seed or
+  region never resume each other's ``last.ckpt`` (Task 17 follow-up);
+- ``run_short`` one-sources the scale label: the SAME ``_scale_label(params_m)`` keys
+  the checkpoint dir and the report filename, so they can never diverge by rounding
+  (``cost["n_params_M"]`` is ``round(params_m, 1)``; labelling from it double-rounds
+  and flips in the x.45-x.50 band).
 """
 
 from __future__ import annotations
@@ -129,7 +135,7 @@ def test_build_trainer_default_keeps_lightning_default_dirpath() -> None:
         assert cb.dirpath is None  # unset at construction -> Lightning default at fit
 
 
-# --- (d) run_short wires ckpt_dirpath = work_checkpoint_dir(backbone, scale_label) ----
+# --- (d) run_short wires ckpt_dirpath = work_checkpoint_dir(full run key) -------------
 
 
 class _Boom(Exception):
@@ -154,6 +160,52 @@ def test_run_short_passes_work_checkpoint_dir_to_build_trainer(tmp_path, monkeyp
     with pytest.raises(_Boom):
         ts.run_short(cfg, build_shards=False)
 
-    expected = work_checkpoint_dir(cfg.backbone, "90M")
+    expected = work_checkpoint_dir(cfg.backbone, "90M", region=cfg.region, seed=cfg.seed)
     assert recorded["ckpt_dirpath"] == expected
     assert str(tmp_path) in str(expected)  # really on the WORK-rooted path
+
+
+# --- (e) one-sourced scale label: report and ckpt dir can never diverge by rounding ---
+
+
+def test_write_report_uses_passed_scale_label_over_cost_derived(tmp_path, monkeypatch) -> None:
+    # cost carries round(params_m, 1) = 89.5 -> labelling from it double-rounds to
+    # "90M"; the label one-sourced from raw params_m (89.45) is "89M". The passed
+    # label must win, and the model must still never be rebuilt.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        ts, "_param_count", lambda cfg: pytest.fail("model rebuilt despite scale_label given")
+    )
+    cfg = _tiny_cfg()
+    report = ts._write_report(
+        cfg, {}, trained_steps=1, cost={"n_params_M": 89.5}, scale_label="89M"
+    )
+    assert "89M" in report.name
+    assert "90M" not in report.name
+
+
+def test_run_short_report_label_matches_ckpt_dir_label(tmp_path, monkeypatch) -> None:
+    # End-to-end through run_short with raw params_m = 89.45, the x.45-x.50 band where
+    # the old double-rounding path (round -> 89.5 -> "90M") diverges from the
+    # one-sourced label (89.45 -> "89M"). Report filename and ckpt dir must agree.
+    recorded: dict = {}
+    fake_trainer = SimpleNamespace(fit=lambda *a, **k: None, is_global_zero=True, global_step=1)
+
+    def fake_build_trainer(cfg, **kwargs):
+        recorded["ckpt_dirpath"] = kwargs["ckpt_dirpath"]
+        return fake_trainer
+
+    monkeypatch.setenv("WORK", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(ts, "build_trainer", fake_build_trainer)
+    monkeypatch.setattr(ts, "_datamodule", lambda *a, **k: SimpleNamespace())
+    monkeypatch.setattr(ts, "ScaffoldLit", lambda cfg: SimpleNamespace())
+    monkeypatch.setattr(ts, "maybe_compile", lambda lit, cfg: lit)
+    monkeypatch.setattr(ts, "_param_count", lambda cfg: 89_450_000)
+    monkeypatch.setattr(ts, "_generate_and_score", lambda *a, **k: {})
+
+    out = ts.run_short(_tiny_cfg(eval_cells=0), build_shards=False)
+
+    assert "89M" in str(recorded["ckpt_dirpath"])
+    assert "89M" in Path(out["report"]).name
+    assert "90M" not in Path(out["report"]).name  # the double-rounded label never ships

@@ -62,7 +62,10 @@ fi
 # expands this to individual --d-model/--n-layers/... flags like bakeoff_diagnostic.sbatch.
 # The per-run config (configs/experiments/bakeoff-$BACKBONE-$SCALE.yaml) carries r-derived
 # max_steps, the locked recipe, grad_accum, and the $WORK checkpoint dir; run_short resumes
-# from resume_ckpt_path() and checkpoints to work_checkpoint_dir(BACKBONE, SCALE).
+# from resume_ckpt_path() and checkpoints to work_checkpoint_dir(backbone, param-derived
+# scale label, region, seed). NOTE: the scale label is derived from the param count, NOT
+# from the nominal $SCALE env (e.g. "311M" vs nominal "300M") — resume stability comes
+# from the label being deterministic from cfg, not from matching $SCALE.
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --backbone "$BACKBONE" \
   --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" \

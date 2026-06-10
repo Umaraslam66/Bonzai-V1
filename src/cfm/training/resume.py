@@ -18,16 +18,37 @@ _STEP_RE = re.compile(r"step=(\d+)")
 
 
 def work_checkpoint_dir(
-    backbone: str, scale: str, *, work_root: str | os.PathLike[str] | None = None
+    backbone: str,
+    scale: str,
+    *,
+    region: str,
+    seed: int,
+    work_root: str | os.PathLike[str] | None = None,
 ) -> Path:
     """The per-run checkpoint directory on allocation-independent ``$WORK`` storage.
 
     ``$WORK`` survives allocation expiry, so a couple-day renewal gap means "resume when
     the new allocation lands", not "start over". Falls back to a local ``checkpoints/``
     root when ``$WORK`` is unset (tests / dev).
+
+    EVERY run-key axis (backbone, scale, region, seed) is in the path, not just
+    backbone+scale: once Task 18 wires ``resume_ckpt_path``, two runs that share a dir
+    SILENTLY resume each other's ``last.ckpt`` — a wrong-resume that no error surfaces.
+    Nested ``{backbone}-{scale}/{region}-seed{seed}`` keeps the bake-off matrix grouping
+    readable on $WORK.
     """
+    # DECISION: chose to leave train_set OUT of the key — union runs are distinguished
+    # by their region tag today, so adding it would only deepen the tree. Revisit if
+    # two train_sets ever train at the same (backbone, scale, region, seed).
     root = Path(work_root) if work_root is not None else Path(os.environ.get("WORK", "checkpoints"))
-    return root / "Bonzai-OSM" / "checkpoints" / "bakeoff" / f"{backbone}-{scale}"
+    return (
+        root
+        / "Bonzai-OSM"
+        / "checkpoints"
+        / "bakeoff"
+        / f"{backbone}-{scale}"
+        / f"{region}-seed{seed}"
+    )
 
 
 def _step_of(ckpt: Path) -> int:

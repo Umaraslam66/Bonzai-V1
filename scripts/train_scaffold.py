@@ -309,19 +309,32 @@ def _scale_label(params_m: float) -> str:
 
 
 def _write_report(
-    cfg: ScaffoldConfig, metrics: dict, *, trained_steps: int, cost: dict | None = None
+    cfg: ScaffoldConfig,
+    metrics: dict,
+    *,
+    trained_steps: int,
+    cost: dict | None = None,
+    scale_label: str | None = None,
 ) -> Path:
     out_dir = Path("reports/phase-1-training-scaffold")
     out_dir.mkdir(parents=True, exist_ok=True)
     marker = eval_set_locked_marker(cfg.release)
     # F17 run key: backbone + integer params-M + seed, so bake-off runs against the
-    # same release+region never overwrite each other's reports. Prefer the measured
-    # cost["n_params_M"] (avoids rebuilding the model); fall back to counting from cfg.
+    # same release+region never overwrite each other's reports.
     # The old "-scaleup-{params}M" suffix is gone: params-M now lives in the base name
     # for EVERY report, and cost-bearing reports are distinguished by their Cost
     # section inside the report, not by filename.
-    params_m = float(cost["n_params_M"]) if cost else _param_count(cfg) / 1e6
-    run_key = f"{cfg.backbone}-{_scale_label(params_m)}-seed{cfg.seed}"
+    # One-sourced label (Task 17 follow-up): run_short passes the SAME
+    # _scale_label(raw params_m) it used for work_checkpoint_dir, so report and
+    # checkpoint dir can never diverge by rounding — cost["n_params_M"] is
+    # round(params_m, 1), and labelling from it double-rounds (flips in the x.45-x.50
+    # band: raw 89.45 -> "89M" but round->89.5 -> "90M"). Fallback for direct calls
+    # without a label: prefer the measured cost (avoids rebuilding the model), else
+    # count from cfg.
+    if scale_label is None:
+        params_m = float(cost["n_params_M"]) if cost else _param_count(cfg) / 1e6
+        scale_label = _scale_label(params_m)
+    run_key = f"{cfg.backbone}-{scale_label}-seed{cfg.seed}"
     report = out_dir / f"{cfg.release}-{cfg.region}-{run_key}-loop-closed.md"
     lines = [
         f"# Phase-1 training scaffold — loop closed on {cfg.region}",
@@ -434,8 +447,12 @@ def run_short(
 
     # Params counted ONCE, up front (one model build): the count keys BOTH the per-run
     # checkpoint dir's scale label (F17, needed before the trainer exists) and the
-    # cost report's n_params_M.
+    # cost report's n_params_M. scale_label is computed ONCE from the raw params_m and
+    # reused for the report filename, so checkpoint dir and report can never diverge
+    # by rounding (cost["n_params_M"] is round(params_m, 1) — re-labelling from it
+    # would double-round).
     params_m = _param_count(cfg) / 1e6
+    scale_label = _scale_label(params_m)
 
     dm = _datamodule(cfg, build=build_shards)
     lit = maybe_compile(ScaffoldLit(cfg), cfg)
@@ -443,10 +460,13 @@ def run_short(
         cfg,
         max_time=max_time,
         ckpt_every_n_steps=ckpt_every_n_steps,
-        # F17: per-run checkpoint dir on $WORK (allocation-independent; local
-        # checkpoints/ fallback when $WORK is unset) keyed {backbone}-{scale}, so
-        # bake-off runs never overwrite each other and Task-18 resume can find it.
-        ckpt_dirpath=work_checkpoint_dir(cfg.backbone, _scale_label(params_m)),
+        # F17 + Task-17 follow-up: per-run checkpoint dir on $WORK (allocation-
+        # independent; local checkpoints/ fallback when $WORK is unset) keyed on the
+        # FULL run key {backbone}-{scale}/{region}-seed{seed}, so bake-off runs never
+        # overwrite — or, once Task-18 resume lands, silently resume — each other.
+        ckpt_dirpath=work_checkpoint_dir(
+            cfg.backbone, scale_label, region=cfg.region, seed=cfg.seed
+        ),
     )
     t0 = time.time()
     trainer.fit(lit, dm)
@@ -480,7 +500,9 @@ def run_short(
     cost["eval_seconds"] = round(eval_seconds, 1)
     cost["eval_node_h"] = round(eval_seconds / 3600.0, 4)
     cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, cfg.eval_cells), 6)
-    report = _write_report(cfg, metrics, trained_steps=int(trainer.global_step), cost=cost)
+    report = _write_report(
+        cfg, metrics, trained_steps=int(trainer.global_step), cost=cost, scale_label=scale_label
+    )
     logger.info("wrote %s", report)
     return {
         "trained_steps": int(trainer.global_step),
