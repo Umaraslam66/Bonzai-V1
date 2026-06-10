@@ -27,6 +27,8 @@
 - `src/cfm/eval/city_aggregate.py` — per-city worst-case aggregator + #21 binding-city power gate.
 - `src/cfm/eval/conditioning_gate.py` — the §4 conditioning-discrimination gate.
 
+> **ERRATUM 2026-06-10 (F10 dead-twin):** `conditioning_gate` is tombstoned. The live §4 gate is `cfm.eval.conditioning_discrimination` (BH-corrected; ran 2026-06-10, verdict FAIL). Do not wire this module. See readiness enumeration F10.
+
 **Modified (Gate-2 read first; teeth complete below):**
 - `src/cfm/eval/realism.py`, `src/cfm/eval/feature_resolution.py`, `src/cfm/eval/curve.py` — wire per-city → worst-case into the decision axis (T5).
 - `src/cfm/eval/geometry.py`, `src/cfm/data/training/build_shards.py`, `src/cfm/data/training/datamodule.py` — multi-region build + holdout re-point (T6 + obligation a).
@@ -300,6 +302,8 @@ def _n(per_city: list[PerCityKS], city: str) -> int:
 - [ ] **Step 5: Commit.** `git add ... && git commit -m "feat(bakeoff): worst-case city aggregate + #21 binding-city power gate"`
 
 ### Task 5: Conditioning-discrimination gate (the §4 gate that validates the worst-case rule)
+
+> **ERRATUM 2026-06-10 (F10 dead-twin):** `conditioning_gate` is tombstoned. The live §4 gate is `cfm.eval.conditioning_discrimination` (BH-corrected; ran 2026-06-10, verdict FAIL). Do not wire this module. See readiness enumeration F10.
 
 **Files:** Create `src/cfm/eval/conditioning_gate.py`; Test `tests/eval/test_conditioning_gate.py`.
 

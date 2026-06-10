@@ -265,6 +265,8 @@ git commit -m "feat(bakeoff): §2 emergence floor-score guard in slice_eval (one
 
 This is NEW machinery (no scipy in the tree today). The KS distance compares a generated feature distribution (e.g. building areas, road lengths) against the holdout `ReferenceDistribution.samples`, per `cell_density_bucket` stratum. Lower = more realistic.
 
+> **ERRATUM 2026-06-10 (F4-C1d):** `feature_samples` consumers MUST apply `promote_building_rings` first — the decoder returns building rings as LineString by contract. This snippet predates that finding; the readiness plan Task 26 makes `feature_samples` promote internally.
+
 ```python
 # tests/eval/test_realism.py
 from cfm.eval.realism import feature_samples, ks_distance, FeatureMetric
