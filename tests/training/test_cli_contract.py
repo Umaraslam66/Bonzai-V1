@@ -174,14 +174,36 @@ def test_run_sbatch_usr1_trap_forwards_signal_to_captured_srun_pid() -> None:
 
 def test_run_sbatch_resubmit_is_verified_not_silent() -> None:
     # A failed `sbatch` in the trap must NOT exit 0 (silent resume-chain break — this
-    # project's false-completion class). The JID is captured, checked nonempty, and a
-    # failure exits 1. --export=ALL so BACKBONE/SCALE/REGION/RELEASE/TRAIN_SET propagate.
+    # project's false-completion class). --parsable makes sbatch emit a bare job id
+    # (not "Submitted batch job NNNN" prose), and the check verifies the KIND of yes:
+    # a NUMERIC job id, not just any nonempty output. A failure exits 1. --export=ALL
+    # so BACKBONE/SCALE/REGION/RELEASE/TRAIN_SET propagate.
     text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
-    assert 'JID=$(sbatch --export=ALL "$0")' in text, "resubmit JID not captured"
-    assert re.search(r'\[\[ -n "\$JID" \]\].*\bexit 1\b', text), (
-        "no nonempty-JID check that fails loudly (exit 1) on a broken resubmit"
+    assert 'JID=$(sbatch --parsable --export=ALL "$0")' in text, (
+        "resubmit JID not captured via sbatch --parsable"
+    )
+    assert '[[ "$JID" =~ ^[0-9]+ ]]' in text, (
+        "no numeric-JID check (a bare nonempty check would accept sbatch prose/garbage)"
+    )
+    assert re.search(r"JOB_FAILED_RESUBMIT.*?\bexit 1\b", text, re.DOTALL), (
+        "the resubmit-failure branch does not fail loudly (exit 1)"
     )
     assert 'sbatch "$0"' not in text, "the old unverified resubmit is still present"
+
+
+def test_run_sbatch_failed_resubmit_still_grace_waits_for_ckpt_flush() -> None:
+    # Even when the resubmit is broken, the in-flight last.ckpt flush is exactly what
+    # the operator's MANUAL resubmit will resume from; the failure branch must wait for
+    # the srun ranks before its exit 1, never kill the flush by exiting immediately.
+    m = re.search(
+        r"JOB_FAILED_RESUBMIT(.*?)\bexit 1\b",
+        (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8"),
+        re.DOTALL,
+    )
+    assert m, "no JOB_FAILED_RESUBMIT failure branch found"
+    assert 'wait "$SRUN_PID"' in m.group(1), (
+        "JOB_FAILED_RESUBMIT branch exits 1 without grace-waiting for the srun ranks"
+    )
 
 
 @pytest.mark.parametrize("name", _SBATCH_NAMES)

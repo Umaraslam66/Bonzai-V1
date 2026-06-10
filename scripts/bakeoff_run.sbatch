@@ -44,9 +44,11 @@ echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) bac
 
 # --- F8 verified end-state: JOB_DONE is a TRUSTED marker (future sessions and the
 # orchestration believe it), so it must follow PROOF the run's artifacts exist on disk,
-# never mere control-flow reaching the last line. Globs, not exact paths: the checkpoint
-# scale label is DERIVED from the real param count (e.g. "311M", not nominal $SCALE) and
-# the seed lives in config -- neither is known to bash until Task 26 wires --config.
+# never mere control-flow reaching the last line. Globs, not exact paths, PERMANENTLY:
+# the checkpoint scale label is DERIVED from the real param count (e.g. "311M", not
+# nominal $SCALE) and the seed lives in the YAML config -- neither is knowable to bash
+# even after Task 26 of the readiness-closure plan (= the bake-off plan's Task-12 TODO
+# below) wires --config, since --config hands the YAML to python; bash never parses it.
 # compgen -G returns nonzero on no match (used inside `if` so set -e doesn't fire early).
 verify_endstate() {
   local ckpt_glob="${WORK:-checkpoints}/Bonzai-OSM/checkpoints/bakeoff/${BACKBONE}-*/${REGION}-seed*/last.ckpt"
@@ -65,15 +67,25 @@ verify_endstate() {
 # On wall-clock USR1 (Slurm --signal=B:USR1@120 delivers ONLY to this batch shell):
 # (1) FORWARD the signal to the srun ranks so they checkpoint + exit cleanly (otherwise
 #     Slurm SIGKILLs them at the wall and the last checkpoint window is lost);
-# (2) resubmit VERIFIED -- an empty JID means the resume chain is BROKEN and must fail
-#     loudly (exit 1), never exit 0 (this project's false-completion class);
+# (2) resubmit VERIFIED -- sbatch --parsable emits a bare job id (no "Submitted batch
+#     job NNNN" prose) and the check demands a NUMERIC id (verify the KIND of yes, not
+#     just any output); a non-numeric/empty result means the resume chain is BROKEN and
+#     must fail loudly (exit 1), never exit 0 (this project's false-completion class).
+#     Even on that failure, grace-wait for the ranks first: the in-flight last.ckpt
+#     flush is exactly what the operator's manual resubmit will resume from;
 # (3) exit 0 WITHOUT requiring end-state: the run is mid-flight by definition; the
 #     relaunched job continues from $WORK's last.ckpt.
 on_usr1() {
   echo "USR1: wall-clock approaching; forwarding to srun + resubmitting for across-job resume"
   if [[ -n "${SRUN_PID:-}" ]]; then kill -USR1 "$SRUN_PID" 2>/dev/null || true; fi
-  JID=$(sbatch --export=ALL "$0") && [[ -n "$JID" ]] || { echo "JOB_FAILED_RESUBMIT: sbatch returned no job id; resume chain broken"; exit 1; }
-  echo "resubmitted for across-job resume: $JID"
+  JID=$(sbatch --parsable --export=ALL "$0") || JID=""
+  if [[ "$JID" =~ ^[0-9]+ ]]; then
+    echo "resubmitted for across-job resume: $JID"
+  else
+    echo "JOB_FAILED_RESUBMIT: sbatch returned no numeric job id; resume chain broken"
+    [[ -n "${SRUN_PID:-}" ]] && wait "$SRUN_PID" || true
+    exit 1
+  fi
   # Grace window (@120): let the ranks finish flushing last.ckpt before the job ends.
   if [[ -n "${SRUN_PID:-}" ]]; then wait "$SRUN_PID" || true; fi
   exit 0
