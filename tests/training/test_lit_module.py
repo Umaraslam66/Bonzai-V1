@@ -58,6 +58,13 @@ def test_init_is_seed_reproducible_across_instances():
     assert any(not torch.equal(sa[k], sc[k]) for k in sa)  # different seed -> differs
 
 
+def test_checkpoint_hparams_record_the_scheme():
+    # F16: save_hyperparameters(cfg.model_dump()) puts the scheme tag into every
+    # checkpoint's hparams, making a slot/value scheme mismatch detectable at load.
+    lit = ScaffoldLit(_cfg())
+    assert lit.hparams["conditioning_scheme"] == "value"
+
+
 def test_configure_optimizers_returns_adamw_and_step_cosine():
     lit = ScaffoldLit(_cfg(max_steps=100))
     cfg = lit.configure_optimizers()

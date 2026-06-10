@@ -7,6 +7,8 @@ The bake-off comparability lock (torch/lightning/pydantic versions) lives in
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -15,6 +17,12 @@ class ScaffoldConfig(BaseModel):
     release: str = "2026-04-15.0"
     region: str = "singapore"
     seed: int = 7
+
+    #: F16 generation-coherence tag: which conditioning-prefix scheme the model was trained
+    #: under. "value" = value-bearing prefix (readiness Phase 2); "slot" = the legacy constant
+    #: field-slot block. A checkpoint loads ONLY under its own scheme - the embedding is sized
+    #: for both, so a mismatch is silent without this tag.
+    conditioning_scheme: Literal["slot", "value"] = "value"
 
     # model
     #: Bake-off backbone: "transformer-ar" (today) | "mamba-hybrid" | "discrete-diffusion"
