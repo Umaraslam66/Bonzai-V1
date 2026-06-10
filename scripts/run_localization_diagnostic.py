@@ -210,7 +210,8 @@ _BUILDING_SIZE_EDGES_M2: tuple[float, ...] = (
 
 
 def building_size_bucket(median_area: float | None) -> int:
-    """10-bucket index for a cell's median building footprint area (V4 candidate dim).
+    """Bucket index for a cell's median building footprint area (V4 candidate dim) —
+    11 distinct values: bucket 0 = no buildings + 10 size buckets (1..10).
 
     Bucket 0 = no buildings in the cell (``median_area is None``); else 1 + the
     number of area doublings above 10 m², clipped — equal-log-width (factor-2)
@@ -684,7 +685,10 @@ def _methodology(
         ),
         "building_size_bucket_scheme": {
             "statistic": "median building footprint area (m²) per cell",
-            "n_buckets": 10,
+            "n_buckets": 11,
+            "n_buckets_note": (
+                "11 distinct values: bucket 0 (no buildings) + 10 size buckets (1..10)"
+            ),
             "bucket_0": "no buildings in the cell (median is null)",
             "bucket_1": "median <= 10 m² (floor-bucketed)",
             "buckets_2_to_9": (

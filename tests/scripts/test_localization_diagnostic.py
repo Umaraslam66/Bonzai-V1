@@ -385,7 +385,7 @@ def test_v3_appends_sea_dim_to_v0_stratum() -> None:
 def test_v4_building_size_bucket_edges() -> None:
     """Bucket 0 = no buildings (None median); else 1 + number of area doublings
     above 10 m², clipped: <=10 -> 1, (10,20] -> 2, ..., (1280,2560] -> 9,
-    >2560 -> 10 (10 buckets total incl. the no-building bucket)."""
+    >2560 -> 10 (11 distinct values: bucket 0 = no buildings + 10 size buckets)."""
     assert MOD.building_size_bucket(None) == 0
     assert MOD.building_size_bucket(0.0) == 1  # floor-bucketed
     assert MOD.building_size_bucket(10.0) == 1
@@ -719,8 +719,10 @@ def _write_city_tile(
                     categories_alternate=None,
                     sea_overlap_fraction=0.0,
                 ),
-                # A road row in the SAME cell: the building filter must skip it
-                # (non-vacuous feature_class filtering).
+                # A road row in the SAME cell: the building filter must skip it —
+                # pinned at ASSERTION level by
+                # test_v4_reader_pins_on_disk_building_sizes (an unfiltered read
+                # would pool the road's .area == 0.0 -> median 6.0, not 12.0).
                 FeatureRow(
                     cell_i=0,
                     cell_j=0,
@@ -823,6 +825,30 @@ def test_v0_features_identical_to_reference_extraction(tmp_path, monkeypatch) ->
     assert sum(len(v) for v in v0.values()) == 12  # 2 cities x 2 DENSITY cells x 3 blocks
 
 
+def test_v4_reader_pins_on_disk_building_sizes(tmp_path, monkeypatch) -> None:
+    """Pin the V4 READER's output on the on-disk fixture (spec-review fix): the
+    building cell's ``cell_building_size`` is the EXACT median area the fixture
+    wrote, and the zero-building cell is None. Mutation-proved teeth:
+
+    - a silently-empty features read (e.g. ``.slice(0, 0)`` on the table inside
+      ``_read_cell_building_sizes``) maps every cell to None -> bucket 0 -> V4 ≡ V0
+      (the V3≡V0 silent-vacuity failure mode) — the 12.0 pin fails loudly;
+    - dropping the BUILDING ``feature_class`` filter pools the CO-LOCATED road's
+      ``.area == 0.0`` into cell (0, 0) -> median([12, 0]) = 6.0 — the pin fails.
+    """
+    _write_fixture(tmp_path, _CITIES)
+    _patch_paths(monkeypatch, MOD, tmp_path)
+
+    records, _coverage = MOD.collect_tile_records("rel", list(_CITIES))
+    assert len(records) == len(_CITIES)
+    for rec in records:
+        # Cell (0, 0): one 4x3 building (area 12 m²) PLUS a road row in the SAME
+        # cell that the filter must skip — the median is exactly the building's area.
+        assert rec.cell_building_size[(0, 0)] == pytest.approx(12.0)
+        # Cell (0, 1): zero building rows -> genuinely no buildings (None), not 0.0.
+        assert rec.cell_building_size[(0, 1)] is None
+
+
 def test_missing_derivation_evidence_is_loud(tmp_path, monkeypatch) -> None:
     """A tile that HAS sub-F cells but no derivation_evidence.parquet must raise
     (denominator integrity: variants must never silently see different tile sets)."""
@@ -914,7 +940,7 @@ def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys
     # V4: the FULL building-size scheme is serialized (the PI judges it from the
     # YAML) and the rate criterion is recorded as PI-locked at this gate.
     v4_scheme = meth["variants"]["V4"]["building_size_bucket_scheme"]
-    assert v4_scheme["n_buckets"] == 10
+    assert v4_scheme["n_buckets"] == 11  # bucket 0 (no buildings) + 10 size buckets
     assert "2560" in yaml.safe_dump(v4_scheme)  # the ceiling edge is in the artifact
     assert "no buildings" in yaml.safe_dump(v4_scheme)
     assert "n_significant_effect / n_pairs" in meth["rate_criterion"]
