@@ -26,6 +26,14 @@ cities — the variant that kills the most discrimination signal localizes the l
          (derivation_evidence.parquet).
   V3     candidate dim — V0's tuple PLUS an appended per-cell sea_water_fraction
          bucket (sub-C cells.parquet).
+  V4     candidate dim — V0's tuple PLUS an appended per-cell BUILDING-SIZE
+         bucket: median building footprint area (m²) over the cell's building
+         polygons (sub-C features.parquet); bucket 0 = no buildings. Tests the
+         spec §4.1 evidence anchor (building geometry as the missing character)
+         directly (Task-23 step-6 PI request).
+
+Variants are judged by RATE (n_significant_effect / n_pairs), NOT raw count —
+the count criterion is confounded by changing pair denominators (PI-locked).
 
 Uniformity contracts (the variant comparison is otherwise confounded):
   - The outbound-bref construction-identity exclusion (gate-(i) Task 22) is applied
@@ -33,8 +41,8 @@ Uniformity contracts (the variant comparison is otherwise confounded):
   - Missing-artifact policy: a tile missing sub-F ``cells.parquet`` is skipped+counted
     (the F3 coverage counters, mirroring the reference extraction); but a tile that
     HAS sub-F cells and is missing ``derivation_evidence.parquet`` or the sub-C
-    ``cells.parquet`` is a LOUD FileNotFoundError — variants must never silently see
-    different tile sets (denominator integrity).
+    ``cells.parquet`` / ``features.parquet`` is a LOUD FileNotFoundError — variants
+    must never silently see different tile sets (denominator integrity).
 
 The script REPORTS (YAML + stdout table); it does not verdict-gate. Exit code 0.
 The PI reads the table at the step-6 halt-gate; the Task-24 character feature is
@@ -52,8 +60,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import statistics
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -65,11 +75,12 @@ sys.path.insert(0, str(_REPO / "src"))
 
 import pyarrow.parquet as pq  # noqa: E402
 import yaml  # noqa: E402
+from shapely import wkb as shapely_wkb  # noqa: E402
 from shapely.geometry import shape  # noqa: E402
 
 from cfm.data.io import canonicalize_yaml  # noqa: E402
 from cfm.data.sub_c.epsilon import EPS_RATIO  # noqa: E402
-from cfm.data.sub_d.enums import SlotKind  # noqa: E402
+from cfm.data.sub_d.enums import FeatureClass, SlotKind  # noqa: E402
 from cfm.data.sub_d.io import (  # noqa: E402
     read_derivation_evidence_parquet,
     read_macro_core_parquet,
@@ -111,9 +122,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_RELEASE = "2026-04-15.0"
 _DEFAULT_REPORT_OUT = "reports/2026-06-10-localization-diagnostic.yaml"
 
-#: The locked variant set (plan Task 23 + step-6 V1b/V1d attribution decomposition).
-#: Order is the report/table order.
-VARIANTS: tuple[str, ...] = ("V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3")
+#: The locked variant set (plan Task 23 + step-6 V1b/V1d attribution decomposition
+#: + step-6 V4 building-size candidate dim). Order is the report/table order.
+VARIANTS: tuple[str, ...] = ("V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3", "V4")
 
 _METRICS: tuple[str, ...] = tuple(m.value for m in FeatureMetric)
 
@@ -142,6 +153,8 @@ class TileRecord:
     cell_zoning: dict[tuple[int, int], int | None]
     cell_ratio: dict[tuple[int, int], float]
     cell_sea: dict[tuple[int, int], float]
+    #: Median building footprint area (m²) per cell; None = zero buildings (V4).
+    cell_building_size: dict[tuple[int, int], float | None]
     features: list[tuple[str, float, tuple[int, int]]]
 
 
@@ -180,6 +193,48 @@ def sea_bucket(sea_fraction: float) -> int:
     if sea_fraction <= 0.5:
         return 1
     return 2
+
+
+#: V4 bucket edges: equal-log-width (factor-2) over the realistic footprint range.
+_BUILDING_SIZE_EDGES_M2: tuple[float, ...] = (
+    10.0,
+    20.0,
+    40.0,
+    80.0,
+    160.0,
+    320.0,
+    640.0,
+    1280.0,
+    2560.0,
+)
+
+
+def building_size_bucket(median_area: float | None) -> int:
+    """10-bucket index for a cell's median building footprint area (V4 candidate dim).
+
+    Bucket 0 = no buildings in the cell (``median_area is None``); else 1 + the
+    number of area doublings above 10 m², clipped — equal-log-width (factor-2)
+    edges 10, 20, 40, 80, 160, 320, 640, 1280, 2560 m²: ``<= 10 -> 1``,
+    ``(10, 20] -> 2``, ..., ``(1280, 2560] -> 9``, ``> 2560 -> 10``.
+
+    # DECISION: log2 edges over the realistic footprint range; medians below
+    # 10 m² are floor-bucketed (bucket 1) and above 2560 m² ceiling-bucketed
+    # (bucket 10). Revisit if the gate wants finer tails. The edges are chosen
+    # thresholds -> strict comparison (epsilon-at-structural-boundaries
+    # convention). Negative/NaN medians are impossible by construction -> loud
+    # (mirrors ratio_bucket's guard).
+    """
+    if median_area is None:
+        return 0
+    if math.isnan(median_area) or median_area < 0.0:
+        raise ValueError(
+            "median building footprint area must be a non-negative real m² value "
+            f"(negative/NaN is impossible by construction): {median_area}"
+        )
+    for k, edge in enumerate(_BUILDING_SIZE_EDGES_M2):
+        if median_area <= edge:
+            return 1 + k
+    return 1 + len(_BUILDING_SIZE_EDGES_M2)  # > 2560 m² ceiling-bucketed (10)
 
 
 # --------------------------------------------------------------------------- #
@@ -242,7 +297,7 @@ def variant_features(
                     ratio_bucket(ratio, n),
                     rec.tile_coastal,
                 )
-            else:  # V3
+            elif variant == "V3":
                 sea = float(_require(rec.cell_sea, cell, "sea_water_fraction", rec.city))
                 stratum = (
                     rec.tile_zoning,
@@ -250,6 +305,15 @@ def variant_features(
                     density,
                     rec.tile_coastal,
                     sea_bucket(sea),
+                )
+            else:  # V4
+                bsize = _require(rec.cell_building_size, cell, "cell_building_size", rec.city)
+                stratum = (
+                    rec.tile_zoning,
+                    rec.tile_skeleton,
+                    density,
+                    rec.tile_coastal,
+                    building_size_bucket(None if bsize is None else float(bsize)),
                 )
             features.setdefault((rec.city, stratum, metric), []).append(value)
     return features
@@ -265,8 +329,11 @@ def diagnose(
     """Per-variant recalibrated verdict + the per-metric localization table.
 
     Per variant: ``verdict``, raw-BH vs effect significance counts, per metric
-    ``n_pairs`` / ``n_significant_effect`` / ``median_ks`` (None if no pairs), and
-    the per-city TOTAL feature n (the step-5 ±20%-of-V0 denominator sanity check).
+    ``n_pairs`` / ``n_significant_effect`` / ``median_ks`` / ``rate`` (None if no
+    pairs), the variant-total ``rate``, and the per-city TOTAL feature n (the
+    step-5 ±20%-of-V0 denominator sanity check). ``rate`` =
+    n_significant_effect / n_pairs is the denominator-honest comparison
+    criterion (PI-locked); it is None — never 0.0 — when n_pairs == 0.
     """
     out: dict[str, dict] = {}
     for variant in VARIANTS:
@@ -282,20 +349,28 @@ def diagnose(
             "n_qualifying_comparisons": result.n_qualifying_comparisons,
             "n_significant_raw_bh": result.n_significant_raw_bh,
             "n_significant_effect": result.n_significant_effect,
+            "rate": _rate(result.n_significant_effect, result.n_qualifying_comparisons),
             "per_metric": _per_metric_summary(result),
             "n_features_by_city": dict(sorted(n_by_city.items())),
         }
     return out
 
 
+def _rate(n_significant_effect: int, n_pairs: int) -> float | None:
+    """n_significant_effect / n_pairs; None (never 0.0) when n_pairs == 0."""
+    return float(n_significant_effect) / n_pairs if n_pairs else None
+
+
 def _per_metric_summary(result: ConditioningDiscriminationResult) -> dict[str, dict]:
     per_metric: dict[str, dict] = {}
     for metric in _METRICS:
         pairs = [p for p in result.pairs if p.metric == metric]
+        n_sig = sum(1 for p in pairs if p.significant)
         per_metric[metric] = {
             "n_pairs": len(pairs),
-            "n_significant_effect": sum(1 for p in pairs if p.significant),
+            "n_significant_effect": n_sig,
             "median_ks": (float(statistics.median(p.ks for p in pairs)) if pairs else None),
+            "rate": _rate(n_sig, len(pairs)),
         }
     return per_metric
 
@@ -364,6 +439,38 @@ def _read_cell_sea_fractions(path: Path) -> dict[tuple[int, int], float]:
     return {(int(i), int(j)): float(s) for i, j, s in zip(ci, cj, sea, strict=True)}
 
 
+def _read_cell_building_sizes(
+    path: Path, cells: Iterable[tuple[int, int]]
+) -> dict[tuple[int, int], float | None]:
+    """Per-cell MEDIAN building footprint area (m²) from a sub-C features.parquet (V4).
+
+    Mirrors ``derive_density_evidence``'s building walk (sub_d/evidence.py): rows
+    with ``feature_class == FeatureClass.BUILDING`` are WKB-decoded and their
+    polygon areas pooled per (cell_i, cell_j); other classes are skipped before
+    any WKB deserialisation. The returned layer is keyed over *cells* (the sub-C
+    cells.parquet cell set, the same universe as the V3 sea layer) so V4's loud
+    ``_require`` lookup stays uniform; a cell with zero building rows maps to
+    None (bucket 0 — genuinely no buildings, not a missing layer).
+
+    ``pq.ParquetFile(path).read()`` — NEVER bare ``pq.read_table`` (Hive partition
+    inference on ``tile=...`` dirs; established project correction).
+    """
+    table = pq.ParquetFile(path).read()
+    fi = table.column("cell_i").to_pylist()
+    fj = table.column("cell_j").to_pylist()
+    fc = table.column("feature_class").to_pylist()
+    fg = table.column("geometry").to_pylist()
+    areas: dict[tuple[int, int], list[float]] = {}
+    for i, j, c, g in zip(fi, fj, fc, fg, strict=True):
+        if int(c) != int(FeatureClass.BUILDING):
+            continue
+        areas.setdefault((int(i), int(j)), []).append(float(shapely_wkb.loads(bytes(g)).area))
+    return {
+        cell: (float(statistics.median(vals)) if (vals := areas.get(cell)) else None)
+        for cell in cells
+    }
+
+
 def _read_cell_ratios(path: Path) -> dict[tuple[int, int], float]:
     """Per-cell raw building_footprint_ratio from derivation_evidence.parquet.
 
@@ -387,8 +494,8 @@ def collect_tile_records(
     every ``tile_dirname`` call; a tile missing sub-F ``cells.parquet`` is
     skipped+counted; the end-of-walk F3 checks (zero-tile city, silent-shrinkage
     ceiling) are identical. A present sub-F tile missing the diagnostic's extra
-    inputs (derivation_evidence / sub-C cells) raises FileNotFoundError (LOUD;
-    module docstring policy).
+    inputs (derivation_evidence / sub-C cells / sub-C features) raises
+    FileNotFoundError (LOUD; module docstring policy).
     """
     records: list[TileRecord] = []
     tile_coverage: dict[str, TileCoverage] = {}
@@ -417,7 +524,8 @@ def collect_tile_records(
 
             evidence_path = sub_d / dirname / "derivation_evidence.parquet"
             sub_c_cells_path = sub_c / dirname / "cells.parquet"
-            for required in (evidence_path, sub_c_cells_path):
+            sub_c_features_path = sub_c / dirname / "features.parquet"
+            for required in (evidence_path, sub_c_cells_path, sub_c_features_path):
                 if not required.exists():
                     raise FileNotFoundError(
                         f"localization diagnostic: {city} tile ({ti},{tj}) HAS sub-F "
@@ -442,6 +550,10 @@ def collect_tile_records(
             tokens = read_sub_f_cells(cells_path)
             features, n_excluded = _tile_cell_features(tokens, cdbc)
             n_bref_excluded += n_excluded
+            # V4's layer is keyed over the sub-C cell universe (cells.parquet),
+            # so a kept feature's cell always resolves: float median, or None
+            # for a genuinely building-free cell.
+            cell_sea = _read_cell_sea_fractions(sub_c_cells_path)
             records.append(
                 TileRecord(
                     city=city,
@@ -451,7 +563,10 @@ def collect_tile_records(
                     cell_density=cdbc,
                     cell_zoning=cell_zoning,
                     cell_ratio=_read_cell_ratios(evidence_path),
-                    cell_sea=_read_cell_sea_fractions(sub_c_cells_path),
+                    cell_sea=cell_sea,
+                    cell_building_size=_read_cell_building_sizes(
+                        sub_c_features_path, cell_sea.keys()
+                    ),
                     features=features,
                 )
             )
@@ -560,6 +675,26 @@ def _methodology(
             "bucket_2": "> 0.5",
         },
     }
+    variants["V4"] = {
+        "description": (
+            "candidate dim: V0 PLUS an appended per-cell building-size bucket — "
+            "MEDIAN building footprint area (m²) over the cell's building "
+            "polygons (sub-C features.parquet); tests the spec §4.1 evidence "
+            "anchor (building geometry as the missing character) directly"
+        ),
+        "building_size_bucket_scheme": {
+            "statistic": "median building footprint area (m²) per cell",
+            "n_buckets": 10,
+            "bucket_0": "no buildings in the cell (median is null)",
+            "bucket_1": "median <= 10 m² (floor-bucketed)",
+            "buckets_2_to_9": (
+                "1 + number of area doublings above 10 m²: equal-log-width "
+                "(factor-2) edges 10, 20, 40, 80, 160, 320, 640, 1280, 2560 m² "
+                "(top edge of each interval inclusive)"
+            ),
+            "bucket_10": "median > 2560 m² (ceiling-bucketed)",
+        },
+    }
     return {
         "release": release,
         "cities": list(cities),
@@ -570,6 +705,11 @@ def _methodology(
             "outbound-bref line features excluded by construction identity "
             "(_has_outbound_bref on the ORIGINAL token block), counted per city, "
             "applied ONCE so every variant sees the SAME feature pool"
+        ),
+        "rate_criterion": (
+            "variants are judged by rate = n_significant_effect / n_pairs (null "
+            "when n_pairs == 0), NOT by raw count — the count criterion is "
+            "confounded by changing pair denominators (PI-locked at this gate)"
         ),
         "v1c_note": (
             "the PI-requested 'V1c = per-cell-density-only swap' is IDENTICAL to "
@@ -603,20 +743,25 @@ def _print_summary(
     print("=" * 78)
     print("Coarseness-localization diagnostic (F5): recalibrated verdict per variant")
     print("=" * 78)
-    header = f"  {'variant':<7} {'metric':<18} {'n_pairs':>7} {'n_sig_eff':>9} {'median_ks':>10}"
+    header = (
+        f"  {'variant':<7} {'metric':<18} {'n_pairs':>7} {'n_sig_eff':>9} "
+        f"{'rate':>6} {'median_ks':>10}"
+    )
     print(header)
     for variant in VARIANTS:
         v = variants[variant]
         for metric in _METRICS:
             cell = v["per_metric"][metric]
             mks = "null" if cell["median_ks"] is None else f"{cell['median_ks']:.4f}"
+            rate = "null" if cell["rate"] is None else f"{cell['rate']:.3f}"
             print(
                 f"  {variant:<7} {metric:<18} {cell['n_pairs']:>7} "
-                f"{cell['n_significant_effect']:>9} {mks:>10}"
+                f"{cell['n_significant_effect']:>9} {rate:>6} {mks:>10}"
             )
+        total_rate = "null" if v["rate"] is None else f"{v['rate']:.3f}"
         print(
             f"  {variant:<7} verdict={v['verdict']} raw_bh={v['n_significant_raw_bh']} "
-            f"effect={v['n_significant_effect']} "
+            f"effect={v['n_significant_effect']} rate={total_rate} "
             f"n_features_by_city={v['n_features_by_city']}"
         )
     for city, cov in sorted(tile_coverage.items()):
@@ -627,6 +772,7 @@ def _print_summary(
         )
     print(f"  report: {report_path}")
     print("  the variant that kills the most discrimination signal localizes the layer")
+    print("  judged by rate = n_sig_eff / n_pairs (denominator-honest; PI-locked)")
     print("=" * 78)
 
 

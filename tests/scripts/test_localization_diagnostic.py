@@ -2,11 +2,14 @@
 
 The localization diagnostic recomputes the recalibrated gate-(i) verdict under
 one-layer-at-a-time stratum VARIANTS (V0 baseline / V1 un-collapse / V1b+V1d
-attribution decomposition / V2_8+V2_16 un-quantize / V3 candidate sea dim) — the
-variant that kills the most discrimination signal localizes where city character
-lives. V1b/V1d decompose V1's two simultaneous changes (zoning swap x dim drop);
-the PI-requested "V1c = per-cell-density-only" is identical to V0 by construction
-(V0's density slot is ALREADY per-cell) and is resolved as a methodology note.
+attribution decomposition / V2_8+V2_16 un-quantize / V3 candidate sea dim /
+V4 candidate building-size dim) — the variant that kills the most discrimination
+signal localizes where city character lives. Variants are judged by RATE
+(n_significant_effect / n_pairs), not raw count (PI-locked: the count criterion
+is confounded by changing pair denominators). V1b/V1d decompose V1's two
+simultaneous changes (zoning swap x dim drop); the PI-requested "V1c =
+per-cell-density-only" is identical to V0 by construction (V0's density slot is
+ALREADY per-cell) and is resolved as a methodology note.
 
 All tests are synthetic (2-city fixtures): the pure variant functions are hit
 with in-memory per-cell records; the IO walk + ``main()`` are exercised against
@@ -29,12 +32,13 @@ from pathlib import Path
 
 import pytest
 import yaml
+from shapely.geometry import LineString, Polygon
 
 import cfm.eval.conditioning_discrimination as CD
 from cfm.data.sub_c.epsilon import EPS_RATIO
-from cfm.data.sub_c.io import CellAggregate
+from cfm.data.sub_c.io import CellAggregate, FeatureRow, write_features_parquet
 from cfm.data.sub_c.io import write_cells_parquet as write_sub_c_cells_parquet
-from cfm.data.sub_d.enums import MetricNamespace, Scope, SlotKind
+from cfm.data.sub_d.enums import FeatureClass, MetricNamespace, Scope, SlotKind
 from cfm.data.sub_d.io import (
     DerivationEvidenceRow,
     MacroCoreRow,
@@ -93,6 +97,7 @@ def _record(
     cell_zoning: dict | None = None,
     cell_ratio: dict | None = None,
     cell_sea: dict | None = None,
+    cell_building_size: dict | None = None,
     features: list | None = None,
 ):
     cell = (0, 0)
@@ -105,6 +110,7 @@ def _record(
         cell_zoning=cell_zoning if cell_zoning is not None else {cell: 1},
         cell_ratio=cell_ratio if cell_ratio is not None else {cell: 0.5},
         cell_sea=cell_sea if cell_sea is not None else {cell: 0.0},
+        cell_building_size=(cell_building_size if cell_building_size is not None else {cell: None}),
         features=features if features is not None else [(_ROAD, 5.0, cell)],
     )
 
@@ -372,6 +378,133 @@ def test_v3_appends_sea_dim_to_v0_stratum() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# V4: candidate dim — per-cell building-size bucket APPENDED to the V0 tuple
+# --------------------------------------------------------------------------- #
+
+
+def test_v4_building_size_bucket_edges() -> None:
+    """Bucket 0 = no buildings (None median); else 1 + number of area doublings
+    above 10 m², clipped: <=10 -> 1, (10,20] -> 2, ..., (1280,2560] -> 9,
+    >2560 -> 10 (10 buckets total incl. the no-building bucket)."""
+    assert MOD.building_size_bucket(None) == 0
+    assert MOD.building_size_bucket(0.0) == 1  # floor-bucketed
+    assert MOD.building_size_bucket(10.0) == 1
+    assert MOD.building_size_bucket(10.001) == 2
+    # Boundary pair around the 20 m² edge: inclusive below, exclusive above.
+    assert MOD.building_size_bucket(20.0) == 2
+    assert MOD.building_size_bucket(20.001) == 3
+    assert MOD.building_size_bucket(2560.0) == 9
+    assert MOD.building_size_bucket(2560.001) == 10
+    assert MOD.building_size_bucket(1e9) == 10  # ceiling-bucketed
+
+
+def test_v4_negative_or_nan_median_is_loud() -> None:
+    """A negative or NaN median area is impossible by construction — loud, never
+    bucketed (mirrors ratio_bucket's guard)."""
+    with pytest.raises(ValueError, match="median building"):
+        MOD.building_size_bucket(-0.01)
+    with pytest.raises(ValueError, match="median building"):
+        MOD.building_size_bucket(float("nan"))
+
+
+def test_v4_appends_building_size_dim_to_v0_stratum() -> None:
+    """V4 stratum = V0 tuple PLUS the building-size bucket: length grows by
+    exactly 1, and a NO-building cell (bucket 0) is distinguishable from a
+    SMALL-building cell (median 9 m² -> bucket 1)."""
+    rec = _record(
+        "a",
+        tile_zoning=3,
+        tile_skeleton=2,
+        tile_coastal=0,
+        cell_density={(0, 0): 1, (0, 1): 1},
+        cell_zoning={(0, 0): 1, (0, 1): 1},
+        cell_ratio={(0, 0): 0.5, (0, 1): 0.5},
+        cell_sea={(0, 0): 0.0, (0, 1): 0.0},
+        cell_building_size={(0, 0): None, (0, 1): 9.0},
+        features=[(_ROAD, 5.0, (0, 0)), (_ROAD, 7.0, (0, 1))],
+    )
+    feats_v0 = MOD.variant_features([rec], "V0")
+    feats_v4 = MOD.variant_features([rec], "V4")
+    assert feats_v4 == {
+        ("a", (3, 2, 1, 0, 0), _ROAD): [5.0],  # no buildings -> bucket 0
+        ("a", (3, 2, 1, 0, 1), _ROAD): [7.0],  # small building -> bucket 1
+    }
+    (v0_stratum,) = {s for _c, s, _m in feats_v0}
+    for _c, stratum, _m in feats_v4:
+        assert len(stratum) == 5
+        assert stratum[:-1] == v0_stratum
+
+
+def _v4_pair(size_a: float | None, size_b: float | None) -> list:
+    """Two cities identical under V0's stratum (tile dims defaulted, same density
+    bucket) whose feature clouds differ strongly (n=60 two-cloud kill regime) and
+    whose per-cell median building sizes are the parameters — V4 is the ONLY
+    variant dimension the pair can split on."""
+    n = 60
+    rec_a = _record(
+        "a",
+        cell_density={(0, 0): 0},
+        cell_building_size={(0, 0): size_a},
+        features=[(_ROAD, 10.0 + i * 0.001, (0, 0)) for i in range(n)],
+    )
+    rec_b = _record(
+        "b",
+        cell_density={(0, 0): 0},
+        cell_building_size={(0, 0): size_b},
+        features=[(_ROAD, 100.0 + i * 0.001, (0, 0)) for i in range(n)],
+    )
+    return [rec_a, rec_b]
+
+
+def test_v4_kills_pair_when_building_sizes_differ_twin_keeps() -> None:
+    """THE V4 tooth + its regime twin (gate-must-distinguish-regimes).
+
+    Satisfiability screened by computing: median 15 m² -> bucket 2 and
+    500 m² -> bucket 7, so the differing pair lands in DISJOINT V4 strata
+    (zero pairs); the twin (15 vs 15) shares bucket 2, so its single V0 pair
+    survives V4's append and fires (KS=1.0 at n=60 >= min_n=50, delta 0.15)."""
+    out = MOD.diagnose(_v4_pair(15.0, 500.0), min_n=50, alpha=0.05, effect_size_floor=0.15)
+
+    # Fixture regime self-check: V0 actually fires.
+    v0 = out["V0"]["per_metric"][_ROAD]
+    assert v0["n_significant_effect"] == 1, "V4 fixture out of regime: V0 never fired"
+
+    # Differing building sizes: V4 partitions the cities apart -> signal killed.
+    v4 = out["V4"]["per_metric"][_ROAD]
+    assert v4["n_pairs"] == 0
+    assert v4["n_significant_effect"] == 0
+    assert v4["median_ks"] is None
+
+    # The twin (same sizes): V4 keeps the pair and fires exactly like V0.
+    twin = MOD.diagnose(_v4_pair(15.0, 15.0), min_n=50, alpha=0.05, effect_size_floor=0.15)
+    t4 = twin["V4"]["per_metric"][_ROAD]
+    assert t4["n_pairs"] == 1
+    assert t4["n_significant_effect"] == 1
+    assert t4["median_ks"] == 1.0
+    assert t4["n_significant_effect"] == twin["V0"]["per_metric"][_ROAD]["n_significant_effect"]
+
+
+# --------------------------------------------------------------------------- #
+# Rate field: the denominator-honest comparison criterion (PI-locked)
+# --------------------------------------------------------------------------- #
+
+
+def test_rate_field_is_denominator_honest() -> None:
+    """rate = n_significant_effect / n_pairs, null (NOT 0.0) when n_pairs == 0 —
+    pinned on the kill fixture at both the per-metric and variant-total levels."""
+    out = MOD.diagnose(_kill_fixture(), min_n=50, alpha=0.05, effect_size_floor=0.15)
+
+    v0 = out["V0"]
+    assert v0["per_metric"][_ROAD]["rate"] == 1.0  # 1 significant / 1 pair
+    assert v0["per_metric"][_BUILDING]["rate"] is None  # 0 pairs -> null, not 0.0
+    assert v0["rate"] == 1.0  # variant total: 1 / n_qualifying_comparisons=1
+
+    # V1 kills the pair entirely: zero qualifying comparisons -> null rate.
+    assert out["V1"]["per_metric"][_ROAD]["rate"] is None
+    assert out["V1"]["rate"] is None
+
+
+# --------------------------------------------------------------------------- #
 # Bref exclusion: SAME construction-identity rule, uniform feature pool
 # --------------------------------------------------------------------------- #
 
@@ -426,7 +559,7 @@ def test_per_cell_classifier_applies_bref_exclusion_and_keeps_cell_key() -> None
 
 def test_feature_pool_is_uniform_across_all_variants() -> None:
     """The variant comparison is confounded unless every variant sees the SAME
-    feature pool: total feature count per city is identical across all 7 variants."""
+    feature pool: total feature count per city is identical across all 8 variants."""
     rec_a = _record("a", features=[(_ROAD, float(i), (0, 0)) for i in range(7)])
     rec_b = _record("b", features=[(_BUILDING, float(i), (0, 0)) for i in range(5)])
     totals = {}
@@ -436,8 +569,8 @@ def test_feature_pool_is_uniform_across_all_variants() -> None:
         for (city, _s, _m), vals in feats.items():
             per_city[city] = per_city.get(city, 0) + len(vals)
         totals[variant] = per_city
-    assert len(MOD.VARIANTS) == 7
-    assert set(MOD.VARIANTS) == {"V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3"}
+    assert len(MOD.VARIANTS) == 8
+    assert set(MOD.VARIANTS) == {"V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3", "V4"}
     assert all(t == {"a": 7, "b": 5} for t in totals.values()), totals
 
 
@@ -483,8 +616,13 @@ def _write_city_tile(
     n_blocks: int = 3,
     skip_evidence: bool = False,
     skip_sub_c: bool = False,
+    skip_features: bool = False,
 ) -> None:
-    """One real-writer tile (tile_i=0, tile_j=0) with two active cells (0,0)/(0,1)."""
+    """One real-writer tile (tile_i=0, tile_j=0) with two active cells (0,0)/(0,1).
+
+    features.parquet (V4's source): cell (0,0) has one 4x3 m building (median
+    12 m² -> building_size_bucket 2) plus a ROAD row that the building filter
+    must skip; cell (0,1) has NO building rows (median None -> bucket 0)."""
     dirname = f"tile={_EPSG}_i0_j0"
     cells = [(0, 0), (0, 1)]
     zonings = {(0, 0): 1, (0, 1): 2}
@@ -560,6 +698,48 @@ def _write_city_tile(
             ],
             sub_c / "cells.parquet",
         )
+        if not skip_features:
+            building = Polygon([(0, 0), (4, 0), (4, 3), (0, 3)])  # area 12 m²
+            road = LineString([(0, 0), (3, 0)])
+            feature_rows = [
+                FeatureRow(
+                    cell_i=0,
+                    cell_j=0,
+                    feature_class=int(FeatureClass.BUILDING),
+                    source_feature_id="b-0",
+                    geometry=building,
+                    geometry_type=2,  # Polygon
+                    bbox_min_x=0.0,
+                    bbox_min_y=0.0,
+                    bbox_max_x=4.0,
+                    bbox_max_y=3.0,
+                    class_raw="building",
+                    subtype_raw=None,
+                    categories_primary=None,
+                    categories_alternate=None,
+                    sea_overlap_fraction=0.0,
+                ),
+                # A road row in the SAME cell: the building filter must skip it
+                # (non-vacuous feature_class filtering).
+                FeatureRow(
+                    cell_i=0,
+                    cell_j=0,
+                    feature_class=int(FeatureClass.ROAD),
+                    source_feature_id="r-0",
+                    geometry=road,
+                    geometry_type=1,  # LineString
+                    bbox_min_x=0.0,
+                    bbox_min_y=0.0,
+                    bbox_max_x=3.0,
+                    bbox_max_y=0.0,
+                    class_raw="road",
+                    subtype_raw=None,
+                    categories_primary=None,
+                    categories_alternate=None,
+                    sea_overlap_fraction=0.0,
+                ),
+            ]
+            write_features_parquet(feature_rows, sub_c / "features.parquet")
 
     sub_f = root / "sub_f" / city / dirname
     sub_f.mkdir(parents=True, exist_ok=True)
@@ -660,6 +840,15 @@ def test_missing_sub_c_cells_is_loud(tmp_path, monkeypatch) -> None:
         MOD.collect_tile_records("rel", list(_CITIES))
 
 
+def test_missing_features_parquet_is_loud(tmp_path, monkeypatch) -> None:
+    """Same denominator-integrity rule for the sub-C features.parquet (V4's
+    source): a tile that HAS sub-F cells but no features.parquet must raise."""
+    _write_fixture(tmp_path, _CITIES, skip_features=True)
+    _patch_paths(monkeypatch, MOD, tmp_path)
+    with pytest.raises(FileNotFoundError, match=r"features\.parquet"):
+        MOD.collect_tile_records("rel", list(_CITIES))
+
+
 def test_shrinkage_over_ceiling_halts(tmp_path, monkeypatch) -> None:
     """F3 silent-shrinkage halt on the script's OWN walk (the V0 parity test runs
     only in the 0-skip regime, so it cannot see this logic): delete one city's only
@@ -690,8 +879,9 @@ def test_zero_tile_city_is_loud(tmp_path, monkeypatch) -> None:
 def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys) -> None:
     """The real script main() against on-disk fixtures: exit 0, YAML lands with the
     methodology block (δ + bucket schemes + V1b/V1d definitions + the V1c≡V0
-    resolution note), all 7 variants x both metrics, per-city feature totals, and
-    the F3 coverage counters with n_bref_excluded."""
+    resolution note + the rate criterion), all 8 variants x both metrics with the
+    rate field, per-city feature totals, and the F3 coverage counters with
+    n_bref_excluded."""
     _write_fixture(tmp_path, _CITIES)
     _patch_paths(monkeypatch, MOD, tmp_path)
     report = tmp_path / "report.yaml"
@@ -721,6 +911,14 @@ def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys
     assert meth["variants"]["V2_8"]["density_bucket_scheme"]["scheme"] == "equal_width"
     assert "sea_bucket_scheme" in meth["variants"]["V3"]
 
+    # V4: the FULL building-size scheme is serialized (the PI judges it from the
+    # YAML) and the rate criterion is recorded as PI-locked at this gate.
+    v4_scheme = meth["variants"]["V4"]["building_size_bucket_scheme"]
+    assert v4_scheme["n_buckets"] == 10
+    assert "2560" in yaml.safe_dump(v4_scheme)  # the ceiling edge is in the artifact
+    assert "no buildings" in yaml.safe_dump(v4_scheme)
+    assert "n_significant_effect / n_pairs" in meth["rate_criterion"]
+
     # The V1/V1b/V1d strata are serialized for the PI's read; V1's density slot
     # carries the SAME label as V0/V1b/V1d (it is the same per-cell slot — the
     # v1c_note depends on this).
@@ -746,13 +944,34 @@ def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys
     assert "_cell_density_by_cell" in v1c_note
     assert "cell_density_bucket" in v1c_note
 
-    assert set(doc["variants"]) == {"V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3"}
+    assert set(doc["variants"]) == {"V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3", "V4"}
     for variant in doc["variants"].values():
         for metric in (_BUILDING, _ROAD):
             cell = variant["per_metric"][metric]
-            assert set(cell) >= {"n_pairs", "n_significant_effect", "median_ks"}
+            assert set(cell) >= {"n_pairs", "n_significant_effect", "median_ks", "rate"}
+            # Uniform rate schema, no variant special-casing: null when 0 pairs,
+            # else the denominator-honest division.
+            if cell["n_pairs"] == 0:
+                assert cell["rate"] is None
+            else:
+                assert cell["rate"] == cell["n_significant_effect"] / cell["n_pairs"]
+        if variant["n_qualifying_comparisons"] == 0:
+            assert variant["rate"] is None
+        else:
+            assert (
+                variant["rate"]
+                == variant["n_significant_effect"] / variant["n_qualifying_comparisons"]
+            )
         # The step-5 +/-20%-of-V0 denominator sanity check needs per-city totals.
         assert variant["n_features_by_city"] == {"alphaville": 6, "bravotown": 6}
+
+    # Pinned V0 rates: the two identical-city fixtures qualify pairs (min_n=1)
+    # that are never significant -> rate 0.0 (a REAL zero, distinct from the
+    # null no-pair BUILDING case: the fixture decodes road blocks only).
+    v0_road = doc["variants"]["V0"]["per_metric"][_ROAD]
+    assert v0_road["n_pairs"] > 0
+    assert v0_road["rate"] == 0.0
+    assert doc["variants"]["V0"]["per_metric"][_BUILDING]["rate"] is None
 
     for city in _CITIES:
         cov = doc["tile_coverage"][city]
@@ -765,3 +984,5 @@ def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys
     out = capsys.readouterr().out
     assert "V0" in out and "V2_16" in out and "V3" in out
     assert "V1b" in out and "V1d" in out
+    assert "V4" in out
+    assert "rate" in out  # the rate column/total made it into the table
