@@ -10,7 +10,9 @@
 # job (kill -> resubmit -> continues from $WORK's last.ckpt, not step 0) BEFORE submitting
 # any 1B job. Discovering a broken resume mid-1B-run costs ~159 node-h.
 #
-# Submit with: BACKBONE=<name> SCALE=<30M|100M|300M|1B> sbatch scripts/bakeoff_run.sbatch
+# Submit with:
+#   BACKBONE=<name> SCALE=<30M|100M|300M|1B> REGION=<region> RELEASE=<release> \
+#     sbatch scripts/bakeoff_run.sbatch
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_lprod
 #SBATCH --account=AIFAC_P02_222
@@ -31,14 +33,16 @@ source .venv/bin/activate
 mkdir -p logs
 
 : "${BACKBONE:?set BACKBONE}" "${SCALE:?set SCALE}"
+: "${REGION:?set REGION (e.g. krakow)}"
+: "${RELEASE:?set RELEASE (e.g. 2026-04-15.0)}"
 echo "=== job context ==="
-echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) backbone=$BACKBONE scale=$SCALE"
+echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) backbone=$BACKBONE scale=$SCALE region=$REGION release=$RELEASE"
 
 # On wall-clock signal: resubmit THIS script (continues from $WORK on relaunch), then exit cleanly.
 trap 'echo "USR1: wall-clock approaching; resubmitting for across-job resume"; sbatch "$0"; exit 0' USR1
 
 # Pre-build the manifest ONCE (single process) before the DDP ranks read it (no write race).
-python -c "from cfm.data.training.build_shards import build_training_shards as b; b('2026-04-15.0','singapore')"
+python -c "from cfm.data.training.build_shards import build_training_shards as b; b('${RELEASE}','${REGION}')"
 
 # TODO(Task 12): --config is NOT wired yet (no per-run yaml loader on the CLI; see the
 # xfail in tests/training/test_cli_contract.py). Task 12 either adds a --config loader OR
@@ -48,6 +52,7 @@ python -c "from cfm.data.training.build_shards import build_training_shards as b
 # from resume_ckpt_path() and checkpoints to work_checkpoint_dir(BACKBONE, SCALE).
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --backbone "$BACKBONE" \
+  --region "$REGION" --release "$RELEASE" \
   --config "configs/experiments/bakeoff-${BACKBONE}-${SCALE}.yaml" &
 wait
 echo "JOB_DONE"

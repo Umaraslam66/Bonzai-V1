@@ -17,13 +17,17 @@ import pytest
 _REPO = Path(__file__).resolve().parents[2]
 
 
-def _build_parser():
+def _load_module():
     spec = importlib.util.spec_from_file_location(
         "train_scaffold_cli", _REPO / "scripts" / "train_scaffold.py"
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod._build_parser()
+    return mod
+
+
+def _build_parser():
+    return _load_module()._build_parser()
 
 
 def _parser_long_flags() -> set[str]:
@@ -62,3 +66,52 @@ def test_bakeoff_run_sbatch_config_flag_is_a_known_task12_gap() -> None:
     # not yet support. When the Task-12 per-run config loader lands, this xpasses -> remove.
     used = _sbatch_flags(_REPO / "scripts" / "bakeoff_run.sbatch")
     assert not (used - _parser_long_flags())
+
+
+# --- Task 10 (readiness-closure): --region/--release CLI + sbatch de-Singaporization ---
+
+_SBATCH_NAMES = ["bakeoff_diagnostic.sbatch", "bakeoff_run.sbatch"]
+
+
+def test_region_release_flags_reach_scaffold_config() -> None:
+    mod = _load_module()
+    args = mod._build_parser().parse_args(["--region", "krakow", "--release", "2026-04-15.0"])
+    cfg = mod.build_config_from_args(args)
+    assert cfg.region == "krakow"
+    assert cfg.release == "2026-04-15.0"
+    # without the flags, the ScaffoldConfig defaults must remain untouched
+    cfg_default = mod.build_config_from_args(mod._build_parser().parse_args([]))
+    assert cfg_default.region == "singapore"
+    assert cfg_default.release == "2026-04-15.0"
+
+
+@pytest.mark.parametrize("name", _SBATCH_NAMES)
+def test_sbatch_has_no_singapore_literal(name: str) -> None:
+    text = (_REPO / "scripts" / name).read_text(encoding="utf-8")
+    assert "singapore" not in text.lower(), f"{name} still hardcodes singapore"
+
+
+@pytest.mark.parametrize("name", _SBATCH_NAMES)
+def test_sbatch_prebuild_line_is_env_driven(name: str) -> None:
+    text = (_REPO / "scripts" / name).read_text(encoding="utf-8")
+    lines = [ln for ln in text.splitlines() if "build_training_shards" in ln]
+    assert lines, f"{name} has no build_training_shards pre-build line"
+    for line in lines:
+        assert re.search(r"\$\{?RELEASE\}?", line), f"{name} pre-build line not RELEASE-driven"
+        assert re.search(r"\$\{?REGION\}?", line), f"{name} pre-build line not REGION-driven"
+
+
+@pytest.mark.parametrize("name", _SBATCH_NAMES)
+def test_sbatch_has_region_release_env_guards(name: str) -> None:
+    text = (_REPO / "scripts" / name).read_text(encoding="utf-8")
+    assert ': "${REGION:?' in text, f"{name} missing the REGION env guard"
+    assert ': "${RELEASE:?' in text, f"{name} missing the RELEASE env guard"
+
+
+@pytest.mark.parametrize("name", _SBATCH_NAMES)
+def test_sbatch_srun_passes_region_release_to_cli(name: str) -> None:
+    # Env-driven sbatch must forward REGION/RELEASE into the job, else ScaffoldConfig
+    # silently falls back to its defaults inside the srun.
+    flags = _sbatch_flags(_REPO / "scripts" / name)
+    assert "--region" in flags, f"{name} srun does not pass --region"
+    assert "--release" in flags, f"{name} srun does not pass --release"

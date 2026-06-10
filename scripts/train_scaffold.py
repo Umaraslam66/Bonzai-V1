@@ -391,15 +391,21 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="save step-interval checkpoints (diagnostic: for the emergence-vs-step trajectory)",
     )
+    parser.add_argument(
+        "--region",
+        default=None,
+        help="override ScaffoldConfig.region (e.g. krakow); default keeps the config value",
+    )
+    parser.add_argument(
+        "--release",
+        default=None,
+        help="override ScaffoldConfig.release (e.g. 2026-04-15.0); default keeps the config value",
+    )
     return parser
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO)
-    args = _build_parser().parse_args()
-    if args.smoke:
-        print(json.dumps(run_smoke(devices=args.devices)))
-        return
+def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
+    """Pure args->config mapping (no side effects beyond accelerator probing)."""
     overrides: dict = {"devices": args.devices, "accelerator": _accelerator_for(args.devices)}
     for flag, key in [
         ("backbone", "backbone"),
@@ -410,14 +416,25 @@ def main() -> None:
         ("n_heads", "n_heads"),
         ("batch_size", "batch_size"),
         ("grad_accum", "grad_accum"),
+        ("region", "region"),
+        ("release", "release"),
     ]:
         val = getattr(args, flag)
         if val is not None:
             overrides[key] = val
     if args.no_compile:
         overrides["compile"] = False
+    return ScaffoldConfig(**overrides)
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    args = _build_parser().parse_args()
+    if args.smoke:
+        print(json.dumps(run_smoke(devices=args.devices)))
+        return
     result = run_short(
-        ScaffoldConfig(**overrides),
+        build_config_from_args(args),
         build_shards=not args.no_build,
         max_time=args.max_time,
         eval_cells=args.eval_cells,
