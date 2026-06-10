@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import yaml
@@ -138,6 +138,27 @@ class PairResult:
 
 
 @dataclass(frozen=True)
+class TileCoverage:
+    """Per-city held-out tile accounting for gate-(i) extraction (readiness F3).
+
+    ``n_tiles_expected`` is the manifest's tile count; ``n_tiles_skipped`` counts
+    tiles whose ``cells.parquet`` was absent (the former silent-shrinkage path).
+    """
+
+    n_tiles_expected: int
+    n_tiles_read: int
+    n_tiles_skipped: int
+
+
+@dataclass(frozen=True)
+class ExtractionResult:
+    """Return of ``extract_features_by_city_stratum_metric``: features + coverage."""
+
+    features: dict[tuple[str, tuple, str], list[float]]
+    tile_coverage: dict[str, TileCoverage]
+
+
+@dataclass(frozen=True)
 class ConditioningDiscriminationResult:
     verdict: str  # "PASS" | "FAIL" | "UNSUPPORTED"
     per_metric_verdict: dict[str, str]
@@ -148,6 +169,9 @@ class ConditioningDiscriminationResult:
     n_qualifying_comparisons: int
     min_n: int
     alpha: float
+    # Per-city extraction coverage, threaded in by the RUNNER (dataclasses.replace);
+    # the pure verdict fn stays coverage-agnostic, so the default keeps it green.
+    tile_coverage: dict[str, TileCoverage] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -296,20 +320,32 @@ def _tile_features(
     return out
 
 
+#: Silent-shrinkage ceiling (readiness F3): the max tolerated fraction of a city's
+#: held-out tiles missing ``cells.parquet`` before extraction HALTs (strict >).
+_SHRINKAGE_CEILING: float = 0.1
+
+
 def extract_features_by_city_stratum_metric(
     release: str,
     cities: Sequence[str],
-) -> dict[tuple[str, tuple, str], list[float]]:
-    """Accumulate per-(city, full-stratum, metric) real feature scalars.
+) -> ExtractionResult:
+    """Accumulate per-(city, full-stratum, metric) real feature scalars + coverage.
 
     For each held-out city, for each held-out tile: read the tile-level conditioning
     labels (zoning / skeleton / coastal), decode the round-tripped-real geoms tagged
     with per-cell density, and bin each feature into
     ``(city, (zoning, skeleton, density, coastal), metric)``.
 
+    Per-city tile coverage is counted (``n_tiles_expected/read/skipped``) and gated
+    at the END of extraction: any city with ``skipped/expected > 0.1`` raises — the
+    silent-shrinkage ceiling; a partial city must be re-extracted or explicitly
+    excluded, never quietly thinned (readiness F3). A zero-tile city is its own
+    loud error (never a valid extraction target).
+
     Runs on Leonardo against the real corpus; there is no corpus locally.
     """
     features: dict[tuple[str, tuple, str], list[float]] = {}
+    tile_coverage: dict[str, TileCoverage] = {}
 
     for city in cities:
         manifest = yaml.safe_load(holdout_manifest_for_region(release, city).read_text())
@@ -317,6 +353,8 @@ def extract_features_by_city_stratum_metric(
         epsg = epsg_label_for_region(city)
         sub_d = sub_d_region_dir(release, city)
         sub_f = sub_f_region_dir(release, city)
+        n_read = 0
+        n_skipped = 0
 
         for tile in tiles:
             ti, tj = int(tile["tile_i"]), int(tile["tile_j"])
@@ -328,6 +366,7 @@ def extract_features_by_city_stratum_metric(
                 logger.warning(
                     "missing sub-F cells for %s tile (%d,%d): %s", city, ti, tj, cells_path
                 )
+                n_skipped += 1
                 continue
 
             labels = read_tile_labels(sub_d / dirname, tile_i=ti, tile_j=tj)
@@ -341,5 +380,29 @@ def extract_features_by_city_stratum_metric(
             for metric, value, density in _tile_features(blocks, geoms, density_strata):
                 stratum = (zoning, skeleton, density, coastal)
                 features.setdefault((city, stratum, metric), []).append(value)
+            n_read += 1
 
-    return features
+        tile_coverage[city] = TileCoverage(
+            n_tiles_expected=len(tiles), n_tiles_read=n_read, n_tiles_skipped=n_skipped
+        )
+
+    # END-of-extraction HALT (readiness F3): a partial city can no longer quietly thin.
+    for city, cov in tile_coverage.items():
+        if cov.n_tiles_expected == 0:
+            # DECISION: ValueError (invalid extraction target), distinct from the
+            # RuntimeError shrinkage halt. Revisit if callers need to catch both as one.
+            raise ValueError(
+                f"gate-(i) extraction: city '{city}' has zero tiles in its holdout "
+                "manifest — a zero-tile city is never a valid extraction target."
+            )
+        frac = cov.n_tiles_skipped / cov.n_tiles_expected
+        if frac > _SHRINKAGE_CEILING:
+            raise RuntimeError(
+                f"gate-(i) extraction: city '{city}' skipped "
+                f"{cov.n_tiles_skipped}/{cov.n_tiles_expected} held-out tiles "
+                f"(missing cells.parquet; fraction {frac:.3f} > silent-shrinkage "
+                f"ceiling {_SHRINKAGE_CEILING}). A partial city must be re-extracted "
+                "or explicitly excluded, never quietly thinned (readiness F3)."
+            )
+
+    return ExtractionResult(features=features, tile_coverage=tile_coverage)

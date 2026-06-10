@@ -10,9 +10,15 @@ helpers (``noise_floor``, ``ks_pvalue``, ``benjamini_hochberg``).
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import random
+from types import SimpleNamespace
 
+import pytest
+import yaml
+
+import cfm.eval.conditioning_discrimination as CD
 from cfm.eval.conditioning_discrimination import (
     benjamini_hochberg,
     conditioning_discrimination_verdict,
@@ -246,3 +252,140 @@ def test_ks_distance_consistency_with_realism() -> None:
     result = conditioning_discrimination_verdict(features, min_n=50)
     pair = result.pairs[0]
     assert pair.ks == ks_distance(a, b)
+
+
+# --------------------------------------------------------------------------- #
+# Gate-(i) extraction: tile-coverage counters + silent-shrinkage HALT (F3)
+# and the extraction-site CRS regression guard (F1).
+# --------------------------------------------------------------------------- #
+
+#: A non-Singapore CRS label — distinct from tile_dirname's EPSG3414 default so the
+#: CRS guard is RED if the signature default ever rides again.
+_FIXTURE_EPSG = "EPSG25832"
+
+
+def _stub_labels(tile_dir, *, tile_i, tile_j):  # signature mirrors the real reader
+    return SimpleNamespace(
+        morphology_stratum=SimpleNamespace(
+            dominant_zoning_class=1,
+            modal_road_skeleton_class=2,
+        ),
+        coastal_inland_river=0,
+    )
+
+
+def _setup_extraction_fixture(tmp_path, monkeypatch, *, city, n_tiles, missing):
+    """Synthetic per-city held-out tree driven through the REAL extraction loop.
+
+    Writes a holdout manifest with ``n_tiles`` tiles; tiles whose index is in
+    ``missing`` get NO ``cells.parquet`` on disk (the silent-shrinkage path).
+    Every per-tile reader past the existence check is stubbed so each read tile
+    yields exactly one open-road feature.
+    """
+    manifest = {"regions": {city: {"tiles": [{"tile_i": i, "tile_j": 0} for i in range(n_tiles)]}}}
+    mf = tmp_path / f"{city}_holdout.yaml"
+    mf.write_text(yaml.safe_dump(manifest))
+
+    sub_d = tmp_path / "sub_d" / city
+    sub_f = tmp_path / "sub_f" / city
+    for i in range(n_tiles):
+        if i in missing:
+            continue
+        tile_dir = sub_f / f"tile={_FIXTURE_EPSG}_i{i}_j0"
+        tile_dir.mkdir(parents=True)
+        (tile_dir / "cells.parquet").touch()
+
+    monkeypatch.setattr(CD, "holdout_manifest_for_region", lambda release, region: mf)
+    monkeypatch.setattr(CD, "epsg_label_for_region", lambda region: _FIXTURE_EPSG)
+    monkeypatch.setattr(CD, "sub_d_region_dir", lambda release, region: sub_d)
+    monkeypatch.setattr(CD, "sub_f_region_dir", lambda release, region: sub_f)
+    monkeypatch.setattr(CD, "read_tile_labels", _stub_labels)
+    monkeypatch.setattr(CD, "_cell_density_by_cell", lambda tile_dir: {})
+    monkeypatch.setattr(CD, "read_sub_f_cells", lambda path: [])
+    monkeypatch.setattr(
+        CD,
+        "decode_region_blocks",
+        lambda tokens, cdbc: (
+            [[0]],
+            [{"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0]]}],
+            [1],
+        ),
+    )
+
+
+def test_extraction_reports_tile_coverage_counters(tmp_path, monkeypatch) -> None:
+    """20-tile city, 1 missing cells.parquet (1/20 = 0.05 <= 0.1): NO halt; the
+    result carries exact per-city n_tiles_expected/read/skipped counters and the
+    read tiles still feed features."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=20, missing={3})
+    out = CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+    assert out.tile_coverage["testcity"] == CD.TileCoverage(
+        n_tiles_expected=20, n_tiles_read=19, n_tiles_skipped=1
+    )
+    # One open-road feature per read tile — extraction still accumulates features.
+    assert sum(len(v) for v in out.features.values()) == 19
+
+
+def test_extraction_halts_above_silent_shrinkage_ceiling(tmp_path, monkeypatch) -> None:
+    """3-tile city, 1 missing (1/3 > 0.1): extraction RAISES, naming the city, the
+    counts, and the ceiling — a partial city can no longer quietly thin (F3)."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=3, missing={1})
+    with pytest.raises(RuntimeError) as excinfo:
+        CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+    msg = str(excinfo.value)
+    assert "testcity" in msg
+    assert "1/3" in msg
+    assert "0.1" in msg
+
+
+def test_extraction_no_halt_at_exact_ceiling(tmp_path, monkeypatch) -> None:
+    """10 tiles, 1 missing = exactly 0.1: strict > means NO raise (boundary)."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=10, missing={0})
+    out = CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+    assert out.tile_coverage["testcity"] == CD.TileCoverage(
+        n_tiles_expected=10, n_tiles_read=9, n_tiles_skipped=1
+    )
+
+
+def test_extraction_zero_tile_city_is_loud(tmp_path, monkeypatch) -> None:
+    """A city with zero tiles in its manifest is never a valid extraction target:
+    its own loud error (not a division-by-zero, not a silent empty pass)."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=0, missing=set())
+    with pytest.raises(ValueError, match="testcity"):
+        CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+
+
+def test_extraction_uses_region_crs_label(tmp_path, monkeypatch) -> None:
+    """The extraction-site ``tile_dirname`` call (the 4th call site) must pass the
+    REGION's CRS label. RED-ON-DIVERGENCE: reverting to ``tile_dirname(ti, tj)``
+    (signature default rides) records EPSG3414 and fails. Mirrors
+    tests/data/training/test_build_shards_multiregion.py::
+    test_build_shards_in_memory_uses_region_crs_label."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="munichlike", n_tiles=1, missing=set())
+
+    captured: list[str] = []
+    real_tile_dirname = CD.tile_dirname
+
+    def spy(tile_i: int, tile_j: int, *args, **kwargs):
+        # EPSG3414 is the real signature's Singapore default; if the call site stops
+        # passing the region label explicitly, the default is what gets recorded.
+        label = args[0] if args else kwargs.get("epsg_label", "EPSG3414")
+        captured.append(label)
+        return real_tile_dirname(tile_i, tile_j, label)
+
+    monkeypatch.setattr(CD, "tile_dirname", spy)
+
+    out = CD.extract_features_by_city_stratum_metric("rel", ["munichlike"])
+    assert captured == [_FIXTURE_EPSG], captured
+    assert "EPSG3414" not in captured
+    # The region-labelled dir resolved on disk: the tile was actually read.
+    assert out.tile_coverage["munichlike"].n_tiles_read == 1
+
+
+def test_result_tile_coverage_defaults_empty_and_threads_via_replace() -> None:
+    """The verdict fn stays coverage-agnostic (default {}); the runner threads
+    extraction coverage in via dataclasses.replace — pin that seam."""
+    result = conditioning_discrimination_verdict({}, min_n=50)
+    assert result.tile_coverage == {}
+    cov = {"x": CD.TileCoverage(n_tiles_expected=2, n_tiles_read=2, n_tiles_skipped=0)}
+    assert dataclasses.replace(result, tile_coverage=cov).tile_coverage == cov
