@@ -124,9 +124,11 @@ enrichment surface — now in scope.
 
 ## 8. STATE + discipline
 
-- Branch `phase-2-bakeoff` @ **`9693e53`** — LOCAL-ONLY, not pushed; `main` untouched by bake-off
-  code (carries only the doc handoffs, incl. this one). **No GPU spent, no scored runs.** Full
-  suite green. The five fixes above are committed on the branch.
+- **CONSOLIDATED TO `main` @ `a4d29ff`** (2026-06-10, `--no-ff` merge of `phase-2-bakeoff` @
+  `9693e53`, then pushed). The bake-off machinery + Task-8 multi-region build + the five fixes +
+  the gate-(i) machinery now live on `main`. **Start the audit from `main`.** `phase-2-bakeoff` is
+  merged (retained, deletable). **No GPU spent, no scored runs.** Full suite **1,343 green** on
+  merged main.
 - Discipline carries: subagent-driven (implementer ≠ reviewer), verified-end-state (re-read, never
   exit codes), stop-before-commit on gates/forks, ruff unpiped, `uv sync --extra dev --extra training`.
 - Leonardo SSH-ready (`leonardo`, `/leonardo_work/AIFAC_P02_222/Bonzai-OSM`, git-bundle deploy) —
