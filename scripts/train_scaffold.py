@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import random
 import subprocess
 import tempfile
 import time
@@ -24,7 +25,7 @@ import torch
 
 from cfm.data.sub_g.seam_decodability import split_cell_into_features
 from cfm.data.training.build_shards import build_training_shards
-from cfm.data.training.datamodule import CellDataModule, build_conditioning_prefix
+from cfm.data.training.datamodule import CellDataModule
 from cfm.data.training.paths import training_manifest_path
 from cfm.eval.holdout.paths import (
     eval_set_locked_marker,
@@ -71,15 +72,23 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
 
 def _generate_and_score(
     model: ScaffoldLit,
+    dm: CellDataModule,
     cfg: ScaffoldConfig,
     *,
     n_cells: int,
     max_new: int,
     emergence_floor_per_cell: float | None = None,
 ) -> dict:
-    """Generate cells from the conditioning prefix, decode via the sealed decoder,
+    """Generate cells under MATCHED conditioning, decode via the sealed decoder,
     and score the per-cell slice metrics (decoded / attempted; OGC validity; 90-corner;
     bref-collapse via the shared instrument). One real per-cell number for the loop.
+
+    Matched conditioning (F6, generation side): each generated cell is conditioned on
+    a REAL val example's value-bearing prefix (``CellExample.prefix_ids``) and scored
+    in that example's stratum (``CellExample.stratum``: density bucket, -1 unknown) —
+    no new IO; the datamodule's loaded val examples already carry both. The n_cells
+    contexts are sampled from ``dm.val_cells`` deterministically (seeded shuffle,
+    cycling when val is smaller than n_cells).
 
     Diagnostic instrumentation (bake-off Task 4): counts building-token presence in the
     GENERATED streams (the §5 stage-1 truncation discriminator -- did the model emit
@@ -88,15 +97,27 @@ def _generate_and_score(
     """
     from cfm.eval.emergence import sequence_has_building_tokens
 
-    prefix = build_conditioning_prefix()
+    val = dm.val_cells
+    if not val:
+        raise ValueError(
+            "matched-conditioning eval needs >=1 val example to sample conditioning "
+            "contexts from; dm.val_cells is empty"
+        )
+    # DECISION: sample WITH a seeded shuffle (not val order) so a small --eval-cells
+    # doesn't always score the lexicographically-first tiles; cycle deterministically
+    # when n_cells > len(val). Revisit if eval ever needs stratified sampling.
+    order = list(range(len(val)))
+    random.Random(cfg.seed).shuffle(order)
+    sampled = [val[order[i % len(order)]] for i in range(n_cells)]
+
     blocks: list[list[int]] = []
     geoms: list[dict] = []
     strata: list[int] = []
     n_attempted = 0
     n_cells_with_building_tokens = 0
-    for i in range(n_cells):
+    for i, example in enumerate(sampled):
         tokens = generate_cell_tokens(
-            model.model, prefix=prefix, max_new=max_new, seed=cfg.seed + i
+            model.model, prefix=list(example.prefix_ids), max_new=max_new, seed=cfg.seed + i
         )
         if sequence_has_building_tokens(tokens):
             n_cells_with_building_tokens += 1
@@ -107,7 +128,7 @@ def _generate_and_score(
             if decoded is not None:
                 blocks.append(block)
                 geoms.append(decoded)
-                strata.append(0)  # single stratum: conditioning is value-agnostic in slice v1
+                strata.append(example.stratum)  # real stratum: density bucket (-1 unknown)
     metrics = slice_eval(
         blocks,
         geoms,
@@ -155,7 +176,7 @@ def run_smoke(devices: int = 4) -> dict:
         k in live and torch.equal(saved[k].cpu(), live[k].cpu()) for k in saved
     )
 
-    score = _generate_and_score(lit, cfg, n_cells=4, max_new=64)
+    score = _generate_and_score(lit, dm, cfg, n_cells=4, max_new=64)
     return {
         "trained_steps": int(trainer.global_step),
         "checkpoint_written": ckpt.exists(),
@@ -213,9 +234,10 @@ def _write_report(
         "A green per-cell number means the micro generator emits decodable, locally-",
         "valid cells. It does NOT mean the tile generator works: tile cell-to-cell",
         "coherence, boundary-contract stitching and macro-planner conditioning are",
-        "UNSCORED-in-slice. Conditioning is the field-slot id-block (value-agnostic in",
-        "slice v1); value-bearing conditioning + its compliance scoring are bake-off",
-        f"follow-ons. Right-angle PoC bar (reported): {_RIGHT_ANGLE_BAR}.",
+        "UNSCORED-in-slice. Conditioning is MATCHED (F6): each generated cell uses a",
+        "real val example's value-bearing prefix and is scored in that example's",
+        "density stratum (-1 = unknown); conditioning COMPLIANCE scoring is still a",
+        f"bake-off follow-on. Right-angle PoC bar (reported): {_RIGHT_ANGLE_BAR}.",
     ]
     report.write_text("\n".join(lines), encoding="utf-8")
     return report
@@ -292,6 +314,7 @@ def run_short(
     e0 = time.time()
     metrics = _generate_and_score(
         lit,
+        dm,
         cfg,
         n_cells=eval_cells,
         max_new=eval_max_new,
