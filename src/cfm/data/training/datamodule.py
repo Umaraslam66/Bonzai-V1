@@ -317,6 +317,7 @@ class CellDataModule(L.LightningDataModule):
             holdout,
             reachable,
             expected_schema_version=self._expected_holdout_schema,  # default "2.0"
+            manifest_path=self._holdout_manifest,  # F9: sha + _EVAL_SET_LOCKED verified at read
         )  # raises on any leak across the union
 
         # Audit passed: build per-city shards from the SAME tile set each manifest

@@ -47,3 +47,20 @@ def test_decision_basis_step_function():
     assert decision_basis(2) is DecisionBasis.FIXED_SCALE_PLUS_S13
     assert decision_basis(3) is DecisionBasis.SCALING_CURVE
     assert decision_basis(4) is DecisionBasis.SCALING_CURVE
+
+
+def test_train_tokens_matches_the_frozen_multiregion_marker():
+    """F9 TRAIN_TOKENS guard: the hard-coded ladder constant must equal the frozen
+    multiregion _EVAL_SET_LOCKED's train_tokens (real artifact, tracked in git --
+    same real-marker idiom as test_resolution_seam's
+    test_reads_the_real_frozen_marker_fields). A re-lock that changes the corpus
+    without updating the ladder constant fails HERE, not silently at the bake-off."""
+    import yaml
+
+    from cfm.eval import ladder
+    from cfm.eval.holdout.paths import multiregion_eval_set_locked_marker
+
+    marker = yaml.safe_load(
+        multiregion_eval_set_locked_marker("2026-04-15.0").read_text(encoding="utf-8")
+    )
+    assert ladder.TRAIN_TOKENS == marker["train_tokens"]

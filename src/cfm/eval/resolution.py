@@ -24,7 +24,12 @@ from pathlib import Path
 
 import yaml
 
-from cfm.eval.holdout.paths import eval_set_locked_marker
+from cfm.eval.holdout.paths import (
+    _EU_HELD_OUT_CITIES,
+    DEFAULT_REGION,
+    eval_set_locked_marker,
+    multiregion_eval_set_locked_marker,
+)
 
 
 class InsufficientResolutionError(Exception):
@@ -33,17 +38,47 @@ class InsufficientResolutionError(Exception):
     assert_coherence_power_sufficient). Carries the named escalation."""
 
 
+def resolution_marker_for_region(release: str, region: str) -> Path:
+    """REGION-AWARE resolution marker (F9, Task 20) — mirrors
+    ``holdout_manifest_for_region``'s fail-closed routing (cfm.eval.holdout.paths):
+
+      - ``"singapore"``                 -> the SG ``_EVAL_SET_LOCKED`` (carries KS fields)
+      - one of the 4 EU held-out cities -> the multiregion ``_EVAL_SET_LOCKED``
+      - anything else                   -> raise (fail-closed; never silently mis-route)
+
+    NOTE: the REAL multiregion marker carries NO ks fields today; routing an EU
+    region here means the read below fails LOUDLY (KeyError) until the EU KS numbers
+    are derived — never a silent fallback to the SG numbers."""
+    if region == DEFAULT_REGION:
+        return eval_set_locked_marker(release)
+    if region in _EU_HELD_OUT_CITIES:
+        return multiregion_eval_set_locked_marker(release)
+    raise ValueError(
+        f"resolution_marker_for_region: unknown region {region!r}; expected "
+        f"{DEFAULT_REGION!r} (SG) or one of the EU held-out cities "
+        f"{sorted(_EU_HELD_OUT_CITIES)}"
+    )
+
+
 def assert_resolution_sufficient(
     needed_gap: float,
     *,
     marker_path: Path | None = None,
+    region: str | None = None,
     release: str = "2026-04-15.0",
 ) -> None:
     """Raise iff the frozen eval set cannot resolve ``needed_gap``.
 
     Fail-closed: a missing/unreadable marker or missing required fields RAISES.
+    Marker precedence: explicit ``marker_path`` > ``region`` routing
+    (``resolution_marker_for_region``) > today's default (the SG marker).
     """
-    path = Path(marker_path) if marker_path is not None else eval_set_locked_marker(release)
+    if marker_path is not None:
+        path = Path(marker_path)
+    elif region is not None:
+        path = resolution_marker_for_region(release, region)
+    else:
+        path = eval_set_locked_marker(release)
     data = yaml.safe_load(path.read_text(encoding="utf-8"))  # FileNotFoundError if absent -> loud
     if not isinstance(data, dict):
         raise InsufficientResolutionError(

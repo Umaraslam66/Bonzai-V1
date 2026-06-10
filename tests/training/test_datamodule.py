@@ -215,8 +215,16 @@ _HOLDOUT = {
 
 
 def _write_holdout(tmp):
+    """Strengthened to the F9 reader contract (Task 20): setup() now verifies the
+    manifest's stamped manifest_sha256 + the _EVAL_SET_LOCKED marker beside it, so
+    the synthetic holdout is stamped with the REAL freeze grammar and sealed."""
+    from cfm.eval.holdout.manifest import manifest_sha256
+
+    stamped = dict(_HOLDOUT)
+    stamped["manifest_sha256"] = manifest_sha256(stamped)
     p = tmp / "holdout.yaml"
-    p.write_text(yaml.safe_dump(_HOLDOUT))
+    p.write_text(yaml.safe_dump(stamped))
+    (tmp / "_EVAL_SET_LOCKED").touch()
     return p
 
 

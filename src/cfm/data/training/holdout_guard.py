@@ -23,6 +23,7 @@ from cfm.eval.holdout.lineage_audit import (
     LineageFailure,
     audit_no_holdout_leak,
 )
+from cfm.eval.holdout.manifest import manifest_sha256
 
 
 def load_training_manifest(path: Path) -> dict:
@@ -51,13 +52,27 @@ def run_holdout_audit(
     reachable: list[Artifact],
     *,
     expected_schema_version: str = "2.0",
+    manifest_path: Path | None = None,
 ) -> None:
     """Raise HoldoutLeakError on any leak/absent-lineage; return None iff clean.
 
     Fail-closed schema backstop: refuses a manifest whose ``manifest_schema_version``
     != ``expected_schema_version`` (default "2.0", the EU multi-region schema). This is
     the #16 backstop: a forgotten bake-off re-point that hands the stale SG 1.0 manifest
-    is refused, never silently audited as the EU corpus."""
+    is refused, never silently audited as the EU corpus.
+
+    F9 reader-side integrity (Task 20): when ``manifest_path`` is given (the PRODUCTION
+    reader, ``CellDataModule.setup``), two further checks run BEFORE the leak audit:
+
+    - sha verification: the dict's stored ``manifest_sha256`` must equal the recomputed
+      ``manifest_sha256(holdout_manifest)`` (the freeze grammar: sha over the canonical
+      manifest EXCLUDING the field itself). A MISSING field is refused too — an
+      unstamped manifest is unverifiable, so fail-closed.
+    - lock marker: ``_EVAL_SET_LOCKED`` must exist beside the manifest
+      (``manifest_path.parent``) — the write-once freeze seal travels with the file.
+
+    ``manifest_path=None`` (legacy/synthetic callers) SKIPS only these two checks; the
+    schema backstop + leak audit always run. Order: schema -> sha/marker -> leak."""
     got = holdout_manifest.get("manifest_schema_version")
     if got != expected_schema_version:
         raise HoldoutLeakError(
@@ -72,4 +87,50 @@ def run_holdout_audit(
             ],
             headline="held-out audit refused (schema mismatch):",
         )
+    if manifest_path is not None:
+        _verify_manifest_integrity(holdout_manifest, Path(manifest_path))
     audit_no_holdout_leak(holdout_manifest, reachable)
+
+
+def _verify_manifest_integrity(holdout_manifest: dict, manifest_path: Path) -> None:
+    """F9: recomputed-sha == stored ``manifest_sha256`` AND ``_EVAL_SET_LOCKED``
+    beside the manifest; any failure -> HoldoutLeakError (fail-closed)."""
+    stored = holdout_manifest.get("manifest_sha256")
+    if stored is None:
+        raise HoldoutLeakError(
+            [
+                LineageFailure(
+                    str(manifest_path),
+                    "holdout manifest carries NO manifest_sha256 field — an unstamped "
+                    "manifest is unverifiable (fail-closed). Freeze it via "
+                    "freeze_holdout_manifest before pointing training at it.",
+                )
+            ],
+            headline="held-out audit refused (unverifiable manifest):",
+        )
+    recomputed = manifest_sha256(holdout_manifest)
+    if recomputed != stored:
+        raise HoldoutLeakError(
+            [
+                LineageFailure(
+                    str(manifest_path),
+                    f"holdout manifest sha mismatch: stored manifest_sha256={stored!r} but "
+                    f"recomputed={recomputed!r} — the manifest was edited after freeze (or "
+                    "corrupted). Refusing to audit against a tampered holdout.",
+                )
+            ],
+            headline="held-out audit refused (sha mismatch):",
+        )
+    marker = manifest_path.parent / "_EVAL_SET_LOCKED"
+    if not marker.exists():
+        raise HoldoutLeakError(
+            [
+                LineageFailure(
+                    str(manifest_path),
+                    f"no _EVAL_SET_LOCKED marker beside the holdout manifest (expected "
+                    f"{marker}) — the eval set is not sealed write-once; refusing to "
+                    "audit against an unlocked holdout.",
+                )
+            ],
+            headline="held-out audit refused (missing lock marker):",
+        )

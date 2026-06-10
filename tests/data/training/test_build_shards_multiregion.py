@@ -315,16 +315,23 @@ def _write_city_manifest(tmp, region, tiles):
 
 def _write_union_holdout(tmp):
     """A schema-2.0 holdout whose held-out cities are disjoint from the train cities
-    under test — so the union audit passes (train tiles never match holdout tiles)."""
+    under test — so the union audit passes (train tiles never match holdout tiles).
+
+    Strengthened to the F9 reader contract (Task 20): stamped manifest_sha256 (real
+    freeze grammar) + _EVAL_SET_LOCKED beside it, since setup() now verifies both."""
     import yaml
+
+    from cfm.eval.holdout.manifest import manifest_sha256
 
     holdout = {
         "manifest_schema_version": "2.0",
         "held_out_cities": ["munich"],
         "regions": {"munich": {"tiles": [{"tile_i": 9, "tile_j": 9}]}},
     }
+    holdout["manifest_sha256"] = manifest_sha256(holdout)
     p = tmp / "union_holdout.yaml"
     p.write_text(yaml.safe_dump(holdout))
+    (tmp / "_EVAL_SET_LOCKED").touch()
     return p
 
 
@@ -369,15 +376,17 @@ def test_single_region_path_still_works(tmp_path, monkeypatch):
             }
         )
     )
+    # F9-strengthened (Task 20): stamped sha + lock marker, the strict reader contract.
+    from cfm.eval.holdout.manifest import manifest_sha256
+
+    holdout_d = {
+        "manifest_schema_version": "2.0",
+        "regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
+    }
+    holdout_d["manifest_sha256"] = manifest_sha256(holdout_d)
     holdout = tmp_path / "holdout.yaml"
-    holdout.write_text(
-        yaml.safe_dump(
-            {
-                "manifest_schema_version": "2.0",
-                "regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
-            }
-        )
-    )
+    holdout.write_text(yaml.safe_dump(holdout_d))
+    (tmp_path / "_EVAL_SET_LOCKED").touch()
     monkeypatch.setattr(
         DM,
         "build_shards_in_memory",
