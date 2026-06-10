@@ -10,9 +10,11 @@ Thin DRIVER over the LOCKED verdict API
      + δ=0.15 effect-size floor, PI-call #1; ``conditioning_discrimination_verdict``).
   3. Writes a canonical-YAML report with every n reported beside its denominator:
      the verdict, per-metric verdict, the full per-(city, stratum, metric) n map,
-     the per-city tile coverage (n_tiles_expected/read/skipped — the F3 shrinkage
-     counters), and the per-pair list (metric, stratum, cities, n, ks, floor,
-     raw/BH p, significance).
+     the ``effect_size_floor`` and the significance split
+     (``n_significant_raw_bh`` / ``n_significant_effect``), the per-city tile
+     coverage (n_tiles_expected/read/skipped — the F3 shrinkage counters — plus
+     ``n_bref_excluded``), and the per-pair list (metric, stratum, cities, n, ks,
+     floor, raw/BH p, significance).
 
 PASS ⇒ the worst-case bar is valid; FAIL ⇒ T5 reopens; UNSUPPORTED ⇒ the held-out
 set can't support the test at full granularity (report, do NOT coarsen).

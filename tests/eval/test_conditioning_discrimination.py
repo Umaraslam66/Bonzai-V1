@@ -448,10 +448,15 @@ def test_bref_features_excluded_from_road_length_by_construction_identity_and_co
     """Outbound-bref road excluded + counted (n_bref_excluded per city); a zero-length
     geometry WITHOUT the bref identity is NOT excluded (regime-distinguishing twin —
     symptom-keyed exclusion would pass this; identity-keyed must)."""
+    from cfm.data.sub_f.decoder import _is_bref_token
     from cfm.eval.conditioning_discrimination import _tile_features
     from cfm.eval.emergence import building_token_ids
 
     _BREF = 1500  # BP7 boundary-reference token band is 1500..1507 (sub-F decoder)
+    # Authority anchor: the SAME predicate _has_outbound_bref ultimately uses
+    # (cfm.data.sub_f.decoder._is_bref_token) must recognize the fixture token —
+    # a band move becomes a loud fixture error, not a silent out-of-regime pass.
+    assert _is_bref_token(_BREF), "fixture out of regime: _BREF not in decoder bref band"
     bid = min(building_token_ids())
 
     bref_road = {"type": "LineString", "coordinates": [[0, 0], [3, 0]]}
@@ -483,7 +488,7 @@ def test_bref_features_excluded_from_road_length_by_construction_identity_and_co
         CD,
         "decode_region_blocks",
         lambda tokens, cdbc: (
-            [[0, 5, 1500, 0], [0, 5, 0]],
+            [[0, 5, _BREF, 0], [0, 5, 0]],
             [
                 {"type": "LineString", "coordinates": [[0.0, 0.0], [3.0, 0.0]]},
                 {"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0]]},

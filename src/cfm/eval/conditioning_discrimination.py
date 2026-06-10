@@ -148,7 +148,7 @@ class PairResult:
     floor: float
     p_raw: float
     p_bh: float  # filled after the GLOBAL BH correction across all pairs
-    significant: bool
+    significant: bool  # p_bh < alpha AND ks >= effect_size_floor (see module docstring)
 
 
 @dataclass(frozen=True)
@@ -157,8 +157,10 @@ class TileCoverage:
 
     ``n_tiles_expected`` is the manifest's tile count; ``n_tiles_skipped`` counts
     tiles whose ``cells.parquet`` was absent (the former silent-shrinkage path).
-    ``n_bref_excluded`` counts road features excluded from ``road_length_m`` by the
-    outbound-bref construction identity — excluded, never silently dropped.
+    ``n_bref_excluded`` counts line-typed features (not only roads — e.g. an
+    unpromoted open-ring building truncated by a bref) excluded from
+    ``road_length_m`` by the outbound-bref construction identity — excluded,
+    never silently dropped.
     """
 
     n_tiles_expected: int
