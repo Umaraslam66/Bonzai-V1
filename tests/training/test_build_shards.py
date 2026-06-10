@@ -73,3 +73,74 @@ def test_build_is_byte_deterministic_build_twice_and_diff(tmp_path):
     assert files_a == files_b and len(files_a) > 0
     for rel in files_a:
         assert (a / rel).read_bytes() == (b / rel).read_bytes(), f"non-deterministic: {rel}"
+
+
+# --- Task 11 review follow-up: verify_union_manifests (one-source G4 roll-up) ---
+
+
+def _union_world() -> tuple[dict, dict]:
+    """Synthetic G4 roll-up + multiregion holdout: 2 train cities (aaa, bbb),
+    1 held-out (heldout1, validated but excluded), 1 unvalidated (dropped)."""
+    g4 = {
+        "per_city": [
+            {"name": "bbb", "validated": True},
+            {"name": "aaa", "validated": True},
+            {"name": "heldout1", "validated": True},
+            {"name": "unvalidated1", "validated": False},
+        ]
+    }
+    holdout = {"holdout_schema_version": "2.0", "held_out_cities": ["heldout1"]}
+    return g4, holdout
+
+
+def test_verify_union_manifests_returns_sorted_cities_when_all_exist(tmp_path, monkeypatch):
+    import cfm.data.training.build_shards as bs
+
+    g4, holdout = _union_world()
+
+    def fake_manifest_path(release, city):
+        return tmp_path / release / city / "training_manifest.yaml"
+
+    monkeypatch.setattr(bs, "training_manifest_path", fake_manifest_path)
+    for city in ("aaa", "bbb"):
+        p = fake_manifest_path(_RELEASE, city)
+        p.parent.mkdir(parents=True)
+        p.write_text(f"region: {city}\n", encoding="utf-8")
+
+    cities = bs.verify_union_manifests(_RELEASE, g4_rollup=g4, holdout_manifest=holdout)
+    # sorted train cities: held-out and unvalidated excluded, order deterministic
+    assert cities == ["aaa", "bbb"]
+
+
+def test_verify_union_manifests_raises_naming_all_missing_cities(tmp_path, monkeypatch):
+    import cfm.data.training.build_shards as bs
+
+    g4, holdout = _union_world()
+
+    def fake_manifest_path(release, city):
+        return tmp_path / release / city / "training_manifest.yaml"
+
+    monkeypatch.setattr(bs, "training_manifest_path", fake_manifest_path)
+    # only aaa exists -> bbb must be named in the error; with NEITHER on disk both are named
+    with pytest.raises(ValueError) as exc:
+        bs.verify_union_manifests(_RELEASE, g4_rollup=g4, holdout_manifest=holdout)
+    assert "aaa" in str(exc.value) and "bbb" in str(exc.value)
+
+    p = fake_manifest_path(_RELEASE, "aaa")
+    p.parent.mkdir(parents=True)
+    p.write_text("region: aaa\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="bbb"):
+        bs.verify_union_manifests(_RELEASE, g4_rollup=g4, holdout_manifest=holdout)
+
+
+def test_verify_union_manifests_strict_holdout_read_raises(tmp_path, monkeypatch):
+    """Fail-closed: a holdout mapping WITHOUT held_out_cities must raise ValueError
+    naming the key -- never fall through to train_cities' .get(..., []) and
+    silently exclude nothing (same contract as _union_datamodule)."""
+    import cfm.data.training.build_shards as bs
+
+    g4, _ = _union_world()
+    with pytest.raises(ValueError, match="held_out_cities"):
+        bs.verify_union_manifests(
+            _RELEASE, g4_rollup=g4, holdout_manifest={"holdout_schema_version": "2.0"}
+        )

@@ -46,6 +46,7 @@ sys.path.insert(0, str(_REPO / "src"))
 
 from cfm.data.io import canonicalize_yaml  # noqa: E402
 from cfm.data.training.build_shards import (  # noqa: E402
+    DEFAULT_G4_ROLLUP,
     _load_or_pass,
     build_train_city_manifest,
     train_cities,
@@ -58,7 +59,7 @@ from cfm.data.training.paths import (  # noqa: E402
 _LOG = logging.getLogger("build_multiregion_train_shards")
 
 _DEFAULT_RELEASE = "2026-04-15.0"
-_DEFAULT_G4 = "reports/2026-06-05-phase-2-g4-corpus-dod.yaml"
+_DEFAULT_G4 = DEFAULT_G4_ROLLUP  # one-source constant; CLI default behavior unchanged
 _DEFAULT_HOLDOUT = "data/processed/eval_set/2026-04-15.0/multiregion/holdout_manifest.yaml"
 _DEFAULT_REPORT = "reports/2026-06-10-task8-multiregion-train-shards-build.yaml"
 

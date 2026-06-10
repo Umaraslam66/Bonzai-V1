@@ -41,6 +41,13 @@ from cfm.data.training.paths import (
 from cfm.data.training.shard_schema import CellPayload, TrainingShard
 from cfm.eval.holdout.labels import TileLabels, read_tile_labels
 
+# THE one source for the Task-8 G4 corpus-DoD roll-up path (repo-relative).
+# Every consumer (train_scaffold._g4_rollup_path, build_multiregion_train_shards
+# _DEFAULT_G4, the bakeoff_run.sbatch union preamble) derives from THIS constant —
+# a drifted copy would let the preamble verify a different city set than training
+# consumes, and the guard would pass while guarding nothing.
+DEFAULT_G4_ROLLUP: str = "reports/2026-06-05-phase-2-g4-corpus-dod.yaml"
+
 
 def _validated_inventory(release: str, region: str) -> list[dict]:
     """The validated-tile inventory from the sub-D manifest (authoritative, one
@@ -112,6 +119,44 @@ def train_cities(
     held = set(_load_or_pass(holdout_manifest).get("held_out_cities", []))
     names = [c["name"] for c in rollup["per_city"] if c.get("validated") and c["name"] not in held]
     return sorted(names)
+
+
+def verify_union_manifests(
+    release: str,
+    *,
+    g4_rollup: dict | Path | str,
+    holdout_manifest: dict | Path | str,
+) -> list[str]:
+    """Fail-loud gate for the eu-train-union consumers: resolve the train cities and
+    verify EVERY per-city training manifest exists on disk; return the sorted cities.
+
+    The bakeoff_run.sbatch preamble calls this before burning node-hours — the SAME
+    resolution (``train_cities`` over the SAME roll-up constant) the training process
+    consumes, so the guard cannot drift from what it guards. RAISES (never ``assert``,
+    which vanishes under ``python -O``):
+
+      - ``ValueError`` naming ``held_out_cities`` if the holdout manifest lacks the key
+        (fail-closed: ``train_cities`` itself uses ``.get(..., [])`` and would silently
+        exclude NOTHING — the same strict-read contract as the scaffold's
+        ``_union_datamodule``);
+      - ``ValueError`` listing ALL missing per-city manifests if any are absent (this
+        path NEVER rebuilds; manifests are built only by the Task-8 driver).
+    """
+    holdout = _load_or_pass(holdout_manifest)
+    if "held_out_cities" not in holdout:
+        raise ValueError(
+            "holdout manifest has no 'held_out_cities' key; refusing to verify a "
+            "training union with an empty exclusion set"
+        )
+    cities = train_cities(release, g4_rollup=g4_rollup, holdout_manifest=holdout)
+    missing = [c for c in cities if not training_manifest_path(release, c).exists()]
+    if missing:
+        raise ValueError(
+            "missing per-city training manifests (run the Task-8 build "
+            "(scripts/build_multiregion_train_shards.py) first; this path never "
+            "rebuilds): " + ", ".join(missing)
+        )
+    return cities  # train_cities already returns sorted
 
 
 def build_train_city_shards(release: str, city: str) -> list[TrainingShard]:

@@ -105,7 +105,9 @@ def test_union_holdout_missing_held_out_cities_raises(
     monkeypatch.setattr(mod, "multiregion_holdout_manifest_path", lambda release: bad)
 
     cfg = ScaffoldConfig(train_set="eu-train-union", release=_RELEASE)
-    with pytest.raises((KeyError, ValueError), match="held_out_cities"):
+    # ValueError ONLY: the shipped contract is the explicit raise in _union_datamodule,
+    # never an incidental KeyError from a dict lookup.
+    with pytest.raises(ValueError, match="held_out_cities"):
         mod._datamodule(cfg, build=False)
 
 

@@ -25,7 +25,11 @@ import torch
 import yaml
 
 from cfm.data.sub_g.seam_decodability import split_cell_into_features
-from cfm.data.training.build_shards import build_training_shards, train_cities
+from cfm.data.training.build_shards import (
+    DEFAULT_G4_ROLLUP,
+    build_training_shards,
+    train_cities,
+)
 from cfm.data.training.datamodule import CellDataModule
 from cfm.data.training.paths import training_manifest_path
 from cfm.eval.holdout.paths import (
@@ -53,10 +57,12 @@ def _accelerator_for(devices: int) -> str:
 
 
 def _g4_rollup_path() -> Path:
-    """The production G4 corpus-DoD roll-up (same default as the Task-8 driver
-    scripts/build_multiregion_train_shards.py). Module-level so tests can
-    monkeypatch it onto a synthetic fixture."""
-    return Path("reports/2026-06-05-phase-2-g4-corpus-dod.yaml")
+    """The production G4 corpus-DoD roll-up — derived from the ONE-source
+    ``DEFAULT_G4_ROLLUP`` constant (shared with the Task-8 driver and the
+    bakeoff_run.sbatch union preamble, so the preamble verifies the SAME city
+    set training consumes). Module-level so tests can monkeypatch it onto a
+    synthetic fixture."""
+    return Path(DEFAULT_G4_ROLLUP)
 
 
 def _union_datamodule(cfg: ScaffoldConfig) -> CellDataModule:

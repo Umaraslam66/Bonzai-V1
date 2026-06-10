@@ -50,37 +50,11 @@ if [ "$TRAIN_SET" = "single" ]; then
   python -c "from cfm.data.training.build_shards import build_training_shards as b; b('${RELEASE}','${REGION}')"
 else
   # eu-train-union: the per-city manifests are built ONLY by the dedicated Task-8 sbatch
-  # (scripts/build_multiregion_train_shards.sbatch). NO rebuild here -- assert every
-  # train city's manifest exists on disk and fail LOUD before burning node-hours.
-  python - <<PY
-import yaml
-
-from cfm.data.training.build_shards import train_cities
-from cfm.data.training.paths import training_manifest_path
-from cfm.eval.holdout.paths import multiregion_holdout_manifest_path
-
-release = "${RELEASE}"
-holdout_path = multiregion_holdout_manifest_path(release)
-holdout = yaml.safe_load(holdout_path.read_text(encoding="utf-8"))
-# STRICT read (fail-closed): a manifest missing held_out_cities must abort the job,
-# never fall through to train_cities' .get(..., []) and exclude nothing.
-held = holdout["held_out_cities"]
-cities = train_cities(
-    release,
-    g4_rollup="reports/2026-06-05-phase-2-g4-corpus-dod.yaml",
-    holdout_manifest=holdout,
-)
-missing = [c for c in cities if not training_manifest_path(release, c).exists()]
-assert not missing, (
-    "missing per-city training manifests (run build_multiregion_train_shards.sbatch "
-    "first; this job never rebuilds): " + ", ".join(missing)
-)
-print(
-    "eu-train-union preamble: "
-    + str(len(cities)) + " per-city manifests verified on disk; "
-    + str(len(held)) + " held-out cities excluded"
-)
-PY
+  # (scripts/build_multiregion_train_shards.sbatch). NO rebuild here -- verify_union_manifests
+  # is the tested fail-loud gate (strict held_out_cities read; RAISES listing every missing
+  # manifest) and shares the one-source DEFAULT_G4_ROLLUP constant with the training process,
+  # so this preamble verifies the SAME city set training consumes.
+  python -c "from cfm.data.training.build_shards import DEFAULT_G4_ROLLUP, verify_union_manifests; from cfm.eval.holdout.paths import multiregion_holdout_manifest_path; cities = verify_union_manifests('${RELEASE}', g4_rollup=DEFAULT_G4_ROLLUP, holdout_manifest=multiregion_holdout_manifest_path('${RELEASE}')); print(f'eu-train-union preamble: {len(cities)} per-city manifests verified on disk')"
 fi
 
 # TODO(Task 12): --config is NOT wired yet (no per-run yaml loader on the CLI; see the
