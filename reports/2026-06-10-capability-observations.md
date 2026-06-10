@@ -110,3 +110,26 @@ and nothing here implies action. Grouped by layer.
   embedding-table ROWS; sequence positions come from `CONDITIONING_PREFIX_LEN=8`. The
   conflation propagated from an orchestrator dispatch text into an sbatch comment before
   review caught it. Both axes now documented at config.py max_len and the diagnostic sbatch.
+
+## Segment-3 execution observations (readiness-closure Phase 6, harvested 2026-06-10)
+
+- **Mutation-verified re-review closes the "guard that passes in both regimes" gap at the
+  review layer itself.** The Task-23 re-reviewer neutered each newly-added F3 guard in the
+  script (shrinkage halt → `if False`, zero-tile raise removed, None-density skip removed)
+  and confirmed the corresponding test FAILS under each mutation before restoring the tree.
+  This is the gate-must-distinguish-regimes discipline applied to review evidence rather
+  than test design — stronger than reading the test and judging it plausible.
+- **A "weak red" is a TDD smell the reviewer can audit cheaply.** The Task-23 implementer's
+  first red was a collection-time FileNotFoundError (script absent), which proves nothing
+  about assertion strength. The spec reviewer compensated by checking assertion content
+  (sentinel tile dims, exact-tuple pins) rather than trusting the red. Dispatch texts should
+  keep requiring red runs whose failures exercise the assertions, not the imports.
+- **Synthetic token fixtures can collide with real vocab semantics silently.** A test
+  building block `[0, bid, 0]` collided with the zero-length road block `[0, 5, 0]` because
+  `min(building_token_ids()) == 5` — caught only because the fixture self-checked its
+  classification regime. Fixture token ids should be anchored to the vocab authority
+  (`assert _is_bref_token(_BREF)` pattern) rather than chosen as plausible literals.
+- **Required-keyword thresholds surface every caller at the diff.** Making
+  `effect_size_floor` a no-default keyword on the pure verdict forced all existing call
+  sites/tests to state the floor explicitly in the same commit — the lock-and-guards-travel-
+  together property fell out of the signature design rather than a grep discipline.
