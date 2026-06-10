@@ -298,3 +298,80 @@ def test_allowlist_matches_the_live_region_configs():
         live_values.add(crs)
 
     assert live_values == mod.PROJECTED_CRS_ALLOWLIST
+
+
+# ---------------------------------------------------------------------------
+# Defect-survival: bad per-region data must FAIL that region, never raise —
+# the 42-city Leonardo run must reach the end and write its report.
+# ---------------------------------------------------------------------------
+
+
+def test_int_projected_crs_fails_named_and_sibling_still_checked(tmp_path):
+    """YAML int projected_crs (e.g. ``projected_crs: 3414``) must not raise
+    AttributeError; it FAILs alpha with a "not a string" diff while beta is
+    still checked and BOTH land in the written report."""
+    mod = _load_module()
+    kwargs = _make_tree(tmp_path)
+    # Corrupt alpha's config: unquoted CRS parses as a YAML int.
+    (kwargs["config_root"] / "alpha.yaml").write_text(
+        yaml.safe_dump({"name": "alpha", "projected_crs": 3414}),
+        encoding="utf-8",
+    )
+    report = tmp_path / "report.yaml"
+
+    rc, summary = mod.run_check(_RELEASE, ["alpha", "beta"], report=report, **kwargs)
+
+    assert rc != 0
+    v = summary["per_region"]["alpha"]
+    assert v["verdict"] == "FAIL"
+    joined = " ".join(v["diffs"])
+    assert "not a string" in joined
+    assert "3414" in joined and "int" in joined
+    # Sibling region still checked, and the report names BOTH regions.
+    assert summary["per_region"]["beta"]["verdict"] == "PASS"
+    loaded = yaml.safe_load(report.read_text(encoding="utf-8"))
+    assert set(loaded["per_region"]) == {"alpha", "beta"}
+
+
+def test_malformed_sub_d_manifest_yaml_fails_named_and_sibling_still_checked(tmp_path):
+    """Malformed YAML in one region's sub-D manifest must not abort the loop:
+    that region FAILs with a diff naming the path, the sibling still runs."""
+    mod = _load_module()
+    kwargs = _make_tree(tmp_path)
+    mpath = kwargs["sub_d_root_fn"](_RELEASE, "alpha") / "manifest.yaml"
+    mpath.write_text("{ unclosed", encoding="utf-8")
+
+    rc, summary = mod.run_check(_RELEASE, ["alpha", "beta"], report=None, **kwargs)
+
+    assert rc != 0
+    v = summary["per_region"]["alpha"]
+    assert v["verdict"] == "FAIL"
+    joined = " ".join(v["diffs"])
+    assert "unparseable YAML" in joined
+    assert str(mpath) in joined
+    assert summary["per_region"]["beta"]["verdict"] == "PASS"
+
+
+def test_empty_region_list_is_nonzero_rc(tmp_path):
+    """run_check([]) is vacuous, not a pass: rc must be nonzero in the CORE,
+    not only behind the CLI guard in main()."""
+    mod = _load_module()
+    kwargs = _make_tree(tmp_path)
+
+    rc, summary = mod.run_check(_RELEASE, [], report=None, **kwargs)
+
+    assert rc != 0
+    assert summary["n_regions"] == 0
+
+
+def test_duplicate_regions_are_checked_once(tmp_path):
+    """Duplicate entries in the region list (e.g. repeated --regions values)
+    dedup order-preservingly: the region is checked once, n_regions == 1."""
+    mod = _load_module()
+    kwargs = _make_tree(tmp_path)
+
+    rc, summary = mod.run_check(_RELEASE, ["alpha", "alpha"], report=None, **kwargs)
+
+    assert rc == 0
+    assert summary["n_regions"] == 1
+    assert summary["per_region"]["alpha"]["verdict"] == "PASS"

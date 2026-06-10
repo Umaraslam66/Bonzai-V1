@@ -101,6 +101,36 @@ def _holdout_crs_for_region(
     return None
 
 
+def _read_yaml_mapping(path: Path, diffs: list[str]) -> dict | None:
+    """Per-leg tolerant YAML read: any defect becomes a named diff, never a raise.
+
+    Unparseable YAML and parseable-but-not-a-mapping YAML both append a diff
+    naming the path and return None (the leg is then treated as unreadable, so
+    the region FAILs but the multi-city loop keeps going).
+    """
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        diffs.append(f"unparseable YAML: {path} ({type(exc).__name__})")
+        return None
+    if not isinstance(loaded, dict):
+        diffs.append(f"YAML is not a mapping: {path} ({type(loaded).__name__})")
+        return None
+    return loaded
+
+
+def _crs_as_str(value: object, source: str, diffs: list[str]) -> str | None:
+    """Coerce one CRS leg value to ``str | None``; non-string -> named diff + None.
+
+    A YAML int like ``projected_crs: 3414`` must FAIL with a readable diff,
+    not raise AttributeError downstream at ``.replace(":", "")``.
+    """
+    if value is None or isinstance(value, str):
+        return value
+    diffs.append(f"{source} is not a string: {value!r} ({type(value).__name__})")
+    return None
+
+
 def check_region(
     release: str,
     region: str,
@@ -110,7 +140,15 @@ def check_region(
     sg_holdout: dict | None,
     mr_holdout: dict | None,
 ) -> dict:
-    """Check one region; returns its verdict dict (never raises on data defects).
+    """Check one region; returns its verdict dict.
+
+    Never raises on defects in THIS region's inputs: a missing file,
+    unparseable or non-mapping YAML (config or sub-D manifest), a missing CRS
+    key, and a non-string CRS value (config ``projected_crs``, sub-D
+    ``region_crs``, holdout ``crs``) all become named diffs -> FAIL verdict,
+    so one bad city cannot abort a multi-city run or lose the report. (The
+    shared holdout manifests are read once in ``main``/``_load_yaml_if_exists``,
+    not here — a malformed holdout FILE raises there, loudly, naming the path.)
 
     The config / sub-D-manifest / tile-dir legs are MANDATORY (missing -> FAIL);
     the holdout leg is optional (absent -> skipped, ``holdout_crs: null``).
@@ -124,10 +162,13 @@ def check_region(
     if not config_path.exists():
         diffs.append(f"region config missing: {config_path}")
     else:
-        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        config_crs = cfg.get("projected_crs")
-        if config_crs is None:
-            diffs.append(f"region config has no projected_crs key: {config_path}")
+        cfg = _read_yaml_mapping(config_path, diffs)
+        if cfg is not None:
+            raw_crs = cfg.get("projected_crs")
+            if raw_crs is None:
+                diffs.append(f"region config has no projected_crs key: {config_path}")
+            else:
+                config_crs = _crs_as_str(raw_crs, "config projected_crs", diffs)
 
     # Leg 2 (MANDATORY): sub-D manifest region_crs.
     sub_d_crs: str | None = None
@@ -136,10 +177,13 @@ def check_region(
     if not manifest_path.exists():
         diffs.append(f"sub-D manifest missing: {manifest_path}")
     else:
-        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-        sub_d_crs = manifest.get("region_crs")
-        if sub_d_crs is None:
-            diffs.append(f"sub-D manifest has no region_crs key: {manifest_path}")
+        manifest = _read_yaml_mapping(manifest_path, diffs)
+        if manifest is not None:
+            raw_crs = manifest.get("region_crs")
+            if raw_crs is None:
+                diffs.append(f"sub-D manifest has no region_crs key: {manifest_path}")
+            else:
+                sub_d_crs = _crs_as_str(raw_crs, "sub-D manifest region_crs", diffs)
 
     # Leg 3 (MANDATORY): on-disk tile-dir labels.
     tile_dir_labels: list[str] = []
@@ -156,7 +200,11 @@ def check_region(
         diffs.append(f"no tile=EPSG..._i_j dirs found under {region_dir}")
 
     # Leg 4 (OPTIONAL): holdout manifest per-region crs, where present.
-    holdout_crs = _holdout_crs_for_region(region, sg_holdout, mr_holdout)
+    holdout_crs = _crs_as_str(
+        _holdout_crs_for_region(region, sg_holdout, mr_holdout),
+        "holdout manifest crs",
+        diffs,
+    )
 
     # Meters guard (on the config CRS + the dir labels).
     expected_label: str | None = None
@@ -216,7 +264,17 @@ def run_check(
     mr_holdout: dict | None,
     report: Path | None = None,
 ) -> tuple[int, dict]:
-    """Check every region; return (exit_code, summary). Exit 0 iff all PASS."""
+    """Check every region; return (exit_code, summary).
+
+    Exit 0 iff at least one region was checked and all PASS: an empty region
+    list is a vacuous run, not a pass, so it returns nonzero (guarded here in
+    the core, not only behind the CLI message in ``main``). Duplicate region
+    names are deduplicated order-preservingly and checked once.
+    """
+    regions = list(dict.fromkeys(regions))
+    if not regions:
+        _LOG.error("no regions to check — empty region list is a FAIL, not a vacuous pass")
+
     per_region: dict[str, dict] = {}
     for region in regions:
         verdict = check_region(
@@ -248,14 +306,26 @@ def run_check(
         report.parent.mkdir(parents=True, exist_ok=True)
         report.write_text(canonicalize_yaml(summary), encoding="utf-8")
 
-    return (0 if summary["n_fail"] == 0 else 1), summary
+    return (0 if (per_region and summary["n_fail"] == 0) else 1), summary
 
 
 def _load_yaml_if_exists(path: Path) -> dict | None:
-    """Tolerant holdout-manifest read: absent file -> None (leg skipped)."""
+    """Tolerant holdout-manifest read: absent file -> None (leg skipped).
+
+    DECISION: a holdout manifest that EXISTS but is malformed raises here with
+    the path named, rather than degrading to per-region diffs — it is one
+    shared file read once before the loop, so failing loudly up front is
+    simpler and cannot cost a partially-written report. Revisit if holdout
+    manifests ever become per-region inputs.
+    """
     if not path.exists():
         return None
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"unparseable holdout manifest YAML: {path} ({type(exc).__name__})"
+        ) from exc
 
 
 def _discover_regions(release: str) -> list[str]:
