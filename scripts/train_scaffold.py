@@ -43,6 +43,7 @@ from cfm.inference.generate import generate_cell_tokens, try_decode_block
 from cfm.training.config import ScaffoldConfig
 from cfm.training.env_lock import assert_training_env_locked
 from cfm.training.lit_module import ScaffoldLit
+from cfm.training.resume import work_checkpoint_dir
 from cfm.training.train import build_trainer, maybe_compile
 
 logger = logging.getLogger(__name__)
@@ -298,14 +299,30 @@ def _git_commit() -> str:
         return "unknown"
 
 
+def _scale_label(params_m: float) -> str:
+    """Deterministic params-M -> scale label (89.7 -> "90M"). Derived from cfg via
+    _param_count, so it is stable across relaunches of the same config — which is what
+    checkpoint-resume needs. It MAY differ from an sbatch's nominal SCALE env (e.g. a
+    param-derived "298M" vs nominal "300M"); that is FINE: the label's job is per-run
+    determinism, not matching the marketing number."""
+    return f"{params_m:.0f}M"
+
+
 def _write_report(
     cfg: ScaffoldConfig, metrics: dict, *, trained_steps: int, cost: dict | None = None
 ) -> Path:
     out_dir = Path("reports/phase-1-training-scaffold")
     out_dir.mkdir(parents=True, exist_ok=True)
     marker = eval_set_locked_marker(cfg.release)
-    suffix = f"-scaleup-{cost['n_params_M']:.0f}M" if cost else ""
-    report = out_dir / f"{cfg.release}-{cfg.region}-loop-closed{suffix}.md"
+    # F17 run key: backbone + integer params-M + seed, so bake-off runs against the
+    # same release+region never overwrite each other's reports. Prefer the measured
+    # cost["n_params_M"] (avoids rebuilding the model); fall back to counting from cfg.
+    # The old "-scaleup-{params}M" suffix is gone: params-M now lives in the base name
+    # for EVERY report, and cost-bearing reports are distinguished by their Cost
+    # section inside the report, not by filename.
+    params_m = float(cost["n_params_M"]) if cost else _param_count(cfg) / 1e6
+    run_key = f"{cfg.backbone}-{_scale_label(params_m)}-seed{cfg.seed}"
+    report = out_dir / f"{cfg.release}-{cfg.region}-{run_key}-loop-closed.md"
     lines = [
         f"# Phase-1 training scaffold — loop closed on {cfg.region}",
         "",
@@ -349,17 +366,20 @@ def _write_report(
     return report
 
 
-def _cost(cfg: ScaffoldConfig, *, fit_seconds: float, steps: int) -> dict:
+def _cost(cfg: ScaffoldConfig, *, fit_seconds: float, steps: int, params_m: float) -> dict:
     """Per-run cost from wall-clock x the whole 4-GPU node. node-h is wall-hours
     (1 Booster node billed whole). Warmup (torch.compile) is INCLUDED -> a
     conservative (over-)estimate, the safe direction for budgeting. Extrapolates a
-    full bake-off run + the 12-run total vs the PRD's ~375 node-h (1500 GPU-h) budget."""
+    full bake-off run + the 12-run total vs the PRD's ~375 node-h (1500 GPU-h) budget.
+
+    ``params_m`` is threaded in from run_short (which already computed it for the
+    checkpoint-dir scale label) so the model is never built twice."""
     node_h = fit_seconds / 3600.0  # 1 node occupied for the wall duration
     per_step_node_h = node_h / steps if steps else 0.0
     full_run_steps = 10_000  # illustrative bake-off per-run length (identical-compute bake-off)
     full_run_node_h = per_step_node_h * full_run_steps
     return {
-        "n_params_M": round(_param_count(cfg) / 1e6, 1),
+        "n_params_M": round(params_m, 1),
         "fit_seconds": round(fit_seconds, 1),
         "steps_completed": steps,
         "steps_per_sec": round(steps / fit_seconds, 3) if fit_seconds else 0.0,
@@ -412,9 +432,22 @@ def run_short(
     if cfg.eval_cells > 0:
         emergence_floor, emergence_provenance = _resolve_emergence_floor(cfg.region)
 
+    # Params counted ONCE, up front (one model build): the count keys BOTH the per-run
+    # checkpoint dir's scale label (F17, needed before the trainer exists) and the
+    # cost report's n_params_M.
+    params_m = _param_count(cfg) / 1e6
+
     dm = _datamodule(cfg, build=build_shards)
     lit = maybe_compile(ScaffoldLit(cfg), cfg)
-    trainer = build_trainer(cfg, max_time=max_time, ckpt_every_n_steps=ckpt_every_n_steps)
+    trainer = build_trainer(
+        cfg,
+        max_time=max_time,
+        ckpt_every_n_steps=ckpt_every_n_steps,
+        # F17: per-run checkpoint dir on $WORK (allocation-independent; local
+        # checkpoints/ fallback when $WORK is unset) keyed {backbone}-{scale}, so
+        # bake-off runs never overwrite each other and Task-18 resume can find it.
+        ckpt_dirpath=work_checkpoint_dir(cfg.backbone, _scale_label(params_m)),
+    )
     t0 = time.time()
     trainer.fit(lit, dm)
     fit_seconds = time.time() - t0
@@ -423,7 +456,7 @@ def run_short(
     # is representative, and only one process must write the report file.
     if not trainer.is_global_zero:
         return {"trained_steps": int(trainer.global_step)}
-    cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step))
+    cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step), params_m=params_m)
     # Time the eval EXPLICITLY: autoregressive generation is the binding bake-off cost,
     # so price it rather than assume it is free (the eval-cost reframe).
     e0 = time.time()
