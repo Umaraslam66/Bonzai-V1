@@ -191,8 +191,14 @@ def _generate_and_score(
     GENERATED streams (the §5 stage-1 truncation discriminator -- did the model emit
     building-class tokens at all, vs they didn't close into polygons), and passes
     ``n_cells`` + ``emergence_floor_per_cell`` so slice_eval emits the §2 emergence verdict.
+
+    ``generated_length_cap`` defaults to ``max_new`` (one source: the cap IS the
+    generation budget); pass it explicitly only to assert a different report value.
     """
     from cfm.eval.emergence import sequence_has_building_tokens
+
+    if generated_length_cap is None:
+        generated_length_cap = max_new
 
     val = dm.val_cells
     if not val:

@@ -213,3 +213,22 @@ def test_generate_and_score_passes_lengths_to_slice_eval(monkeypatch) -> None:
     )
     assert captured["generated_length_cap"] == 4
     assert captured["floor_regime_cell_length"] == DEFAULT_MAX_CELL_TOKENS == 5760
+
+
+# --- the refuse rule NESTS inside "a verdict was requested" (Task 14 follow-up) -------
+
+
+def test_incommensurate_lengths_without_floor_inputs_keep_verdict_none() -> None:
+    # Load-bearing nesting: the F15 length check lives INSIDE the "floor inputs
+    # given" branch. Incommensurate lengths with NO floor inputs must not promote
+    # the legacy verdict-None to INCOMMENSURATE — verdict-never-requested wins
+    # over the refuse rule.
+    out = slice_eval(
+        [[1]],
+        [_LINE],
+        [0],
+        generated_length_cap=512,
+        floor_regime_cell_length=5760,
+    )
+    assert out["emergence_verdict"] is None
+    assert out["building_metrics_floored"] is False

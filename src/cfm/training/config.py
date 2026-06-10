@@ -41,7 +41,8 @@ class ScaffoldConfig(BaseModel):
     n_layers: int = 6
     n_heads: int = 8
     #: CELL token budget (sub-F P99.9 lock = 5760 tokens/cell). The model's positional
-    #: capacity is this PLUS the conditioning prefix (n_cond) -- see lit_module.
+    #: capacity is this PLUS the conditioning prefix (CONDITIONING_PREFIX_LEN, 8
+    #: positions) -- see models/backbone.py.
     max_len: int = 5760
 
     # optimisation

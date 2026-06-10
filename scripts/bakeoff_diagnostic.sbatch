@@ -57,12 +57,14 @@ python -c "from cfm.data.training.build_shards import build_training_shards as b
 #
 # F15 COMMENSURABILITY NOTE (readiness Task 14): --eval-max-new 2048 < the floor's 5760
 # derivation regime, so a run of THIS script renders emergence_verdict=INCOMMENSURATE by
-# construction. That is HONEST, not a bug: this model's max_len 2048 cannot generate
-# full-regime cells, and its positional capacity (max_len + n_cond = 2560) < 5760 means
-# naively bumping --eval-max-new would CRASH generation, not fix the verdict. Making the
-# verdict scoreable requires max_len >= the floor regime (a bigger-context model), i.e.
-# the diagnostic re-run parameters are a Phase-6 / PI decision — do NOT silently edit
-# these numbers.
+# construction. That is HONEST, not a bug. Positional capacity = max_len +
+# CONDITIONING_PREFIX_LEN = 2048 + 8 = 2056 POSITIONS (n_cond=512 is embedding-table
+# rows on the token-id axis, NOT positions). --eval-max-new 2048 yields 8 + 2048 = 2056
+# tokens — exactly fills capacity, zero headroom, fits by construction (boundary pinned
+# in tests/models/test_micro_ar.py); bumping it toward 5760 would CRASH generation, not
+# fix the verdict. Making the verdict scoreable requires max_len >= the floor regime —
+# a re-planned model budget, i.e. a Phase-6 / PI decision; do NOT silently edit these
+# numbers.
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --no-compile --backbone transformer-ar \
   --region "$REGION" --release "$RELEASE" \
