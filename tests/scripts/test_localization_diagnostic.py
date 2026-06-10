@@ -1,9 +1,12 @@
 """Tests for scripts/run_localization_diagnostic.py (readiness-closure Task 23, F5; spec §4.2).
 
 The localization diagnostic recomputes the recalibrated gate-(i) verdict under
-one-layer-at-a-time stratum VARIANTS (V0 baseline / V1 un-collapse / V2_8+V2_16
-un-quantize / V3 candidate sea dim) — the variant that kills the most
-discrimination signal localizes where city character lives.
+one-layer-at-a-time stratum VARIANTS (V0 baseline / V1 un-collapse / V1b+V1d
+attribution decomposition / V2_8+V2_16 un-quantize / V3 candidate sea dim) — the
+variant that kills the most discrimination signal localizes where city character
+lives. V1b/V1d decompose V1's two simultaneous changes (zoning swap x dim drop);
+the PI-requested "V1c = per-cell-density-only" is identical to V0 by construction
+(V0's density slot is ALREADY per-cell) and is resolved as a methodology note.
 
 All tests are synthetic (2-city fixtures): the pure variant functions are hit
 with in-memory per-cell records; the IO walk + ``main()`` are exercised against
@@ -195,6 +198,98 @@ def test_v1_kills_signal_that_v0_sees() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# V1b / V1d: attribution decomposition of V1 (zoning swap x dim drop)
+# --------------------------------------------------------------------------- #
+
+
+def test_v1b_swaps_zoning_slot_keeps_tile_dims() -> None:
+    """V1b stratum is V0 with ONLY the zoning slot un-collapsed: length 4, the
+    CELL zoning value in slot 0, sentinel tile skeleton/coastal RETAINED (catches
+    wrong-slot writes or an accidental dim drop), sentinel tile zoning gone."""
+    rec = _record(
+        "a",
+        tile_zoning=99,
+        tile_skeleton=98,
+        tile_coastal=97,
+        cell_density={(0, 0): 1},
+        cell_zoning={(0, 0): 4},
+        features=[(_ROAD, 5.0, (0, 0))],
+    )
+    feats = MOD.variant_features([rec], "V1b")
+    assert feats == {("a", (4, 98, 1, 97), _ROAD): [5.0]}
+    for _city, stratum, _metric in feats:
+        assert len(stratum) == 4
+        assert stratum[0] == 4  # the cell's OWN zoning, not the tile's
+        assert 98 in stratum and 97 in stratum  # tile dims KEPT
+        assert 99 not in stratum  # tile zoning REPLACED
+
+
+def test_v1d_drops_dims_keeps_tile_zoning() -> None:
+    """V1d stratum is V0 with skeleton+coastal REMOVED and tile zoning RETAINED:
+    length 2 = (sentinel tile zoning, density); skeleton/coastal sentinels ABSENT
+    (catches augmentation); the cell-zoning value must NOT leak in."""
+    rec = _record(
+        "a",
+        tile_zoning=99,
+        tile_skeleton=98,
+        tile_coastal=97,
+        cell_density={(0, 0): 1},
+        cell_zoning={(0, 0): 4},
+        features=[(_ROAD, 5.0, (0, 0))],
+    )
+    feats = MOD.variant_features([rec], "V1d")
+    assert feats == {("a", (99, 1), _ROAD): [5.0]}
+    for _city, stratum, _metric in feats:
+        assert len(stratum) == 2
+        assert stratum == (99, 1)  # (TILE zoning, per-cell density)
+        assert 98 not in stratum and 97 not in stratum  # dims really dropped
+        assert 4 not in stratum  # no per-cell zoning leak
+
+
+def test_attribution_pair_v1b_kills_v1d_fires() -> None:
+    """THE attribution tooth (regime-distinguishing on the kill fixture, where
+    skeleton/coastal are constant): the zoning SWAP alone (V1b) kills the signal
+    exactly like V1, while the dim DROP alone (V1d) leaves it firing exactly like
+    V0 — satisfiability screened by computing that V1d's pooling relabels but does
+    not merge/split the V0 groups on this fixture (groups identical up to key)."""
+    n = 60
+    rec_a = _record(
+        "a",
+        cell_density={(0, 0): 0},
+        cell_zoning={(0, 0): 1},
+        features=[(_ROAD, 10.0 + i * 0.001, (0, 0)) for i in range(n)],
+    )
+    rec_b = _record(
+        "b",
+        cell_density={(0, 0): 0},
+        cell_zoning={(0, 0): 2},
+        features=[(_ROAD, 100.0 + i * 0.001, (0, 0)) for i in range(n)],
+    )
+    records = [rec_a, rec_b]
+
+    out = MOD.diagnose(records, min_n=50, alpha=0.05, effect_size_floor=0.15)
+
+    # Fixture regime self-check (gate-must-distinguish-regimes): V0 actually fires.
+    v0 = out["V0"]["per_metric"][_ROAD]
+    assert v0["n_significant_effect"] == 1, "kill fixture out of regime: V0 never fired"
+
+    # Zoning swap, dims KEPT: the per-cell zoning split partitions the cities
+    # apart — V1b kills the signal (like V1).
+    v1b = out["V1b"]["per_metric"][_ROAD]
+    assert v1b["n_pairs"] == 0
+    assert v1b["n_significant_effect"] == 0
+    assert v1b["median_ks"] is None
+
+    # Dims DROPPED, tile zoning kept: skeleton/coastal are constant here, so V1d's
+    # groups are V0's groups relabelled — V1d fires (like V0), NOT killed.
+    v1d = out["V1d"]["per_metric"][_ROAD]
+    assert v1d["n_pairs"] == 1
+    assert v1d["n_significant_effect"] == 1
+    assert v1d["median_ks"] == 1.0
+    assert v1d["n_significant_effect"] == v0["n_significant_effect"]
+
+
+# --------------------------------------------------------------------------- #
 # V2: un-quantize — equal-width raw-ratio buckets replace the 4-bucket slot
 # --------------------------------------------------------------------------- #
 
@@ -337,7 +432,7 @@ def test_per_cell_classifier_applies_bref_exclusion_and_keeps_cell_key() -> None
 
 def test_feature_pool_is_uniform_across_all_variants() -> None:
     """The variant comparison is confounded unless every variant sees the SAME
-    feature pool: total feature count per city is identical across all 5 variants."""
+    feature pool: total feature count per city is identical across all 7 variants."""
     rec_a = _record("a", features=[(_ROAD, float(i), (0, 0)) for i in range(7)])
     rec_b = _record("b", features=[(_BUILDING, float(i), (0, 0)) for i in range(5)])
     totals = {}
@@ -347,7 +442,8 @@ def test_feature_pool_is_uniform_across_all_variants() -> None:
         for (city, _s, _m), vals in feats.items():
             per_city[city] = per_city.get(city, 0) + len(vals)
         totals[variant] = per_city
-    assert len(MOD.VARIANTS) == 5
+    assert len(MOD.VARIANTS) == 7
+    assert set(MOD.VARIANTS) == {"V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3"}
     assert all(t == {"a": 7, "b": 5} for t in totals.values()), totals
 
 
@@ -599,8 +695,9 @@ def test_zero_tile_city_is_loud(tmp_path, monkeypatch) -> None:
 
 def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys) -> None:
     """The real script main() against on-disk fixtures: exit 0, YAML lands with the
-    methodology block (δ + bucket schemes), all 5 variants x both metrics, per-city
-    feature totals, and the F3 coverage counters with n_bref_excluded."""
+    methodology block (δ + bucket schemes + V1b/V1d definitions + the V1c≡V0
+    resolution note), all 7 variants x both metrics, per-city feature totals, and
+    the F3 coverage counters with n_bref_excluded."""
     _write_fixture(tmp_path, _CITIES)
     _patch_paths(monkeypatch, MOD, tmp_path)
     report = tmp_path / "report.yaml"
@@ -630,7 +727,26 @@ def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys
     assert meth["variants"]["V2_8"]["density_bucket_scheme"]["scheme"] == "equal_width"
     assert "sea_bucket_scheme" in meth["variants"]["V3"]
 
-    assert set(doc["variants"]) == {"V0", "V1", "V2_8", "V2_16", "V3"}
+    # The V1b/V1d attribution decomposition is serialized for the PI's read.
+    assert meth["variants"]["V1b"]["stratum"] == [
+        "per_cell_zoning_class",
+        "modal_road_skeleton_class",
+        "cell_density_bucket",
+        "coastal_inland_river",
+    ]
+    assert meth["variants"]["V1d"]["stratum"] == [
+        "dominant_zoning_class",
+        "cell_density_bucket",
+    ]
+    # The PI-requested V1c is resolved LOUDLY in the artifact, not just in chat:
+    # identical to V0 by construction because the gate's density slot is already
+    # per-cell.
+    v1c_note = meth["v1c_note"]
+    assert "V0" in v1c_note
+    assert "_cell_density_by_cell" in v1c_note
+    assert "cell_density_bucket" in v1c_note
+
+    assert set(doc["variants"]) == {"V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3"}
     for variant in doc["variants"].values():
         for metric in (_BUILDING, _ROAD):
             cell = variant["per_metric"][metric]
@@ -648,3 +764,4 @@ def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys
     # Human-readable variant table on stdout (the sanctioned runner-summary print).
     out = capsys.readouterr().out
     assert "V0" in out and "V2_16" in out and "V3" in out
+    assert "V1b" in out and "V1d" in out

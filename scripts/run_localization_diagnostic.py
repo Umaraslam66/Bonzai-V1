@@ -11,6 +11,13 @@ cities — the variant that kills the most discrimination signal localizes the l
          must reproduce the gate-(i) extraction's feature pool byte-for-byte.
   V1     un-collapse — (per_cell_zoning, per_cell_density) REPLACE the tile-level
          dims (each feature is assigned its OWN cell's stratum).
+  V1b    attribution: zoning swap, dims KEPT — V0 with only the zoning slot
+         un-collapsed (per_cell_zoning, modal_skeleton, per-cell density, coastal).
+  V1d    attribution: dims DROPPED, zoning kept — (tile_zoning, per-cell density);
+         V0 with the skeleton+coastal dims pooled away. Together V1b/V1d decompose
+         V1's two simultaneous changes (Task-23 step-6 PI request). The PI-requested
+         "V1c = per-cell-density-only swap" is identical to V0 by construction
+         (V0's density slot is ALREADY per-cell) — see the methodology note.
   V2_8   un-quantize — V0's 4-bucket density slot replaced by an 8-bucket
   V2_16  (resp. 16-bucket) equal-width index over the raw building_footprint_ratio
          (derivation_evidence.parquet).
@@ -101,8 +108,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_RELEASE = "2026-04-15.0"
 _DEFAULT_REPORT_OUT = "reports/2026-06-10-localization-diagnostic.yaml"
 
-#: The locked variant set (plan Task 23). Order is the report/table order.
-VARIANTS: tuple[str, ...] = ("V0", "V1", "V2_8", "V2_16", "V3")
+#: The locked variant set (plan Task 23 + step-6 V1b/V1d attribution decomposition).
+#: Order is the report/table order.
+VARIANTS: tuple[str, ...] = ("V0", "V1", "V1b", "V1d", "V2_8", "V2_16", "V3")
 
 _METRICS: tuple[str, ...] = tuple(m.value for m in FeatureMetric)
 
@@ -212,6 +220,15 @@ def variant_features(
                 # Un-collapse: the cell's OWN zoning + density REPLACE the tile dims.
                 zoning = _require(rec.cell_zoning, cell, "per-cell zoning_class", rec.city)
                 stratum = (zoning, density)
+            elif variant == "V1b":
+                # Attribution (zoning swap, dims KEPT): V0 with only the zoning
+                # slot un-collapsed to the cell's own value.
+                zoning = _require(rec.cell_zoning, cell, "per-cell zoning_class", rec.city)
+                stratum = (zoning, rec.tile_skeleton, density, rec.tile_coastal)
+            elif variant == "V1d":
+                # Attribution (dims DROPPED, zoning kept): V0 with skeleton+coastal
+                # pooled away; tile-dominant zoning retained.
+                stratum = (rec.tile_zoning, density)
             elif variant in ("V2_8", "V2_16"):
                 n = 8 if variant == "V2_8" else 16
                 ratio = float(_require(rec.cell_ratio, cell, _RATIO_METRIC, rec.city))
@@ -489,6 +506,27 @@ def _methodology(
             ),
             "stratum": ["per_cell_zoning_class", "per_cell_density_bucket"],
         },
+        "V1b": {
+            "description": (
+                "attribution (zoning swap, dims KEPT): V0 with only the zoning "
+                "slot un-collapsed to the cell's own zoning_class — isolates V1's "
+                "tile->cell zoning change"
+            ),
+            "stratum": [
+                "per_cell_zoning_class",
+                "modal_road_skeleton_class",
+                "cell_density_bucket",
+                "coastal_inland_river",
+            ],
+        },
+        "V1d": {
+            "description": (
+                "attribution (dims DROPPED, zoning kept): V0 with the "
+                "skeleton+coastal dims pooled away, tile-dominant zoning retained "
+                "— isolates V1's dim-drop change"
+            ),
+            "stratum": ["dominant_zoning_class", "cell_density_bucket"],
+        },
     }
     # V2_8 / V2_16 differ ONLY in bucket count: one definition, two instantiations.
     for n_buckets in (8, 16):
@@ -527,6 +565,16 @@ def _methodology(
             "outbound-bref line features excluded by construction identity "
             "(_has_outbound_bref on the ORIGINAL token block), counted per city, "
             "applied ONCE so every variant sees the SAME feature pool"
+        ),
+        "v1c_note": (
+            "the PI-requested 'V1c = per-cell-density-only swap' is IDENTICAL to "
+            "V0 by construction and is therefore not run: the gate's density slot "
+            "is already per-cell (each feature's own cell_density_bucket via "
+            "_cell_density_by_cell / macro_core cell_density_bucket), so swapping "
+            "it tile->cell changes nothing. The correct decomposition of V1 is "
+            "the 2x2 over {tile vs cell zoning} x {dims kept vs dropped}: "
+            "V0 (tile zoning, dims kept), V1b (cell zoning, dims kept), "
+            "V1d (tile zoning, dims dropped), V1 (cell zoning, dims dropped)."
         ),
         "variants": variants,
     }
