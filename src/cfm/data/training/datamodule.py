@@ -344,15 +344,30 @@ class CellDataModule(L.LightningDataModule):
         # per-city — a small city's tail must not halt a corpus it cannot skew).
         # Denominator = NON-EMPTY cells (kept + too_long): empty cells are a
         # different defect class and would dilute the length signal.
-        # DECISION: the contract applies only at/above the DEFAULT_MAX_CELL_TOKENS
+        # DECISION: the contract is ENFORCED only at/above the DEFAULT_MAX_CELL_TOKENS
         # design point. The 0.005 threshold is calibrated to that budget (5x SG
-        # P99.9), and a caller that deliberately opts the budget DOWN (run_smoke's
-        # max_len=256 tiny-budget loop drops ~64% of real SG cells by design) has
-        # accepted tail amputation — there the rate measures the opt-down, not a
-        # corpus defect, and 'raise DEFAULT_MAX_CELL_TOKENS' is not the right
-        # escalation. Revisit if a production path ever trains at a sub-design budget.
+        # P99.9). Sub-design budgets are not hypothetical — they are KNOWN, accepted
+        # opt-downs: three Leonardo entry points deliberately pass --max-len 2048 for
+        # memory headroom / smoke (scripts/bakeoff_diagnostic.sbatch,
+        # scripts/scaffold_ddp_short.sbatch, scripts/scaffold_scaleup_probe.sbatch),
+        # and run_smoke's max_len=256 tiny-budget loop drops ~64% of real SG cells by
+        # design. In that regime the rate measures the opt-down, not a corpus defect,
+        # and the F13 escalation ('raise DEFAULT_MAX_CELL_TOKENS') is the wrong action
+        # for a conscious opt-down — so the enforcement boundary is deliberate.
+        # Visibility there comes from the unconditional INFO log below (counts + rate
+        # + budget land in every job log). Revisit if a sub-design budget ever appears
+        # in a SCORED bake-off run (those run at the 5760 default).
         too_long = total_dropped["too_long"]
         total_nonempty = len(examples) + too_long
+        logger.info(
+            "setup: union over-length drops %d/%d non-empty (rate %.6f) at "
+            "max_cell_tokens=%d; %d empty dropped",
+            too_long,
+            total_nonempty,
+            (too_long / total_nonempty) if total_nonempty else 0.0,
+            self.max_cell_tokens,
+            total_dropped["empty"],
+        )
         if (
             self.max_cell_tokens >= DEFAULT_MAX_CELL_TOKENS
             and total_nonempty

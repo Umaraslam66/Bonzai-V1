@@ -16,6 +16,8 @@ all-ranks-halt with world_size==4 is validated on Slurm (Task 12), not here.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 import yaml
 
@@ -363,6 +365,31 @@ def test_sub_design_budget_opt_down_is_exempt_from_drop_rate(tmp_path, monkeypat
     )
     dm.setup("fit")  # must not raise: sub-design budget regime
     assert len(dm.train_cells) + len(dm.val_cells) == 5
+
+
+def test_exempt_regime_logs_union_drop_stats(tmp_path, monkeypatch, caplog):
+    """The sub-design exemption must not be SILENT: setup() logs the union too_long
+    drop stats at INFO unconditionally (before the enforcement branch), so exempt
+    opt-down runs (the --max-len 2048 sbatch entry points; run_smoke's tiny-budget
+    loop) show their accepted tail amputation in job logs. The dirty
+    _synthetic_shards at max_cell_tokens=256 is exempt (256 < DEFAULT) with known
+    counts: 1 too_long / 5 non-empty = rate 0.2, plus 1 empty."""
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    monkeypatch.setattr(DM, "build_shards_in_memory", lambda *a, **k: _synthetic_shards())
+    dm = DM.CellDataModule(
+        training_manifest=clean,
+        holdout_manifest=_write_holdout(tmp_path),
+        seed=7,
+        max_cell_tokens=256,
+    )
+    with caplog.at_level(logging.INFO, logger="cfm.data.training.datamodule"):
+        dm.setup("fit")  # exempt regime: must not raise
+    [rec] = [r for r in caplog.records if "union" in r.getMessage()]  # exactly one
+    msg = rec.getMessage()
+    assert rec.levelno == logging.INFO
+    assert "1/5" in msg  # counts: too_long / non-empty union denominator
+    assert "0.2" in msg  # the rate
+    assert "256" in msg  # the budget in force
 
 
 def test_union_drop_rate_denominator_accumulates_across_manifests(tmp_path, monkeypatch):
