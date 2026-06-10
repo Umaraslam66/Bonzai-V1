@@ -10,6 +10,13 @@ The density measurement needs the real sub-F tile data (Leonardo ``$WORK``); tes
 inject a synthetic ``density_fn``. Rewrites drop hand-written comments by design:
 the writer emits a fixed header + canonical YAML, so the file stays byte-deterministic.
 
+NOTE: ``floor`` in the artifact is the authoritative gate value; writer-emitted entries
+satisfy floor == frac * holdout_density exactly, but the singapore SEED hand-carries the
+historical 1.96 (vs 1.9625 exact) for diagnostic comparability — re-deriving singapore
+writes 1.9625 and deliberately fails the seeded-value resolution test
+(tests/training/test_emergence_floor_resolution.py::
+test_resolves_seeded_singapore_floor_from_real_yaml); that fail-loud is intended.
+
     uv run python scripts/measure_emergence_floor.py \\
         --release 2026-04-15.0 --region krakow
 """
@@ -31,7 +38,10 @@ _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "src"))
 
 from cfm.data.io import canonicalize_yaml  # noqa: E402
-from cfm.eval.emergence import EMERGENCE_FRAC_OF_HOLDOUT_DENSITY  # noqa: E402
+from cfm.eval.emergence import (  # noqa: E402
+    EMERGENCE_FRAC_OF_HOLDOUT_DENSITY,
+    emergence_floor_polygons_per_cell,
+)
 from cfm.eval.geometry import holdout_polygons_per_active_cell  # noqa: E402
 
 _LOG = logging.getLogger("measure_emergence_floor")
@@ -53,7 +63,10 @@ DEFAULT_FLOORS_PATH = _REPO / "configs" / "eval" / "emergence_floors.yaml"
 
 _HEADER = (
     "# Per-region emergence floors (readiness-closure Task 13, F13/F15).\n"
-    "# floor = frac * holdout_density (polygons per active cell, REAL holdout).\n"
+    "# `floor` is the AUTHORITATIVE gate value; writer-emitted entries satisfy\n"
+    "# floor == frac * holdout_density (polygons per active cell, REAL holdout)\n"
+    "# exactly by construction. Hand-seeded entries may hand-carry a historical\n"
+    "# floor for diagnostic comparability (see their derived_at).\n"
     "# Written by scripts/measure_emergence_floor.py (derived_at = git sha);\n"
     "# resolved by scripts/train_scaffold.py run_short via cfg.region (fail-closed).\n"
 )
@@ -99,7 +112,7 @@ def measure_and_write(
     floors_path = Path(floors_path)
     density = float(density_fn(release=release, region=region))
     entry = {
-        "floor": frac * density,
+        "floor": emergence_floor_polygons_per_cell(holdout_polys_per_cell=density, frac=frac),
         "holdout_density": density,
         "frac": frac,
         "derived_at": git_sha if git_sha is not None else _git_sha(),

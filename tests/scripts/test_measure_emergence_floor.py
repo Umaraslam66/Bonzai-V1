@@ -18,8 +18,6 @@ _REPO = Path(__file__).resolve().parents[2]
 
 _RELEASE = "2026-04-15.0"
 
-_REQUIRED_KEYS = {"floor", "holdout_density", "frac", "derived_at", "derivation_regime"}
-
 
 def _load_module():
     spec = importlib.util.spec_from_file_location(
@@ -30,9 +28,25 @@ def _load_module():
     return mod
 
 
+# Derived from the writer's constant — deliberately NOT a third hand-copied literal.
+# Writer/resolver equality is pinned by test_writer_and_resolver_required_key_sets_match.
+_REQUIRED_KEYS = frozenset(_load_module().REQUIRED_ENTRY_KEYS)
+
+
 def _fake_density(*, release: str, region: str) -> float:
     assert release == _RELEASE
     return {"krakow": 8.0, "valencia": 4.0}[region]
+
+
+def test_writer_and_resolver_required_key_sets_match() -> None:
+    """Sync guard: the writer's REQUIRED_ENTRY_KEYS and the resolver's
+    _FLOOR_ENTRY_REQUIRED_KEYS (scripts/train_scaffold.py) are duplicated constants
+    (script file vs importable module); this pins them to the same set so a schema
+    change in one cannot silently skew the other."""
+    import scripts.train_scaffold as ts
+
+    mod = _load_module()
+    assert set(mod.REQUIRED_ENTRY_KEYS) == set(ts._FLOOR_ENTRY_REQUIRED_KEYS)
 
 
 def test_writes_entry_with_full_schema_and_frac_times_density_floor(tmp_path) -> None:

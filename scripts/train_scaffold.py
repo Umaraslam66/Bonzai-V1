@@ -80,6 +80,11 @@ def _resolve_emergence_floor(region: str) -> tuple[float, dict]:
     entry = (data.get("regions") or {}).get(region)
     if entry is None:
         raise ValueError(f"no emergence floor entry for region {region!r} in {path}; {fix}")
+    if not isinstance(entry, dict):
+        raise ValueError(
+            f"emergence floor entry for region {region!r} in {path} is not a "
+            f"mapping (got {entry!r}); {fix}"
+        )
     missing = sorted(_FLOOR_ENTRY_REQUIRED_KEYS - entry.keys())
     if missing:
         raise ValueError(

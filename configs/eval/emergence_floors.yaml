@@ -1,13 +1,18 @@
 # Per-region emergence floors (readiness-closure Task 13, F13/F15).
 #
-# The §2 emergence floor is a provenance-bearing artifact, not a CLI literal:
-#   floor = frac * holdout_density   (polygons per active cell, measured on the
-#   region's REAL holdout via cfm.eval.geometry.holdout_polygons_per_active_cell).
+# The §2 emergence floor is a provenance-bearing artifact, not a CLI literal.
+# `floor` is the AUTHORITATIVE gate value the scaffold resolves. For WRITER-emitted
+# entries it equals
+#   frac * holdout_density   (polygons per active cell, measured on the
+#   region's REAL holdout via cfm.eval.geometry.holdout_polygons_per_active_cell)
+# EXACTLY by construction (one source:
+# cfm.eval.emergence.emergence_floor_polygons_per_cell).
 #
 # Entries are written by scripts/measure_emergence_floor.py, which stamps
 # `derived_at` with the git sha of the measuring commit. EXCEPTION: singapore's
-# seeded entry hand-carries the 2026-06 scaffold measurement (no script run), so
-# its `derived_at` carries the hand-carry note instead of a sha.
+# seeded entry hand-carries the historical diagnostic-gate floor 1.96 (vs
+# 0.25 * 7.85 = 1.9625 exact) for diagnostic comparability until its
+# re-derivation (see its `derived_at`; no script run produced it).
 #
 # `derivation_regime` records the denominator convention the density was measured
 # under: full cell length, denominator = all non-empty holdout cells.

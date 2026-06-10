@@ -64,6 +64,24 @@ def test_entry_missing_required_key_raises_on_load(tmp_path, monkeypatch) -> Non
         ts._resolve_emergence_floor("krakow")
 
 
+def test_scalar_entry_raises_curated_error_not_attributeerror(tmp_path, monkeypatch) -> None:
+    # A corrupted entry that is a bare scalar (`singapore: 1.96`) must produce the
+    # same curated ValueError (region + path + fix hint), not a bare AttributeError
+    # from `entry.keys()`.
+    bad = tmp_path / "emergence_floors.yaml"
+    bad.write_text(
+        yaml.safe_dump({"schema_version": "1.0", "regions": {"singapore": 1.96}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ts, "_EMERGENCE_FLOORS_PATH", bad)
+    with pytest.raises(ValueError) as exc:
+        ts._resolve_emergence_floor("singapore")
+    msg = str(exc.value)
+    assert "singapore" in msg
+    assert "emergence_floors.yaml" in msg
+    assert "measure_emergence_floor.py" in msg  # the fix hint
+
+
 # --- (iii) run_short: resolution happens BEFORE the datamodule / training ------------
 
 
