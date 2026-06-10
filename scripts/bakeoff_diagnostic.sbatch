@@ -45,6 +45,25 @@ echo "=== job context ==="
 echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD)"
 echo "ntasks=$SLURM_NTASKS gpus=$(nvidia-smi -L | wc -l) region=$REGION release=$RELEASE"
 
+# --- F8 verified end-state: JOB_DONE is a TRUSTED marker, so it must follow PROOF the
+# run's artifacts exist on disk, never mere control-flow reaching the last line. This
+# job's backbone is hardcoded transformer-ar (see the srun below); the checkpoint scale
+# label is DERIVED from the real param count and the seed lives in config, so globs.
+# compgen -G returns nonzero on no match (inside `if` so set -e doesn't fire early).
+verify_endstate() {
+  local ckpt_glob="${WORK:-checkpoints}/Bonzai-OSM/checkpoints/bakeoff/transformer-ar-*/${REGION}-seed*/last.ckpt"
+  if ! compgen -G "$ckpt_glob" > /dev/null; then
+    echo "JOB_FAILED_ENDSTATE: no checkpoint matches glob: $ckpt_glob"
+    exit 1
+  fi
+  local report_glob="reports/phase-1-training-scaffold/${RELEASE}-${REGION}-transformer-ar-*-loop-closed.md"
+  if ! compgen -G "$report_glob" > /dev/null; then
+    echo "JOB_FAILED_ENDSTATE: no report matches glob: $report_glob"
+    exit 1
+  fi
+  echo "end-state verified: checkpoint + report artifacts on disk"
+}
+
 echo "=== pre-build training manifest (single process, no rank write-race) ==="
 python -c "from cfm.data.training.build_shards import build_training_shards as b; b('${RELEASE}','${REGION}'); print('manifest built')"
 
@@ -72,7 +91,11 @@ srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --max-steps 110000 --ckpt-every-n-steps 25000 \
   --eval-cells 64 --eval-max-new 2048
 
+verify_endstate
+
 echo "=== report ==="
 # F17 run-keyed report name: {release}-{region}-{backbone}-{params}M-seed{seed}-loop-closed.md
-cat "reports/phase-1-training-scaffold/${RELEASE}-${REGION}"-transformer-ar-*-loop-closed.md 2>/dev/null | tail -60 || echo "(report not found)"
+# verify_endstate just proved the report exists; a cat failure here is LOUD by design
+# (set -euo pipefail) -- a missing report must fail the job, not print a shrug (F8).
+cat "reports/phase-1-training-scaffold/${RELEASE}-${REGION}"-transformer-ar-*-loop-closed.md | tail -60
 echo "JOB_DONE"

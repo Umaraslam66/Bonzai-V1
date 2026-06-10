@@ -32,8 +32,9 @@ def work_checkpoint_dir(
     root when ``$WORK`` is unset (tests / dev).
 
     EVERY run-key axis (backbone, scale, region, seed) is in the path, not just
-    backbone+scale: once Task 18 wires ``resume_ckpt_path``, two runs that share a dir
-    SILENTLY resume each other's ``last.ckpt`` — a wrong-resume that no error surfaces.
+    backbone+scale: ``resume_ckpt_path`` is wired into the training entrypoint (Task 18),
+    so two runs that share a dir would SILENTLY resume each other's ``last.ckpt`` — a
+    wrong-resume that no error surfaces.
     Nested ``{backbone}-{scale}/{region}-seed{seed}`` keeps the bake-off matrix grouping
     readable on $WORK.
     """

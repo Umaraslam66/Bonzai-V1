@@ -158,3 +158,49 @@ def test_run_sbatch_has_defaulted_train_set_guard_and_forwards_flag() -> None:
     assert ': "${TRAIN_SET:=single}"' in text, "missing the defaulted TRAIN_SET guard"
     flags = _sbatch_flags(_REPO / "scripts" / "bakeoff_run.sbatch")
     assert "--train-set" in flags, "bakeoff_run.sbatch srun does not pass --train-set"
+
+
+# --- Task 19 (readiness-closure, F8): USR1 forward + verified resubmit + end-state markers ---
+
+
+def test_run_sbatch_usr1_trap_forwards_signal_to_captured_srun_pid() -> None:
+    # Slurm's --signal=B:USR1 delivers ONLY to the batch shell; without an explicit
+    # forward the srun ranks never see it and get SIGKILLed at the wall instead of
+    # checkpointing + exiting cleanly. The trap must kill -USR1 a CAPTURED srun PID.
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    assert "SRUN_PID=$!" in text, "srun PID not captured ($! after the backgrounded srun)"
+    assert re.search(r'kill -USR1 "\$SRUN_PID"', text), "trap does not forward USR1 to srun"
+
+
+def test_run_sbatch_resubmit_is_verified_not_silent() -> None:
+    # A failed `sbatch` in the trap must NOT exit 0 (silent resume-chain break — this
+    # project's false-completion class). The JID is captured, checked nonempty, and a
+    # failure exits 1. --export=ALL so BACKBONE/SCALE/REGION/RELEASE/TRAIN_SET propagate.
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    assert 'JID=$(sbatch --export=ALL "$0")' in text, "resubmit JID not captured"
+    assert re.search(r'\[\[ -n "\$JID" \]\].*\bexit 1\b', text), (
+        "no nonempty-JID check that fails loudly (exit 1) on a broken resubmit"
+    )
+    assert 'sbatch "$0"' not in text, "the old unverified resubmit is still present"
+
+
+@pytest.mark.parametrize("name", _SBATCH_NAMES)
+def test_sbatch_job_done_only_after_verified_endstate(name: str) -> None:
+    # JOB_DONE is a TRUSTED marker (future sessions believe it); it must follow proof
+    # that the expected checkpoint + report artifacts exist, not mere control-flow
+    # reaching the last line. Failure path prints JOB_FAILED_ENDSTATE and exits 1.
+    text = (_REPO / "scripts" / name).read_text(encoding="utf-8")
+    assert "JOB_FAILED_ENDSTATE" in text, f"{name} has no loud end-state failure marker"
+    assert text.count('"JOB_DONE"') == 1, f"{name} must print JOB_DONE exactly once"
+    call = re.search(r"^verify_endstate\s*$", text, re.MULTILINE)
+    assert call, f"{name} never CALLS verify_endstate (a definition alone proves nothing)"
+    assert call.start() < text.index('echo "JOB_DONE"'), (
+        f"{name}: JOB_DONE is printed before the end-state verification"
+    )
+
+
+def test_diagnostic_sbatch_missing_report_fails_loudly() -> None:
+    # The `|| echo "(report not found)"` shrug masked a missing report as a passing
+    # job; a missing report must fail the job loudly (verify_endstate + set -euo pipefail).
+    text = (_REPO / "scripts" / "bakeoff_diagnostic.sbatch").read_text(encoding="utf-8")
+    assert "(report not found)" not in text, "missing-report masking is still present (F8)"

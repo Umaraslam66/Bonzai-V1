@@ -42,8 +42,43 @@ mkdir -p logs
 echo "=== job context ==="
 echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) backbone=$BACKBONE scale=$SCALE region=$REGION release=$RELEASE train_set=$TRAIN_SET"
 
-# On wall-clock signal: resubmit THIS script (continues from $WORK on relaunch), then exit cleanly.
-trap 'echo "USR1: wall-clock approaching; resubmitting for across-job resume"; sbatch "$0"; exit 0' USR1
+# --- F8 verified end-state: JOB_DONE is a TRUSTED marker (future sessions and the
+# orchestration believe it), so it must follow PROOF the run's artifacts exist on disk,
+# never mere control-flow reaching the last line. Globs, not exact paths: the checkpoint
+# scale label is DERIVED from the real param count (e.g. "311M", not nominal $SCALE) and
+# the seed lives in config -- neither is known to bash until Task 26 wires --config.
+# compgen -G returns nonzero on no match (used inside `if` so set -e doesn't fire early).
+verify_endstate() {
+  local ckpt_glob="${WORK:-checkpoints}/Bonzai-OSM/checkpoints/bakeoff/${BACKBONE}-*/${REGION}-seed*/last.ckpt"
+  if ! compgen -G "$ckpt_glob" > /dev/null; then
+    echo "JOB_FAILED_ENDSTATE: no checkpoint matches glob: $ckpt_glob"
+    exit 1
+  fi
+  local report_glob="reports/phase-1-training-scaffold/${RELEASE}-${REGION}-${BACKBONE}-*-loop-closed.md"
+  if ! compgen -G "$report_glob" > /dev/null; then
+    echo "JOB_FAILED_ENDSTATE: no report matches glob: $report_glob"
+    exit 1
+  fi
+  echo "end-state verified: checkpoint + report artifacts on disk"
+}
+
+# On wall-clock USR1 (Slurm --signal=B:USR1@120 delivers ONLY to this batch shell):
+# (1) FORWARD the signal to the srun ranks so they checkpoint + exit cleanly (otherwise
+#     Slurm SIGKILLs them at the wall and the last checkpoint window is lost);
+# (2) resubmit VERIFIED -- an empty JID means the resume chain is BROKEN and must fail
+#     loudly (exit 1), never exit 0 (this project's false-completion class);
+# (3) exit 0 WITHOUT requiring end-state: the run is mid-flight by definition; the
+#     relaunched job continues from $WORK's last.ckpt.
+on_usr1() {
+  echo "USR1: wall-clock approaching; forwarding to srun + resubmitting for across-job resume"
+  if [[ -n "${SRUN_PID:-}" ]]; then kill -USR1 "$SRUN_PID" 2>/dev/null || true; fi
+  JID=$(sbatch --export=ALL "$0") && [[ -n "$JID" ]] || { echo "JOB_FAILED_RESUBMIT: sbatch returned no job id; resume chain broken"; exit 1; }
+  echo "resubmitted for across-job resume: $JID"
+  # Grace window (@120): let the ranks finish flushing last.ckpt before the job ends.
+  if [[ -n "${SRUN_PID:-}" ]]; then wait "$SRUN_PID" || true; fi
+  exit 0
+}
+trap on_usr1 USR1
 
 if [ "$TRAIN_SET" = "single" ]; then
   # Pre-build the manifest ONCE (single process) before the DDP ranks read it (no write race).
@@ -70,5 +105,8 @@ srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --backbone "$BACKBONE" \
   --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" \
   --config "configs/experiments/bakeoff-${BACKBONE}-${SCALE}.yaml" &
-wait
+SRUN_PID=$!
+wait "$SRUN_PID"
+
+verify_endstate
 echo "JOB_DONE"
