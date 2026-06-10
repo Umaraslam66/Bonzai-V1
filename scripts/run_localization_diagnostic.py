@@ -132,7 +132,6 @@ class TileRecord:
     cell_ratio: dict[tuple[int, int], float]
     cell_sea: dict[tuple[int, int], float]
     features: list[tuple[str, float, tuple[int, int]]]
-    n_bref_excluded: int
 
 
 # --------------------------------------------------------------------------- #
@@ -177,9 +176,13 @@ def sea_bucket(sea_fraction: float) -> int:
 # --------------------------------------------------------------------------- #
 
 
-def _require(layer: dict[tuple[int, int], object], cell: tuple[int, int], what: str, city: str):
+def _require(
+    layer: dict[tuple[int, int], object], cell: tuple[int, int], what: str, city: str
+) -> object:
     """Loud lookup: a feature's cell missing from a per-cell layer invalidates the
-    variant comparison (denominator integrity) — never a silent skip."""
+    variant comparison (denominator integrity) — never a silent skip.
+
+    Returns ``object`` (the layers are heterogeneous); call sites cast (int/float)."""
     if cell not in layer:
         raise KeyError(
             f"localization diagnostic: city '{city}' cell {cell} has features but no "
@@ -429,7 +432,6 @@ def collect_tile_records(
                     cell_ratio=_read_cell_ratios(evidence_path),
                     cell_sea=_read_cell_sea_fractions(sub_c_cells_path),
                     features=features,
-                    n_bref_excluded=n_excluded,
                 )
             )
             n_read += 1
@@ -470,6 +472,51 @@ def _methodology(
     *, release: str, cities: list[str], min_n: int, alpha: float, effect_size_floor: float
 ) -> dict:
     """The methodology block the PI reads at the halt-gate — every scheme serialized."""
+    variants: dict[str, dict] = {
+        "V0": {
+            "description": "baseline: the exact gate-(i) stratum",
+            "stratum": [
+                "dominant_zoning_class",
+                "modal_road_skeleton_class",
+                "cell_density_bucket",
+                "coastal_inland_river",
+            ],
+        },
+        "V1": {
+            "description": (
+                "un-collapse: per-cell zoning + per-cell density REPLACE the "
+                "tile-level dims (each feature gets its own cell's stratum)"
+            ),
+            "stratum": ["per_cell_zoning_class", "per_cell_density_bucket"],
+        },
+    }
+    # V2_8 / V2_16 differ ONLY in bucket count: one definition, two instantiations.
+    for n_buckets in (8, 16):
+        article = "an" if n_buckets == 8 else "a"
+        variants[f"V2_{n_buckets}"] = {
+            "description": (
+                f"un-quantize: V0 with the 4-bucket density slot replaced by {article} "
+                f"{n_buckets}-bucket index over raw building_footprint_ratio"
+            ),
+            "density_bucket_scheme": {
+                "scheme": "equal_width",
+                "range": [0.0, 1.0],
+                "n_buckets": n_buckets,
+                "top_edge": "inclusive",
+                "overflow": "ratios > 1 (pathological) clip into the last bucket",
+            },
+        }
+    variants["V3"] = {
+        "description": (
+            "candidate dim: V0 PLUS an appended per-cell sea_water_fraction "
+            "bucket (sub-C cells.parquet)"
+        ),
+        "sea_bucket_scheme": {
+            "bucket_0": f"sea_water_fraction <= EPS_RATIO ({EPS_RATIO})",
+            "bucket_1": "(EPS_RATIO, 0.5]",
+            "bucket_2": "> 0.5",
+        },
+    }
     return {
         "release": release,
         "cities": list(cities),
@@ -481,61 +528,7 @@ def _methodology(
             "(_has_outbound_bref on the ORIGINAL token block), counted per city, "
             "applied ONCE so every variant sees the SAME feature pool"
         ),
-        "variants": {
-            "V0": {
-                "description": "baseline: the exact gate-(i) stratum",
-                "stratum": [
-                    "dominant_zoning_class",
-                    "modal_road_skeleton_class",
-                    "cell_density_bucket",
-                    "coastal_inland_river",
-                ],
-            },
-            "V1": {
-                "description": (
-                    "un-collapse: per-cell zoning + per-cell density REPLACE the "
-                    "tile-level dims (each feature gets its own cell's stratum)"
-                ),
-                "stratum": ["per_cell_zoning_class", "per_cell_density_bucket"],
-            },
-            "V2_8": {
-                "description": (
-                    "un-quantize: V0 with the 4-bucket density slot replaced by an "
-                    "8-bucket index over raw building_footprint_ratio"
-                ),
-                "density_bucket_scheme": {
-                    "scheme": "equal_width",
-                    "range": [0.0, 1.0],
-                    "n_buckets": 8,
-                    "top_edge": "inclusive",
-                    "overflow": "ratios > 1 (pathological) clip into the last bucket",
-                },
-            },
-            "V2_16": {
-                "description": (
-                    "un-quantize: V0 with the 4-bucket density slot replaced by a "
-                    "16-bucket index over raw building_footprint_ratio"
-                ),
-                "density_bucket_scheme": {
-                    "scheme": "equal_width",
-                    "range": [0.0, 1.0],
-                    "n_buckets": 16,
-                    "top_edge": "inclusive",
-                    "overflow": "ratios > 1 (pathological) clip into the last bucket",
-                },
-            },
-            "V3": {
-                "description": (
-                    "candidate dim: V0 PLUS an appended per-cell sea_water_fraction "
-                    "bucket (sub-C cells.parquet)"
-                ),
-                "sea_bucket_scheme": {
-                    "bucket_0": f"sea_water_fraction <= EPS_RATIO ({EPS_RATIO})",
-                    "bucket_1": "(EPS_RATIO, 0.5]",
-                    "bucket_2": "> 0.5",
-                },
-            },
-        },
+        "variants": variants,
     }
 
 

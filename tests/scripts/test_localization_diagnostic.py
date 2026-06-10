@@ -38,6 +38,7 @@ from cfm.data.sub_d.io import (
     write_derivation_evidence_parquet,
     write_macro_core_parquet,
 )
+from cfm.data.sub_d.lattice import CELL_GRID_SIZE
 from cfm.data.sub_f.decoder import _is_bref_token
 from cfm.data.sub_f.io import CellRow
 from cfm.data.sub_f.io import write_cells_parquet as write_sub_f_cells_parquet
@@ -90,7 +91,6 @@ def _record(
     cell_ratio: dict | None = None,
     cell_sea: dict | None = None,
     features: list | None = None,
-    n_bref_excluded: int = 0,
 ):
     cell = (0, 0)
     return MOD.TileRecord(
@@ -103,7 +103,6 @@ def _record(
         cell_ratio=cell_ratio if cell_ratio is not None else {cell: 0.5},
         cell_sea=cell_sea if cell_sea is not None else {cell: 0.0},
         features=features if features is not None else [(_ROAD, 5.0, cell)],
-        n_bref_excluded=n_bref_excluded,
     )
 
 
@@ -128,6 +127,12 @@ def test_v0_reproduces_gate_i_stratum_shape() -> None:
         ("a", (3, 2, 1, 0), _ROAD): [5.0],
         ("a", (3, 2, 1, 0), _BUILDING): [9.0],
     }
+
+
+def test_unknown_variant_is_loud() -> None:
+    """A variant name outside the locked set raises, never silently strata-as-V0."""
+    with pytest.raises(ValueError, match="unknown variant"):
+        MOD.variant_features([], "V9")
 
 
 # --------------------------------------------------------------------------- #
@@ -206,6 +211,12 @@ def test_v2_ratio_bucket_edges() -> None:
     # ...different at 16 (the un-quantize resolution gain).
     assert MOD.ratio_bucket(0.50, 16) == 8
     assert MOD.ratio_bucket(0.57, 16) == 9
+
+
+def test_v2_negative_ratio_is_loud() -> None:
+    """building_footprint_ratio < 0 is impossible by construction — loud, not clipped."""
+    with pytest.raises(ValueError, match="impossible by construction"):
+        MOD.ratio_bucket(-0.01, 8)
 
 
 def test_v2_replaces_density_slot_with_raw_ratio_bucket() -> None:
@@ -396,7 +407,7 @@ def _write_city_tile(
     macro_rows = [
         MacroCoreRow(
             slot_kind=SlotKind.CELL,
-            slot_index=i * 8 + j,
+            slot_index=i * CELL_GRID_SIZE + j,
             cell_i=i,
             cell_j=j,
             lower_cell_i=None,
@@ -432,7 +443,7 @@ def _write_city_tile(
         evidence_rows = [
             DerivationEvidenceRow(
                 slot_kind=SlotKind.CELL,
-                slot_index=i * 8 + j,
+                slot_index=i * CELL_GRID_SIZE + j,
                 metric_namespace=MetricNamespace.CELL_DENSITY,
                 metric_name="building_footprint_ratio",
                 value=ratios[(i, j)],
@@ -463,17 +474,21 @@ def _write_city_tile(
     sub_f = root / "sub_f" / city / dirname
     sub_f.mkdir(parents=True, exist_ok=True)
     active = {(i, j): _SIMPLE_BLOCK * n_blocks for (i, j) in cells}
+    # (0, 2): REAL decodable token content but NO macro_core CELL row, hence no
+    # cell_density_bucket — the None-density skip (script AND reference) must drop
+    # it non-vacuously; the parity test pins that feature totals are unchanged.
+    active[(0, 2)] = _SIMPLE_BLOCK * n_blocks
     rows = [
         CellRow(
             cell_i=i,
             cell_j=j,
-            cell_slot_index=i * 8 + j,
+            cell_slot_index=i * CELL_GRID_SIZE + j,
             token_sequence=active.get((i, j), []),
             feature_count=n_blocks if (i, j) in active else 0,
             provenance_sha256="a" * 64,
         )
-        for i in range(8)
-        for j in range(8)
+        for i in range(CELL_GRID_SIZE)
+        for j in range(CELL_GRID_SIZE)
     ]
     write_sub_f_cells_parquet(sub_f / "cells.parquet", rows)
 
@@ -498,6 +513,8 @@ def _patch_paths(monkeypatch, mod, root: Path) -> None:
     monkeypatch.setattr(mod, "epsg_label_for_region", lambda region: _EPSG)
     monkeypatch.setattr(mod, "sub_d_region_dir", lambda release, region: root / "sub_d" / region)
     monkeypatch.setattr(mod, "sub_f_region_dir", lambda release, region: root / "sub_f" / region)
+    # hasattr guard: this helper double-serves the script module AND the CD reference
+    # module, which does not import sub_c_region_dir (gate-(i) has no V3 sea input).
     if hasattr(mod, "sub_c_region_dir"):
         monkeypatch.setattr(
             mod, "sub_c_region_dir", lambda release, region: root / "sub_c" / region
@@ -510,7 +527,14 @@ _CITIES = ("alphaville", "bravotown")
 def test_v0_features_identical_to_reference_extraction(tmp_path, monkeypatch) -> None:
     """External-source-of-truth gate: on the SAME on-disk fixture, the diagnostic's
     V0 features and coverage are IDENTICAL to gate-(i)'s
-    extract_features_by_city_stratum_metric (real readers, real decoder)."""
+    extract_features_by_city_stratum_metric (real readers, real decoder).
+
+    Known vacuity: the bref-exclusion path is NOT exercised here (n_bref_excluded
+    agrees trivially at 0 == 0; no real-decodable outbound-bref block exists in the
+    suite) — the mocked twin
+    test_per_cell_classifier_applies_bref_exclusion_and_keeps_cell_key is the
+    covering defense for that path. The None-density skip IS exercised non-vacuously
+    via the (0, 2) fixture cell (real tokens, no cell_density_bucket row)."""
     _write_fixture(tmp_path, _CITIES)
     _patch_paths(monkeypatch, MOD, tmp_path)
     _patch_paths(monkeypatch, CD, tmp_path)
@@ -521,8 +545,12 @@ def test_v0_features_identical_to_reference_extraction(tmp_path, monkeypatch) ->
     ref = CD.extract_features_by_city_stratum_metric("rel", list(_CITIES))
     assert v0 == ref.features
     assert coverage == ref.tile_coverage
+    # The (0, 2) cell carries REAL decodable tokens but no cell_density_bucket row:
+    # both walks must skip it identically — no kept feature names it, and the total
+    # is unchanged by its 3 blocks (the skip is provably doing work).
+    assert all(cell != (0, 2) for rec in records for _m, _v, cell in rec.features)
     # Non-vacuity: the fixture actually produced features for both cities.
-    assert sum(len(v) for v in v0.values()) == 12  # 2 cities x 2 cells x 3 blocks
+    assert sum(len(v) for v in v0.values()) == 12  # 2 cities x 2 DENSITY cells x 3 blocks
 
 
 def test_missing_derivation_evidence_is_loud(tmp_path, monkeypatch) -> None:
@@ -539,6 +567,33 @@ def test_missing_sub_c_cells_is_loud(tmp_path, monkeypatch) -> None:
     _write_fixture(tmp_path, _CITIES, skip_sub_c=True)
     _patch_paths(monkeypatch, MOD, tmp_path)
     with pytest.raises(FileNotFoundError, match=r"sub_c.*cells\.parquet"):
+        MOD.collect_tile_records("rel", list(_CITIES))
+
+
+def test_shrinkage_over_ceiling_halts(tmp_path, monkeypatch) -> None:
+    """F3 silent-shrinkage halt on the script's OWN walk (the V0 parity test runs
+    only in the 0-skip regime, so it cannot see this logic): delete one city's only
+    sub-F cells.parquet -> skipped/expected = 1/1 = 1.0, strictly above the 0.1
+    ceiling (satisfiability screened) -> the skip is counted AND the walk raises."""
+    _write_fixture(tmp_path, _CITIES)
+    target = tmp_path / "sub_f" / _CITIES[0] / f"tile={_EPSG}_i0_j0" / "cells.parquet"
+    target.unlink()  # the fixture wrote it; the regime is missing-after-manifest
+    _patch_paths(monkeypatch, MOD, tmp_path)
+    with pytest.raises(RuntimeError, match="silent-shrinkage"):
+        MOD.collect_tile_records("rel", list(_CITIES))
+
+
+def test_zero_tile_city_is_loud(tmp_path, monkeypatch) -> None:
+    """A city with an empty tiles[] in its holdout manifest is never a valid
+    extraction target — ValueError, distinct from the shrinkage RuntimeError."""
+    _write_fixture(tmp_path, _CITIES)
+    manifest_path = tmp_path / "holdout_manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["regions"][_CITIES[0]]["tiles"] = []
+    manifest["manifest_sha256"] = manifest_sha256(manifest)  # keep the stamp honest
+    manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    _patch_paths(monkeypatch, MOD, tmp_path)
+    with pytest.raises(ValueError, match="zero tiles"):
         MOD.collect_tile_records("rel", list(_CITIES))
 
 
