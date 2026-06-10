@@ -49,6 +49,45 @@ logger = logging.getLogger(__name__)
 
 _RIGHT_ANGLE_BAR = 0.95  # PoC plausibility bar (reported; not a hard gate in the slice)
 
+#: The per-region emergence floors artifact (Task 13, F13/F15) — repo-relative;
+#: module-level so tests can monkeypatch it onto a synthetic fixture.
+_EMERGENCE_FLOORS_PATH = (
+    Path(__file__).resolve().parents[1] / "configs" / "eval" / "emergence_floors.yaml"
+)
+
+#: Full per-region entry schema (kept in sync with scripts/measure_emergence_floor.py,
+#: which writes the entries; the resolver re-validates on load — fail-closed both ways).
+_FLOOR_ENTRY_REQUIRED_KEYS = frozenset(
+    {"floor", "holdout_density", "frac", "derived_at", "derivation_regime"}
+)
+
+
+def _resolve_emergence_floor(region: str) -> tuple[float, dict]:
+    """Resolve the §2 emergence floor for ``region`` from the provenance-bearing
+    artifact (configs/eval/emergence_floors.yaml).
+
+    Fail-open is CLOSED: no artifact / no entry / schema-broken entry all RAISE — a
+    cell-generating run can never proceed with a floorless (verdict-None) eval, and
+    the old CLI floor-literal flag is gone. Returns ``(floor, provenance)``
+    where provenance = the YAML entry plus the region, carried verbatim into the
+    metrics dict (incl. the derivation_regime denominator convention).
+    """
+    path = _EMERGENCE_FLOORS_PATH
+    fix = f"run scripts/measure_emergence_floor.py for {region!r} to derive one"
+    if not path.exists():
+        raise ValueError(f"emergence floors artifact missing: {path}; {fix}")
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    entry = (data.get("regions") or {}).get(region)
+    if entry is None:
+        raise ValueError(f"no emergence floor entry for region {region!r} in {path}; {fix}")
+    missing = sorted(_FLOOR_ENTRY_REQUIRED_KEYS - entry.keys())
+    if missing:
+        raise ValueError(
+            f"emergence floor entry for region {region!r} in {path} is missing "
+            f"required keys {missing}; {fix}"
+        )
+    return float(entry["floor"]), {"region": region, **entry}
+
 
 def _accelerator_for(devices: int) -> str:
     """GPU for multi-device (Leonardo) or when CUDA is present; CPU otherwise (the
@@ -128,6 +167,7 @@ def _generate_and_score(
     n_cells: int,
     max_new: int,
     emergence_floor_per_cell: float | None = None,
+    emergence_floor_provenance: dict | None = None,
 ) -> dict:
     """Generate cells under MATCHED conditioning, decode via the sealed decoder,
     and score the per-cell slice metrics (decoded / attempted; OGC validity; 90-corner;
@@ -186,6 +226,7 @@ def _generate_and_score(
         n_attempted_blocks=n_attempted,
         n_cells=n_cells,
         emergence_floor_per_cell=emergence_floor_per_cell,
+        emergence_floor_provenance=emergence_floor_provenance,
     )
     # stage-1 truncation discriminator: NO building tokens => never tried / truncated;
     # building tokens present but n_polygons low => didn't close (a different cause).
@@ -332,7 +373,6 @@ def run_short(
     max_time: str | None = None,
     eval_cells: int = 64,
     eval_max_new: int = 512,
-    emergence_floor_per_cell: float | None = None,
     ckpt_every_n_steps: int | None = None,
 ) -> dict:
     """The real pre-deadline run (Leonardo 4xA100). Trains for cfg.max_steps (or until
@@ -342,10 +382,21 @@ def run_short(
     the post-train eval generation — KEEP SMALL at large model scales: autoregressive
     generation is per-token forward passes, so 64x512 at 300M is minutes-to-tens-of-
     minutes (it overran the probe's first run). The eval cost is itself a bake-off
-    finding; the slice's cost deliverable is TRAINING throughput, not eval."""
+    finding; the slice's cost deliverable is TRAINING throughput, not eval.
+
+    Emergence floor (Task 13, F13/F15): resolved from configs/eval/emergence_floors.yaml
+    by ``cfg.region`` — EARLY, at config time, so a missing entry fails BEFORE hours of
+    fit, not at the post-train eval. ``eval_cells == 0`` generates nothing, so no floor
+    is needed (run_smoke is likewise out of scope: it is the wiring smoke, verdict-None
+    by design)."""
     cfg = cfg or ScaffoldConfig()
     if cfg.accelerator == "gpu":
         assert_training_env_locked()
+
+    emergence_floor: float | None = None
+    emergence_provenance: dict | None = None
+    if eval_cells > 0:
+        emergence_floor, emergence_provenance = _resolve_emergence_floor(cfg.region)
 
     dm = _datamodule(cfg, build=build_shards)
     lit = maybe_compile(ScaffoldLit(cfg), cfg)
@@ -368,7 +419,8 @@ def run_short(
         cfg,
         n_cells=eval_cells,
         max_new=eval_max_new,
-        emergence_floor_per_cell=emergence_floor_per_cell,
+        emergence_floor_per_cell=emergence_floor,
+        emergence_floor_provenance=emergence_provenance,
     )
     eval_seconds = time.time() - e0
     cost["eval_seconds"] = round(eval_seconds, 1)
@@ -428,13 +480,9 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="DDP: manifest already built by the sbatch preamble; ranks only read it",
     )
-    parser.add_argument(
-        "--emergence-floor",
-        type=float,
-        default=None,
-        help="emergence floor (polys/active-cell) for the §2 verdict; diagnostic: 1.96 "
-        "(0.25x the real holdout density 7.85)",
-    )
+    # NOTE (Task 13, F13/F15): the old per-run floor CLI literal flag is GONE.
+    # The §2 floor resolves from configs/eval/emergence_floors.yaml by --region
+    # (fail-closed in run_short when a cell-generating run's region has no entry).
     parser.add_argument(
         "--ckpt-every-n-steps",
         type=int,
@@ -497,7 +545,6 @@ def main() -> None:
         max_time=args.max_time,
         eval_cells=args.eval_cells,
         eval_max_new=args.eval_max_new,
-        emergence_floor_per_cell=args.emergence_floor,
         ckpt_every_n_steps=args.ckpt_every_n_steps,
     )
     print(json.dumps(result, default=str))

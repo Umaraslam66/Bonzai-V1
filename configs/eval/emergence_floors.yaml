@@ -1,0 +1,27 @@
+# Per-region emergence floors (readiness-closure Task 13, F13/F15).
+#
+# The §2 emergence floor is a provenance-bearing artifact, not a CLI literal:
+#   floor = frac * holdout_density   (polygons per active cell, measured on the
+#   region's REAL holdout via cfm.eval.geometry.holdout_polygons_per_active_cell).
+#
+# Entries are written by scripts/measure_emergence_floor.py, which stamps
+# `derived_at` with the git sha of the measuring commit. EXCEPTION: singapore's
+# seeded entry hand-carries the 2026-06 scaffold measurement (no script run), so
+# its `derived_at` carries the hand-carry note instead of a sha.
+#
+# `derivation_regime` records the denominator convention the density was measured
+# under: full cell length, denominator = all non-empty holdout cells.
+#
+# scripts/train_scaffold.py run_short resolves the floor from THIS file by
+# cfg.region and raises (fail-open CLOSED) when a cell-generating run's region
+# has no entry.
+schema_version: "1.0"
+regions:
+  singapore:
+    floor: 1.96
+    holdout_density: 7.85
+    frac: 0.25
+    derived_at: "hand-carried from 2026-06 scaffold; re-derive on next SG run"
+    derivation_regime:
+      cell_length: full
+      denominator: all_nonempty_cells

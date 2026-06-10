@@ -111,6 +111,7 @@ def slice_eval(
     n_attempted_blocks: int | None = None,
     n_cells: int | None = None,
     emergence_floor_per_cell: float | None = None,
+    emergence_floor_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Per-cell metrics over the DECODED (block, geom) pairs.
 
@@ -123,6 +124,12 @@ def slice_eval(
     guard runs: a run below the holdout-density floor gets ``emergence_verdict ==
     ROADS_ONLY`` and ``building_metrics_floored == True`` so the curve never reads its
     ``ogc_valid_rate``/``right_angle_rate`` over ~zero polygons as a good score.
+
+    ``emergence_floor_provenance`` (Task 13, F13/F15) is the floor's provenance record
+    (region, holdout_density, frac, derived_at, derivation_regime incl. the denominator
+    convention) and is carried through VERBATIM into the metrics dict so every report
+    states where its floor came from. The key is present-but-None when not given
+    (report-stable shape).
     """
     n_decoded = len(geoms)
     attempted = n_attempted_blocks if n_attempted_blocks is not None else len(blocks)
@@ -166,5 +173,6 @@ def slice_eval(
         "n_corners": n_corners,
         "emergence_verdict": verdict.value if verdict is not None else None,
         "building_metrics_floored": floored,
+        "emergence_floor_provenance": emergence_floor_provenance,
         "scope": "per-cell; tile-coherence UNSCORED",
     }
