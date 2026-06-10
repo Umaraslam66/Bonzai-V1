@@ -9,6 +9,7 @@ methodology:
   effect_size_floor: 0.15
   min_n: 50
   release: 2026-04-15.0
+  v1c_note: 'the PI-requested ''V1c = per-cell-density-only swap'' is IDENTICAL to V0 by construction and is therefore not run: the gate''s density slot is already per-cell (each feature''s own cell_density_bucket via _cell_density_by_cell / macro_core cell_density_bucket), so swapping it tile->cell changes nothing. The correct decomposition of V1 is the 2x2 over {tile vs cell zoning} x {dims kept vs dropped}: V0 (tile zoning, dims kept), V1b (cell zoning, dims kept), V1d (tile zoning, dims dropped), V1 (cell zoning, dims dropped).'
   variants:
     V0:
       description: 'baseline: the exact gate-(i) stratum'
@@ -18,10 +19,22 @@ methodology:
       - cell_density_bucket
       - coastal_inland_river
     V1:
-      description: 'un-collapse: per-cell zoning + per-cell density REPLACE the tile-level dims (each feature gets its own cell''s stratum)'
+      description: 'un-collapse: per-cell zoning REPLACES the tile-dominant zoning and the skeleton+coastal tile dims are DROPPED; the density slot is unchanged (already per-cell)'
       stratum:
       - per_cell_zoning_class
-      - per_cell_density_bucket
+      - cell_density_bucket
+    V1b:
+      description: 'attribution (zoning swap, dims KEPT): V0 with only the zoning slot un-collapsed to the cell''s own zoning_class — isolates V1''s tile->cell zoning change'
+      stratum:
+      - per_cell_zoning_class
+      - modal_road_skeleton_class
+      - cell_density_bucket
+      - coastal_inland_river
+    V1d:
+      description: 'attribution (dims DROPPED, zoning kept): V0 with the skeleton+coastal dims pooled away, tile-dominant zoning retained — isolates V1''s dim-drop change'
+      stratum:
+      - dominant_zoning_class
+      - cell_density_bucket
     V2_16:
       density_bucket_scheme:
         n_buckets: 16
@@ -107,6 +120,44 @@ variants:
         median_ks: 0.10554202553326719
         n_pairs: 73
         n_significant_effect: 19
+    verdict: FAIL
+  V1b:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 391
+    n_significant_effect: 160
+    n_significant_raw_bh: 336
+    per_metric:
+      building_area_m2:
+        median_ks: 0.16503800217155262
+        n_pairs: 149
+        n_significant_effect: 85
+      road_length_m:
+        median_ks: 0.11936362244398124
+        n_pairs: 242
+        n_significant_effect: 75
+    verdict: FAIL
+  V1d:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 97
+    n_significant_effect: 36
+    n_significant_raw_bh: 95
+    per_metric:
+      building_area_m2:
+        median_ks: 0.14824176919572796
+        n_pairs: 44
+        n_significant_effect: 20
+      road_length_m:
+        median_ks: 0.1124360847286725
+        n_pairs: 53
+        n_significant_effect: 16
     verdict: FAIL
   V2_16:
     n_features_by_city:

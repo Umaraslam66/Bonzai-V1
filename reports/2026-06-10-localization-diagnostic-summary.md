@@ -49,6 +49,11 @@ as exact equality (uniform-pool construction).
 
 ## Reading (for the step-6 PI gate; decision is Umar's)
 
+> **SUPERSEDED IN PART by the V1b/V1d attribution run below (same evening):** the
+> "V1 kills the most signal → collapse layer" bullet survives only in count terms
+> and is shown by the 2×2 to be mostly a denominator artifact of dropping dims.
+> Read §"Attribution run" before acting on anything in this section.
+
 - **V1 kills the most signal** (141 → 42 effect-significant; rate 43.9% → 34.4%):
   a large share of apparent cross-city character is tile-collapse mis-assignment
   (features inheriting tile-dominant zoning/skeleton rather than their own cell's).
@@ -67,3 +72,50 @@ as exact equality (uniform-pool construction).
 Methodology knobs serialized in the YAML (V1 stratum-REPLACEMENT reading; V2
 equal-width [0,1] top-inclusive buckets; V3 sea buckets {≤1e-9, (·,0.5], >0.5})
 — judge against the data at the gate, not on faith.
+
+---
+
+# Attribution run — V1b/V1d 2×2 (PI-ordered at the step-6 gate, same evening)
+
+**Run 2:** 2026-06-10 23:17–23:24 CEST, Leonardo login node (CPU), code @ `e08177c`
+(V1b/V1d variants added at `f69cbc7`; methodology-label harmonization at `e08177c`),
+RC=0. The PI-requested "V1c = per-cell-density-only" is identical to V0 by
+construction (V0's density slot is already per-cell) — recorded loudly as
+`methodology.v1c_note` in the YAML; the correct decomposition is the 2×2 below.
+
+**Verified-end-state:** YAML re-read and matched to the printed table at full
+precision on all 7 variants; per-city pools exactly equal across variants;
+**run-1's five variant blocks reproduced bit-identically in run 2** (whole-pipeline
+determinism check, free); coverage unchanged (1952/1952, zero skipped).
+
+## The 2×2 (n_significant_effect / n_pairs / rate)
+
+| | dims KEPT (skeleton+coastal) | dims DROPPED |
+|---|---|---|
+| **tile zoning** | V0: 141 / 321 / **43.9%** | V1d: 36 / 97 / **37.1%** |
+| **per-cell zoning** | V1b: 160 / 391 / **40.9%** | V1: 42 / 122 / **34.4%** |
+
+## What the isolation shows
+
+1. **Run-1's headline inverted.** The 141→42 count drop attributed to "per-cell
+   un-collapse" is carried almost entirely by the DIM DROP (V1d alone: 36), and
+   that drop is largely mechanical: removing skeleton+coastal collapses 321
+   comparisons into 97 — fewer tests can only produce fewer significant counts.
+   The locked count-based criterion ("largest drop in n_significant_effect") is
+   confounded by the changing pair denominator across variants.
+2. **Per-cell zoning is NOT the character feature.** V1b (the clean swap, dims
+   held) RAISES the count (141→160; per-cell zoning creates more qualifying
+   strata, 391 pairs) and trims the rate only 43.9%→40.9%. If cross-city
+   character were mis-assigned tile-dominant zoning, V1b would have absorbed it.
+   It did not.
+3. **Denominator-honest view (rates):** zoning swap −3.0pp, dim drop −6.8pp,
+   both −9.5pp (≈ additive). No tested layer kills the discrimination signal;
+   it persists at 34–45% under every stratum refinement (V2 flat, V3
+   structurally untestable here).
+4. **Net data statement for the gate:** the cross-city character is NOT
+   localized in any tested stratum layer (collapse, quantization, sea dim).
+   The residual discrimination is city-shaped — consistent with the spec's
+   city-identity floor (#13) carrying the load, with the "character" axis still
+   unidentified by this diagnostic. What to wire as Task 24's character field
+   is therefore a genuinely open PI decision; the diagnostic's contribution is
+   to RULE OUT per-cell zoning and density quantization as candidates.
