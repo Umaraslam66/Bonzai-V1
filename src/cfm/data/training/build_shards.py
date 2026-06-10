@@ -29,6 +29,7 @@ from cfm.data.io import canonicalize_yaml
 from cfm.data.sub_d.enums import SlotKind
 from cfm.data.sub_d.io import read_macro_core_parquet
 from cfm.data.sub_g.readers import read_sub_f_cells
+from cfm.data.training.atomic_io import atomic_write_text
 from cfm.data.training.paths import (
     epsg_label_for_region,
     holdout_manifest_for_region,
@@ -329,4 +330,4 @@ def _write_training_manifest(
         ],
     }
     path = out / training_manifest_path(release, region).name
-    path.write_text(canonicalize_yaml(manifest), encoding="utf-8")
+    atomic_write_text(path, canonicalize_yaml(manifest))  # crash-safe (F17)
