@@ -78,6 +78,19 @@ def _synthetic_shards():
     ]
 
 
+def _clean_synthetic_shards():
+    """_synthetic_shards MINUS the over-length cell — for setup()-path tests. The F13
+    drop-rate contract (DropRateExceeded at >0.5% too_long over the union) makes the
+    1-in-5 over-length fixture a legitimate halt in setup(); flatten-level tests keep
+    using _synthetic_shards (flatten itself never raises, it only counts)."""
+    return [
+        _shard(0, 0, [_cell(0, 0, 0), _cell(0, 2, 50)]),
+        _shard(0, 1, [_cell(1, 1, 30)]),
+        _shard(0, 2, [_cell(2, 2, 40)]),
+        _shard(0, 3, [_cell(3, 3, 20)]),
+    ]
+
+
 def test_legacy_slot_builder_is_the_field_slot_id_block():
     """Pure unit test of the LEGACY value-agnostic slot builder — NOT the live
     training path (flatten now builds the value-bearing prefix; F6 delivery).
@@ -232,7 +245,7 @@ def test_clean_manifest_audit_passes_setup(tmp_path, monkeypatch):
     """Twin: a clean manifest passes the audit. We stub the in-memory build so the
     test stays data-free and proves the audit is non-blocking on clean lineage."""
     clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
-    monkeypatch.setattr(DM, "build_shards_in_memory", lambda *a, **k: _synthetic_shards())
+    monkeypatch.setattr(DM, "build_shards_in_memory", lambda *a, **k: _clean_synthetic_shards())
     dm = DM.CellDataModule(
         training_manifest=clean, holdout_manifest=_write_holdout(tmp_path), seed=7
     )
@@ -242,10 +255,152 @@ def test_clean_manifest_audit_passes_setup(tmp_path, monkeypatch):
 
 def test_train_order_is_reproducible_across_instances(tmp_path, monkeypatch):
     clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
-    monkeypatch.setattr(DM, "build_shards_in_memory", lambda *a, **k: _synthetic_shards())
+    monkeypatch.setattr(DM, "build_shards_in_memory", lambda *a, **k: _clean_synthetic_shards())
     hp = _write_holdout(tmp_path)
     o1 = DM.CellDataModule(training_manifest=clean, holdout_manifest=hp, seed=7)
     o2 = DM.CellDataModule(training_manifest=clean, holdout_manifest=hp, seed=7)
     o1.setup("fit")
     o2.setup("fit")
     assert o1.train_order() == o2.train_order()  # same seed -> same order (resume-safe)
+
+
+# ----- F13 drop-rate action contract (readiness-closure Task 15) -----
+#
+# setup() must accumulate flatten's `dropped` counts across the manifest UNION and
+# raise DropRateExceeded when too_long / (kept + too_long) > 0.005 (strict >).
+# Denominator = NON-EMPTY cells: empty cells are a different defect class and would
+# dilute the length signal.
+#
+# NOTE on the union tests: the plan's literal construction ("each manifest
+# individually under threshold, together over") is mathematically impossible — the
+# union rate is a convex combination of per-manifest rates, so it can never exceed
+# their max. The accumulate-then-check ordering is pinned by its two possible
+# discriminating directions instead: (a) the raise's denominator includes the OTHER
+# manifest's kept cells; (b) a manifest that is over threshold ALONE does not raise
+# when the union dilutes it back under (the check runs on the union, not per city).
+
+
+def _mixed_cells(kept: int, too_long: int = 0, empty: int = 0):
+    """Unique-keyed synthetic cells: `kept` short cells, then `too_long` cells one
+    token over DEFAULT_MAX_CELL_TOKENS, then `empty` cells."""
+    cells = []
+    for idx in range(kept + too_long + empty):
+        if idx < kept:
+            n = 10
+        elif idx < kept + too_long:
+            n = DM.DEFAULT_MAX_CELL_TOKENS + 1
+        else:
+            n = 0
+        cells.append(_cell(idx // 8, idx % 8, n))
+    return cells
+
+
+def _write_manifest_at(tmp, name, ti, tj):
+    manifest = {
+        "release": "2026-04-15.0",
+        "region": _REGION,
+        "tiles": [{"tile_i": ti, "tile_j": tj, "lineage": [[_REGION, ti, tj]]}],
+    }
+    p = tmp / name
+    p.write_text(yaml.safe_dump(manifest))
+    return p
+
+
+def test_setup_raises_drop_rate_exceeded_above_threshold(tmp_path, monkeypatch):
+    """1 too_long / 100 non-empty = 0.01 > 0.005 -> raise. The 100 EMPTY cells prove
+    the denominator excludes empties (an empty-diluted denominator would read
+    1/200 == 0.005, NOT > threshold, and this test would fail to raise)."""
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    monkeypatch.setattr(
+        DM,
+        "build_shards_in_memory",
+        lambda *a, **k: [_shard(2, 2, _mixed_cells(kept=99, too_long=1, empty=100))],
+    )
+    dm = DM.CellDataModule(
+        training_manifest=clean, holdout_manifest=_write_holdout(tmp_path), seed=7
+    )
+    with pytest.raises(DM.DropRateExceeded) as ei:
+        dm.setup("fit")
+    msg = str(ei.value)
+    assert "1/100" in msg  # counts: too_long / non-empty
+    assert str(DM.MAX_TOO_LONG_DROP_RATE) in msg  # the threshold
+    assert "0.01" in msg  # the rate
+    # the named escalation (F13 action contract)
+    assert "raise DEFAULT_MAX_CELL_TOKENS via a recorded decision or re-chunk" in msg
+    assert "see readiness F13" in msg
+
+
+def test_setup_at_exact_threshold_does_not_raise(tmp_path, monkeypatch):
+    """Exactly AT the threshold (1/200 == 0.005) must NOT raise — strict >."""
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    monkeypatch.setattr(
+        DM,
+        "build_shards_in_memory",
+        lambda *a, **k: [_shard(2, 2, _mixed_cells(kept=199, too_long=1))],
+    )
+    dm = DM.CellDataModule(
+        training_manifest=clean, holdout_manifest=_write_holdout(tmp_path), seed=7
+    )
+    dm.setup("fit")  # must not raise
+    assert len(dm.train_cells) + len(dm.val_cells) == 199
+
+
+def test_sub_design_budget_opt_down_is_exempt_from_drop_rate(tmp_path, monkeypatch):
+    """A caller that deliberately opts the budget DOWN below DEFAULT_MAX_CELL_TOKENS
+    (run_smoke's tiny-budget max_len=256 loop drops ~64% of real SG cells BY DESIGN)
+    accepts tail amputation by construction. The 0.005 threshold is calibrated to the
+    design point — and its escalation ('raise DEFAULT_MAX_CELL_TOKENS') is not even
+    the right action for an opt-down — so the contract must not fire there."""
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    # 5 cells of 300 tokens + 5 of 50: at max_cell_tokens=256 the rate is 0.5 >> 0.005
+    cells = [_cell(i // 8, i % 8, 300 if i < 5 else 50) for i in range(10)]
+    monkeypatch.setattr(DM, "build_shards_in_memory", lambda *a, **k: [_shard(2, 2, cells)])
+    dm = DM.CellDataModule(
+        training_manifest=clean,
+        holdout_manifest=_write_holdout(tmp_path),
+        seed=7,
+        max_cell_tokens=256,
+    )
+    dm.setup("fit")  # must not raise: sub-design budget regime
+    assert len(dm.train_cells) + len(dm.val_cells) == 5
+
+
+def test_union_drop_rate_denominator_accumulates_across_manifests(tmp_path, monkeypatch):
+    """Manifest A: 8 kept + 2 too_long; manifest B: 92 kept. The raise must report
+    2/102 — B's kept cells in the denominator prove the counts accumulate across
+    the WHOLE union before the check runs (accumulate-then-check ordering)."""
+    mf_a = _write_manifest_at(tmp_path, "a.yaml", 2, 2)
+    mf_b = _write_manifest_at(tmp_path, "b.yaml", 3, 3)
+
+    def fake_build(release, region, *, tile_ids=None):
+        if tile_ids == [(2, 2)]:
+            return [_shard(2, 2, _mixed_cells(kept=8, too_long=2))]
+        return [_shard(3, 3, _mixed_cells(kept=92))]
+
+    monkeypatch.setattr(DM, "build_shards_in_memory", fake_build)
+    dm = DM.CellDataModule(
+        training_manifests=[mf_a, mf_b], holdout_manifest=_write_holdout(tmp_path), seed=7
+    )
+    with pytest.raises(DM.DropRateExceeded) as ei:
+        dm.setup("fit")
+    assert "2/102" in str(ei.value)
+
+
+def test_union_check_runs_on_the_union_not_per_manifest(tmp_path, monkeypatch):
+    """Manifest A alone is way over (1/10 = 0.1); the union dilutes it to
+    1/1000 = 0.001 <= 0.005 -> setup must NOT raise. A per-manifest (inside-the-loop)
+    check would raise on A — this pins the check to the accumulated union."""
+    mf_a = _write_manifest_at(tmp_path, "a.yaml", 2, 2)
+    mf_b = _write_manifest_at(tmp_path, "b.yaml", 3, 3)
+
+    def fake_build(release, region, *, tile_ids=None):
+        if tile_ids == [(2, 2)]:
+            return [_shard(2, 2, _mixed_cells(kept=9, too_long=1))]
+        return [_shard(3, 3, _mixed_cells(kept=990))]
+
+    monkeypatch.setattr(DM, "build_shards_in_memory", fake_build)
+    dm = DM.CellDataModule(
+        training_manifests=[mf_a, mf_b], holdout_manifest=_write_holdout(tmp_path), seed=7
+    )
+    dm.setup("fit")  # must not raise: 1/1000 is under the union threshold
+    assert len(dm.train_cells) + len(dm.val_cells) == 999
