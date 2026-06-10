@@ -53,6 +53,15 @@ class ScaffoldConfig(BaseModel):
     grad_accum: int = 1
     max_steps: int = 2000
 
+    # post-train eval generation (F15): these lengths are part of the EXPERIMENT
+    # config (they land in hparams/checkpoints and the reports/ Config block via
+    # model_dump), not run-invocation trivia — the emergence verdict's
+    # commensurability check reads eval_max_new as the generated-length cap.
+    #: cells to generate in the post-train eval (0 = generate nothing, no floor needed)
+    eval_cells: int = 64
+    #: tokens generated per cell — keep small at large model scales (AR generation cost)
+    eval_max_new: int = 512
+
     # trainer / hardware
     precision: str = "bf16-mixed"
     #: "gpu" for real runs (Leonardo 4xA100); tests/CPU pass "cpu" so the Trainer is

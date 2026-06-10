@@ -34,10 +34,17 @@ class EmergenceVerdict(Enum):
 
     ROADS_ONLY means the building-geometry metrics are FLOORED (a failure to produce
     buildings), never a vacuous pass like ``ogc_valid_rate=1.0`` over zero polygons.
+
+    INCOMMENSURATE (F15) means the §2 verdict was REFUSED before it ever ran: the
+    generation's length cap is below the floor's derivation regime (e.g. a 512-cap
+    generation scored against a full-cell 5760-regime floor), so neither SCOREABLE
+    nor ROADS_ONLY would mean anything. Loud and distinct from the legacy None
+    (= "no floor inputs given, verdict never requested").
     """
 
     SCOREABLE = "scoreable"
     ROADS_ONLY = "roads_only"
+    INCOMMENSURATE = "INCOMMENSURATE"
 
 
 def emergence_verdict(*, n_polygons: int, n_cells: int, floor_per_cell: float) -> EmergenceVerdict:
@@ -112,6 +119,8 @@ def slice_eval(
     n_cells: int | None = None,
     emergence_floor_per_cell: float | None = None,
     emergence_floor_provenance: dict[str, Any] | None = None,
+    generated_length_cap: int | None = None,
+    floor_regime_cell_length: int | None = None,
 ) -> dict[str, Any]:
     """Per-cell metrics over the DECODED (block, geom) pairs.
 
@@ -130,6 +139,17 @@ def slice_eval(
     convention) and is carried through VERBATIM into the metrics dict so every report
     states where its floor came from. The key is present-but-None when not given
     (report-stable shape).
+
+    Commensurability (Task 14, F15): ``generated_length_cap`` is the per-cell token
+    budget the generation actually had; ``floor_regime_cell_length`` is the cell-token
+    regime the floor was DERIVED under. When the verdict would run and both lengths
+    are given but ``generated_length_cap < floor_regime_cell_length``, the §2 verdict
+    is REFUSED (``INCOMMENSURATE``): a capped generation never got the budget to emit
+    what the floor counts, so neither SCOREABLE nor ROADS_ONLY is meaningful.
+    ``building_metrics_floored`` stays False — the metrics are not floored, they are
+    REFUSED (flooring asserts "compared against the floor and failed"; refusal asserts
+    "the comparison itself is invalid"). Legacy callers passing no lengths are
+    unchanged (None-tolerant).
     """
     n_decoded = len(geoms)
     attempted = n_attempted_blocks if n_attempted_blocks is not None else len(blocks)
@@ -157,10 +177,24 @@ def slice_eval(
     verdict: EmergenceVerdict | None = None
     floored = False
     if n_cells is not None and emergence_floor_per_cell is not None:
-        verdict = emergence_verdict(
-            n_polygons=n_polygons, n_cells=n_cells, floor_per_cell=emergence_floor_per_cell
-        )
-        floored = verdict is EmergenceVerdict.ROADS_ONLY
+        if (
+            generated_length_cap is not None
+            and floor_regime_cell_length is not None
+            and generated_length_cap < floor_regime_cell_length
+        ):
+            # F15 refuse rule: the pure ROADS_ONLY/SCOREABLE function is NOT consulted;
+            # floored stays False (refused, not floored — see the docstring).
+            verdict = EmergenceVerdict.INCOMMENSURATE
+        else:
+            verdict = emergence_verdict(
+                n_polygons=n_polygons, n_cells=n_cells, floor_per_cell=emergence_floor_per_cell
+            )
+            floored = verdict is EmergenceVerdict.ROADS_ONLY
+
+    # the floor's denominator convention, quoted from provenance when present
+    denominator = None
+    if emergence_floor_provenance is not None:
+        denominator = (emergence_floor_provenance.get("derivation_regime") or {}).get("denominator")
 
     return {
         "decodability_rate": n_decoded / attempted if attempted else 0.0,
@@ -174,5 +208,9 @@ def slice_eval(
         "emergence_verdict": verdict.value if verdict is not None else None,
         "building_metrics_floored": floored,
         "emergence_floor_provenance": emergence_floor_provenance,
+        # F15 commensurability record (present-but-None when absent, report-stable):
+        "generated_length_cap": generated_length_cap,
+        "floor_regime_cell_length": floor_regime_cell_length,
+        "floor_denominator_convention": denominator,
         "scope": "per-cell; tile-coherence UNSCORED",
     }

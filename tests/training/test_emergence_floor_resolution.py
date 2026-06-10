@@ -88,7 +88,8 @@ def test_scalar_entry_raises_curated_error_not_attributeerror(tmp_path, monkeypa
 def test_run_short_unknown_region_raises_before_datamodule(monkeypatch) -> None:
     called: list[int] = []
     monkeypatch.setattr(ts, "_datamodule", lambda *a, **k: called.append(1))
-    cfg = ScaffoldConfig(devices=1, accelerator="cpu", region="atlantis")
+    # eval_cells > 0 (F15: a config field now) => the run generates, so a floor is required
+    cfg = ScaffoldConfig(devices=1, accelerator="cpu", region="atlantis", eval_cells=64)
     with pytest.raises(ValueError, match="atlantis"):
         ts.run_short(cfg, build_shards=False)
     assert called == []  # the failure pre-empts ALL data/training work
@@ -106,7 +107,8 @@ def test_run_short_resolves_floor_for_its_region_before_training(monkeypatch) ->
 
     monkeypatch.setattr(ts, "_resolve_emergence_floor", fake_resolve)
     monkeypatch.setattr(ts, "_datamodule", boom)
-    cfg = ScaffoldConfig(devices=1, accelerator="cpu", region="singapore")
+    # eval_cells > 0 (F15: a config field now) => the floor must resolve pre-training
+    cfg = ScaffoldConfig(devices=1, accelerator="cpu", region="singapore", eval_cells=64)
     with pytest.raises(_Boom):
         ts.run_short(cfg, build_shards=False)
     assert seen == ["singapore"]  # resolved BEFORE _datamodule raised
@@ -122,9 +124,10 @@ def test_run_short_eval_cells_zero_skips_resolution(monkeypatch) -> None:
         raise _Boom
 
     monkeypatch.setattr(ts, "_datamodule", boom)
-    cfg = ScaffoldConfig(devices=1, accelerator="cpu", region="atlantis")
+    # F15: eval_cells moved onto the config; 0 still means "generate nothing".
+    cfg = ScaffoldConfig(devices=1, accelerator="cpu", region="atlantis", eval_cells=0)
     with pytest.raises(_Boom):
-        ts.run_short(cfg, build_shards=False, eval_cells=0)
+        ts.run_short(cfg, build_shards=False)
     assert seen == []  # no cells generated -> no floor needed
 
 

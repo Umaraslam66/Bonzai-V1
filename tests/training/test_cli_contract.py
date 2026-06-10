@@ -135,6 +135,21 @@ def test_train_set_flag_rejects_unknown_choice() -> None:
         _build_parser().parse_args(["--train-set", "all-of-europe"])
 
 
+# --- Task 14 (readiness-closure, F15): eval lengths are config, CLI flags override ---
+
+
+def test_eval_length_flags_reach_scaffold_config() -> None:
+    mod = _load_module()
+    args = mod._build_parser().parse_args(["--eval-cells", "32", "--eval-max-new", "5760"])
+    cfg = mod.build_config_from_args(args)
+    assert cfg.eval_cells == 32
+    assert cfg.eval_max_new == 5760
+    # without the flags, the ScaffoldConfig defaults rule (argparse defaults are None)
+    cfg_default = mod.build_config_from_args(mod._build_parser().parse_args([]))
+    assert cfg_default.eval_cells == 64
+    assert cfg_default.eval_max_new == 512
+
+
 def test_run_sbatch_has_defaulted_train_set_guard_and_forwards_flag() -> None:
     # The Task-10 reviewer's deferred ${TRAIN_SET} guard: DEFAULTED (:=single), not a
     # :? hard guard — single-region remains the default submit path. The srun must

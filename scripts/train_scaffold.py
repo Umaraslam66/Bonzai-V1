@@ -30,7 +30,7 @@ from cfm.data.training.build_shards import (
     build_training_shards,
     train_cities,
 )
-from cfm.data.training.datamodule import CellDataModule
+from cfm.data.training.datamodule import DEFAULT_MAX_CELL_TOKENS, CellDataModule
 from cfm.data.training.paths import training_manifest_path
 from cfm.eval.holdout.paths import (
     eval_set_locked_marker,
@@ -173,6 +173,8 @@ def _generate_and_score(
     max_new: int,
     emergence_floor_per_cell: float | None = None,
     emergence_floor_provenance: dict | None = None,
+    generated_length_cap: int | None = None,
+    floor_regime_cell_length: int | None = None,
 ) -> dict:
     """Generate cells under MATCHED conditioning, decode via the sealed decoder,
     and score the per-cell slice metrics (decoded / attempted; OGC validity; 90-corner;
@@ -232,6 +234,8 @@ def _generate_and_score(
         n_cells=n_cells,
         emergence_floor_per_cell=emergence_floor_per_cell,
         emergence_floor_provenance=emergence_floor_provenance,
+        generated_length_cap=generated_length_cap,
+        floor_regime_cell_length=floor_regime_cell_length,
     )
     # stage-1 truncation discriminator: NO building tokens => never tried / truncated;
     # building tokens present but n_polygons low => didn't close (a different cause).
@@ -376,31 +380,30 @@ def run_short(
     *,
     build_shards: bool = True,
     max_time: str | None = None,
-    eval_cells: int = 64,
-    eval_max_new: int = 512,
     ckpt_every_n_steps: int | None = None,
 ) -> dict:
     """The real pre-deadline run (Leonardo 4xA100). Trains for cfg.max_steps (or until
     ``max_time`` wall-clock, used by the scale-up probe), evals once, writes the
     reports/ summary with per-run cost. ``build_shards=False`` for DDP runs whose
-    manifest the sbatch preamble already built. ``eval_cells``/``eval_max_new`` size
-    the post-train eval generation — KEEP SMALL at large model scales: autoregressive
-    generation is per-token forward passes, so 64x512 at 300M is minutes-to-tens-of-
-    minutes (it overran the probe's first run). The eval cost is itself a bake-off
-    finding; the slice's cost deliverable is TRAINING throughput, not eval.
+    manifest the sbatch preamble already built. ``cfg.eval_cells``/``cfg.eval_max_new``
+    (F15: config fields, not kwargs — they are experiment facts) size the post-train
+    eval generation — KEEP SMALL at large model scales: autoregressive generation is
+    per-token forward passes, so 64x512 at 300M is minutes-to-tens-of-minutes (it
+    overran the probe's first run). The eval cost is itself a bake-off finding; the
+    slice's cost deliverable is TRAINING throughput, not eval.
 
     Emergence floor (Task 13, F13/F15): resolved from configs/eval/emergence_floors.yaml
     by ``cfg.region`` — EARLY, at config time, so a missing entry fails BEFORE hours of
-    fit, not at the post-train eval. ``eval_cells == 0`` generates nothing, so no floor
-    is needed (run_smoke is likewise out of scope: it is the wiring smoke, verdict-None
-    by design)."""
+    fit, not at the post-train eval. ``cfg.eval_cells == 0`` generates nothing, so no
+    floor is needed (run_smoke is likewise out of scope: it is the wiring smoke,
+    verdict-None by design)."""
     cfg = cfg or ScaffoldConfig()
     if cfg.accelerator == "gpu":
         assert_training_env_locked()
 
     emergence_floor: float | None = None
     emergence_provenance: dict | None = None
-    if eval_cells > 0:
+    if cfg.eval_cells > 0:
         emergence_floor, emergence_provenance = _resolve_emergence_floor(cfg.region)
 
     dm = _datamodule(cfg, build=build_shards)
@@ -422,15 +425,22 @@ def run_short(
         lit,
         dm,
         cfg,
-        n_cells=eval_cells,
-        max_new=eval_max_new,
+        n_cells=cfg.eval_cells,
+        max_new=cfg.eval_max_new,
         emergence_floor_per_cell=emergence_floor,
         emergence_floor_provenance=emergence_provenance,
+        # F15 commensurability: the generation's per-cell budget vs the floor's
+        # derivation regime. The floor regime is a property of the HOLDOUT derivation
+        # (derivation_regime.cell_length: "full" => the locked P99.9 cell budget,
+        # DEFAULT_MAX_CELL_TOKENS=5760), NOT of this run's cfg.max_len — a short-
+        # context run does not shrink what the floor was measured against.
+        generated_length_cap=cfg.eval_max_new,
+        floor_regime_cell_length=DEFAULT_MAX_CELL_TOKENS,
     )
     eval_seconds = time.time() - e0
     cost["eval_seconds"] = round(eval_seconds, 1)
     cost["eval_node_h"] = round(eval_seconds / 3600.0, 4)
-    cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, eval_cells), 6)
+    cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, cfg.eval_cells), 6)
     report = _write_report(cfg, metrics, trained_steps=int(trainer.global_step), cost=cost)
     logger.info("wrote %s", report)
     return {
@@ -473,11 +483,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-time", default=None, help="wall budget DD:HH:MM:SS (scale-up probe; bounds the run)"
     )
-    parser.add_argument("--eval-cells", type=int, default=64, help="post-train eval: cells to gen")
+    # F15: eval lengths are ScaffoldConfig fields; argparse defaults are None so the
+    # config defaults (64/512) rule when the flags are absent (the Task-10 pattern).
+    parser.add_argument(
+        "--eval-cells", type=int, default=None, help="post-train eval: cells to gen"
+    )
     parser.add_argument(
         "--eval-max-new",
         type=int,
-        default=512,
+        default=None,
         help="post-train eval: tokens/cell (keep small@scale)",
     )
     parser.add_argument(
@@ -529,6 +543,8 @@ def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
         ("region", "region"),
         ("release", "release"),
         ("train_set", "train_set"),
+        ("eval_cells", "eval_cells"),
+        ("eval_max_new", "eval_max_new"),
     ]:
         val = getattr(args, flag)
         if val is not None:
@@ -548,8 +564,6 @@ def main() -> None:
         build_config_from_args(args),
         build_shards=not args.no_build,
         max_time=args.max_time,
-        eval_cells=args.eval_cells,
-        eval_max_new=args.eval_max_new,
         ckpt_every_n_steps=args.ckpt_every_n_steps,
     )
     print(json.dumps(result, default=str))
