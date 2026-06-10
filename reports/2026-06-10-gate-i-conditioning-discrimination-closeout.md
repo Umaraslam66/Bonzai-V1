@@ -35,3 +35,5 @@ T5 (multi-region eval semantics) reopens. This is the foreseen "conditioning-exp
 gap" the delta-design flagged as a real possibility. The per-city worst-case (or mean) bar
 cannot serve as the Phase-2 generalization decision axis at this conditioning. Options to be
 decided with the PI — NOT pre-resolved here. **HALT: no scored runs, no GPU, no Task 10.**
+
+> Erratum 2026-06-10 (post-audit): "the macro-plan conditioning the model is handed" describes the DATA plan (derived + stored), not the model INPUT — the running model received a constant value-agnostic slot prefix (readiness enumeration F6). The gate's verdict is model-independent and unaffected.
