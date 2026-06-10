@@ -43,7 +43,7 @@ from cfm.inference.generate import generate_cell_tokens, try_decode_block
 from cfm.training.config import ScaffoldConfig
 from cfm.training.env_lock import assert_training_env_locked
 from cfm.training.lit_module import ScaffoldLit
-from cfm.training.resume import work_checkpoint_dir
+from cfm.training.resume import resume_ckpt_path, work_checkpoint_dir
 from cfm.training.train import build_trainer, maybe_compile
 
 logger = logging.getLogger(__name__)
@@ -456,20 +456,29 @@ def run_short(
 
     dm = _datamodule(cfg, build=build_shards)
     lit = maybe_compile(ScaffoldLit(cfg), cfg)
+    # F17 + Task-17 follow-up: per-run checkpoint dir on $WORK (allocation-
+    # independent; local checkpoints/ fallback when $WORK is unset) keyed on the
+    # FULL run key {backbone}-{scale}/{region}-seed{seed}, so bake-off runs never
+    # overwrite — or silently resume — each other.
+    ckpt_dir = work_checkpoint_dir(cfg.backbone, scale_label, region=cfg.region, seed=cfg.seed)
     trainer = build_trainer(
         cfg,
         max_time=max_time,
         ckpt_every_n_steps=ckpt_every_n_steps,
-        # F17 + Task-17 follow-up: per-run checkpoint dir on $WORK (allocation-
-        # independent; local checkpoints/ fallback when $WORK is unset) keyed on the
-        # FULL run key {backbone}-{scale}/{region}-seed{seed}, so bake-off runs never
-        # overwrite — or, once Task-18 resume lands, silently resume — each other.
-        ckpt_dirpath=work_checkpoint_dir(
-            cfg.backbone, scale_label, region=cfg.region, seed=cfg.seed
-        ),
+        ckpt_dirpath=ckpt_dir,
     )
+    # F8 (Task 18): across-job resume. The SAME ckpt_dir variable feeds the write side
+    # (ModelCheckpoint dirpath above) and the read side (resume decision here), so the
+    # two can never diverge. resume_ckpt_path returns None on a fresh/absent dir, which
+    # Lightning treats as a fresh start. Log the decision either way: F8's failure mode
+    # was a relaunched job SILENTLY restarting from step 0.
+    ckpt_path = resume_ckpt_path(ckpt_dir)
+    if ckpt_path is not None:
+        logger.info("resuming from %s", ckpt_path)
+    else:
+        logger.info("fresh run (no checkpoint under %s)", ckpt_dir)
     t0 = time.time()
-    trainer.fit(lit, dm)
+    trainer.fit(lit, dm, ckpt_path=ckpt_path)
     fit_seconds = time.time() - t0
 
     # Eval + report on the global-zero rank only: the model is DDP-synced, so rank 0
