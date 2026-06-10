@@ -18,6 +18,14 @@ class ScaffoldConfig(BaseModel):
     region: str = "singapore"
     seed: int = 7
 
+    #: Which training corpus the datamodule consumes (F7). "single" = the per-region
+    #: manifest for ``region`` (legacy path, builds on demand). "eu-train-union" = the
+    #: UNION of per-city manifests for train_cities(G4 roll-up minus held-out cities);
+    #: never rebuilds (the Task-8 sbatch builds them) and pins the multiregion
+    #: holdout manifest + schema 2.0 directly. ``region`` is ignored for data
+    #: selection on the union path (it still tags reports).
+    train_set: Literal["single", "eu-train-union"] = "single"
+
     #: F16 generation-coherence tag: which conditioning-prefix scheme the model was trained
     #: under. "value" = value-bearing prefix (readiness Phase 2); "slot" = the legacy constant
     #: field-slot block. A checkpoint loads ONLY under its own scheme - the embedding is sized

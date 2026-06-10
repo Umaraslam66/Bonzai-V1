@@ -22,15 +22,17 @@ import time
 from pathlib import Path
 
 import torch
+import yaml
 
 from cfm.data.sub_g.seam_decodability import split_cell_into_features
-from cfm.data.training.build_shards import build_training_shards
+from cfm.data.training.build_shards import build_training_shards, train_cities
 from cfm.data.training.datamodule import CellDataModule
 from cfm.data.training.paths import training_manifest_path
 from cfm.eval.holdout.paths import (
     eval_set_locked_marker,
     expected_holdout_schema_for_region,
     holdout_manifest_for_region,
+    multiregion_holdout_manifest_path,
 )
 from cfm.eval.slice_metrics import slice_eval
 from cfm.inference.generate import generate_cell_tokens, try_decode_block
@@ -50,9 +52,51 @@ def _accelerator_for(devices: int) -> str:
     return "gpu" if (devices > 1 or torch.cuda.is_available()) else "cpu"
 
 
+def _g4_rollup_path() -> Path:
+    """The production G4 corpus-DoD roll-up (same default as the Task-8 driver
+    scripts/build_multiregion_train_shards.py). Module-level so tests can
+    monkeypatch it onto a synthetic fixture."""
+    return Path("reports/2026-06-05-phase-2-g4-corpus-dod.yaml")
+
+
+def _union_datamodule(cfg: ScaffoldConfig) -> CellDataModule:
+    """eu-train-union: the Task-8 per-city manifests get their consumer (F7).
+
+    Resolves the train cities (G4-validated MINUS held-out) and hands their per-city
+    manifest paths to CellDataModule's union mode. The multiregion holdout manifest +
+    schema "2.0" are pinned DIRECTLY (not via holdout_manifest_for_region, which
+    RAISES for train-city regions). This path NEVER rebuilds shards — they are built
+    by the dedicated Task-8 sbatch (build_multiregion_train_shards.sbatch); a missing
+    manifest surfaces loudly in CellDataModule.setup() (FileNotFoundError) and in the
+    bakeoff_run.sbatch preamble existence check."""
+    holdout_path = multiregion_holdout_manifest_path(cfg.release)
+    holdout = yaml.safe_load(holdout_path.read_text(encoding="utf-8"))
+    # STRICT read (fail-closed caller pattern, never .get): train_cities itself reads
+    # held_out_cities with .get(..., []) — a manifest missing the key would silently
+    # exclude NOTHING and leak the held-out cities into training. Raise here instead.
+    if "held_out_cities" not in holdout:
+        raise ValueError(
+            f"multiregion holdout manifest {holdout_path} has no 'held_out_cities' key; "
+            "refusing to build a training union with an empty exclusion set"
+        )
+    cities = train_cities(cfg.release, g4_rollup=_g4_rollup_path(), holdout_manifest=holdout)
+    return CellDataModule(
+        training_manifests=[training_manifest_path(cfg.release, c) for c in cities],
+        holdout_manifest=holdout_path,
+        seed=cfg.seed,
+        batch_size=cfg.batch_size,
+        max_cell_tokens=cfg.max_len,
+        expected_holdout_schema="2.0",
+    )
+
+
 def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
     # DDP: pre-build the manifest ONCE in the sbatch preamble (single process) and
     # pass build=False to the 4 srun ranks, so they only READ it (no write race).
+    # The union path ignores ``build`` entirely: it never rebuilds (see _union_datamodule);
+    # calling build_training_shards for a train city would RAISE (the I1 boundary).
+    if cfg.train_set == "eu-train-union":
+        return _union_datamodule(cfg)
     if build:
         build_training_shards(cfg.release, cfg.region)  # writes the lineage manifest
     return CellDataModule(
@@ -401,6 +445,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="override ScaffoldConfig.release (e.g. 2026-04-15.0); default keeps the config value",
     )
+    parser.add_argument(
+        "--train-set",
+        default=None,
+        choices=["single", "eu-train-union"],
+        help="training corpus: single (per-region manifest, default) | eu-train-union "
+        "(the Task-8 per-city manifest union; never rebuilds)",
+    )
     return parser
 
 
@@ -418,6 +469,7 @@ def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
         ("grad_accum", "grad_accum"),
         ("region", "region"),
         ("release", "release"),
+        ("train_set", "train_set"),
     ]:
         val = getattr(args, flag)
         if val is not None:

@@ -115,3 +115,31 @@ def test_sbatch_srun_passes_region_release_to_cli(name: str) -> None:
     flags = _sbatch_flags(_REPO / "scripts" / name)
     assert "--region" in flags, f"{name} srun does not pass --region"
     assert "--release" in flags, f"{name} srun does not pass --release"
+
+
+# --- Task 11 (readiness-closure): --train-set CLI + TRAIN_SET-aware run sbatch ---
+
+
+def test_train_set_flag_reaches_scaffold_config() -> None:
+    mod = _load_module()
+    args = mod._build_parser().parse_args(["--train-set", "eu-train-union"])
+    cfg = mod.build_config_from_args(args)
+    assert cfg.train_set == "eu-train-union"
+    # without the flag, the ScaffoldConfig default must remain single-region
+    cfg_default = mod.build_config_from_args(mod._build_parser().parse_args([]))
+    assert cfg_default.train_set == "single"
+
+
+def test_train_set_flag_rejects_unknown_choice() -> None:
+    with pytest.raises(SystemExit):
+        _build_parser().parse_args(["--train-set", "all-of-europe"])
+
+
+def test_run_sbatch_has_defaulted_train_set_guard_and_forwards_flag() -> None:
+    # The Task-10 reviewer's deferred ${TRAIN_SET} guard: DEFAULTED (:=single), not a
+    # :? hard guard — single-region remains the default submit path. The srun must
+    # forward --train-set or the job silently falls back to the config default.
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    assert ': "${TRAIN_SET:=single}"' in text, "missing the defaulted TRAIN_SET guard"
+    flags = _sbatch_flags(_REPO / "scripts" / "bakeoff_run.sbatch")
+    assert "--train-set" in flags, "bakeoff_run.sbatch srun does not pass --train-set"
