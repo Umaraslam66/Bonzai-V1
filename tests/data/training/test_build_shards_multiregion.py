@@ -90,7 +90,7 @@ def _shard(region: str, ti: int, tj: int, cells: list[CellPayload]) -> TrainingS
         region=region,
         tile_i=ti,
         tile_j=tj,
-        tile_conditioning={"region": region},
+        tile_conditioning={"admin_region": None},  # division (None for EU), never the city
         macro_tokens=(),
         cells=tuple(cells),
         lineage=frozenset({(region, ti, tj)}),

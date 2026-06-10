@@ -182,7 +182,10 @@ def _tile_conditioning_dict(labels: TileLabels) -> dict:
         "population_density_bucket": labels.population_density_bucket,
         "dominant_zoning_class": labels.morphology_stratum.dominant_zoning_class,
         "modal_road_skeleton_class": labels.morphology_stratum.modal_road_skeleton_class,
-        "region": labels.admin_region,
+        # "admin_region", NOT "region": the city name lives on TrainingShard.region;
+        # this is the admin DIVISION (None for every EU tile). Sharing the key would
+        # let conditioning wiring silently grab the wrong value (F6 trap).
+        "admin_region": labels.admin_region,
         "coastal_inland_river": labels.coastal_inland_river,
         "sub_c_morphology_class": labels.sub_c_morphology_class,
     }

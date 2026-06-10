@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from cfm.data.training.build_shards import build_training_shards, compute_training_tile_ids
+from cfm.data.training.build_shards import (
+    _tile_conditioning_dict,
+    build_training_shards,
+    compute_training_tile_ids,
+)
+from cfm.eval.holdout.labels import MorphologyStratum, TileLabels
 from cfm.eval.holdout.paths import eval_set_locked_marker, holdout_manifest_path
 
 _RELEASE, _REGION = "2026-04-15.0", "singapore"
@@ -23,6 +28,26 @@ def test_training_count_matches_marker_training_residual():
     ids = compute_training_tile_ids(_RELEASE, _REGION)
     marker = yaml.safe_load(eval_set_locked_marker(_RELEASE).read_text(encoding="utf-8"))
     assert len(ids) == marker["training_residual"]
+
+
+def test_tile_conditioning_distinguishes_admin_region_from_city():
+    """F6 trap guard: the dict key is admin_region (the division, None for EU);
+    the CITY name lives on TrainingShard.region — the two must never share a key."""
+    labels = TileLabels(
+        tile_i=0,
+        tile_j=0,
+        population_density_bucket=None,
+        cell_density_buckets=(),
+        morphology_stratum=MorphologyStratum(
+            dominant_zoning_class=None, modal_road_skeleton_class=None
+        ),
+        coastal_inland_river=None,
+        admin_region=None,  # the EU regime: admin division absent on every tile
+        sub_c_morphology_class=None,
+    )
+    d = _tile_conditioning_dict(labels)
+    assert "admin_region" in d and "region" not in d
+    assert d["admin_region"] is None
 
 
 @pytest.mark.slow
