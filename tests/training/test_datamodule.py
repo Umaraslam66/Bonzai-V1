@@ -175,6 +175,22 @@ def test_collate_right_pads_and_reports_lengths():
     assert torch.all(batch["prefix_len"] == len(conditioning_field_to_id()))
 
 
+def test_collated_batch_carries_value_prefixes_not_a_constant_block():
+    """F6 collate-layer guard: batches must carry VALUE prefixes. Two shards with
+    DIFFERENT tile_conditioning -> the two collated rows' first-8 ids must differ
+    (a regression to the constant slot block would make them equal, and would only
+    fail the flatten tests, not any batch-level check — this closes that gap)."""
+    import torch
+
+    a = _shard(0, 0, [_cell(0, 0, 10)])
+    b = _shard(0, 1, [_cell(0, 0, 10)], {**_TILE_CONDITIONING, "dominant_zoning_class": 1})
+    ea = DM.flatten_shards_to_cells([a])[0][0]
+    eb = DM.flatten_shards_to_cells([b])[0][0]
+    batch = DM.collate_cells([DM._as_item(ea), DM._as_item(eb)])
+    assert not torch.equal(batch["ids"][0, :8], batch["ids"][1, :8])  # value-bearing, not constant
+    assert batch["prefix_len"].tolist() == [8, 8]
+
+
 # ----- audit-halt wiring (synthetic manifests; no real data) -----
 
 _HOLDOUT = {

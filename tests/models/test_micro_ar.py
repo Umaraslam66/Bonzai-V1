@@ -14,6 +14,11 @@ from __future__ import annotations
 
 import torch
 
+from cfm.data.training.conditioning import (
+    CONDITIONING_ID_BASE,
+    build_value_bearing_prefix,
+    conditioning_id_span,
+)
 from cfm.models.micro_ar import MicroAR, MicroARConfig
 
 # Real sub-F prediction range (sub-F ids span 0..1507 -> 1508). n_cond=8 conditioning
@@ -79,3 +84,43 @@ def test_model_embeds_conditioning_ids_without_predicting_them():
     ids = torch.tensor([cond + body])
     logits = m(ids)  # must not raise (embedding index in range)
     assert logits.shape[-1] == _N_SUBF
+
+
+def test_prefix_mask_invariant_holds_at_live_n_cond_512():
+    """F16 hygiene: the tests above prove the prefix-mask invariant at n_cond=8
+    fixtures, but production (backbone.build_micro_ar) builds
+    n_cond=conditioning_id_span()=512 — exercise the LIVE shape. Tiny dims keep
+    it CPU-cheap; the input prefix is a REAL value-bearing prefix (ids in
+    [CONDITIONING_ID_BASE, CONDITIONING_ID_BASE + 512)), so this also proves the
+    embedding table spans the live conditioning block."""
+    n_cond = conditioning_id_span()
+    assert n_cond == 512  # the live span this test pins
+    m = MicroAR(
+        MicroARConfig(
+            d_model=32,
+            n_layers=1,
+            n_heads=2,
+            n_subf_vocab=CONDITIONING_ID_BASE,  # 1508: conditioning ids start right above
+            n_cond=n_cond,
+            max_len=32,
+        )
+    )
+    prefix = build_value_bearing_prefix(
+        population_density_bucket=0,
+        zoning_class=1,
+        road_skeleton_class=1,
+        cell_density_bucket=2,
+        region=None,
+        coastal_inland_river=0,
+        sub_c_morphology_class="Asian-megacity",
+        seed=7,
+    )
+    assert len(prefix) == 8
+    assert all(CONDITIONING_ID_BASE <= i < CONDITIONING_ID_BASE + n_cond for i in prefix)
+    T, B = 20, 2
+    body = torch.randint(0, _N_SUBF, (B, T - len(prefix)))
+    tokens = torch.cat([torch.tensor([prefix, prefix]), body], dim=1)
+    out = m.training_loss(tokens, prefix_len=torch.tensor([8, 8]))
+    assert out.loss.requires_grad
+    # the load-bearing invariant at the live shape: prefix targets are masked
+    assert out.n_supervised_positions == (T - 8) * B  # == 24
