@@ -84,3 +84,29 @@ and nothing here implies action. Grouped by layer.
 - `shuffles.py` WITHIN_BUCKET keys on country/climate/morphology/era — all currently region-constant
   (and partly wrong) — so WITHIN_BUCKET == CROSS_TILE in practice; if conditioning enrichment lands,
   this dormant eval becomes meaningful for free.
+
+## Segment-2 execution observations (readiness-closure Phases 3–5, harvested 2026-06-10)
+
+- **A plan test can be mathematically unsatisfiable and still read plausible.** Task 15's
+  "two manifests each individually under threshold, together over" is impossible — a union
+  rate is a convex combination of per-manifest rates, bounded by their max. The implementer
+  caught it pre-RED and substituted a direction-discriminating pair (cross-manifest
+  accumulation proven by message counts; union-level-not-per-manifest proven by dilution).
+  Pattern to screen future plan tests for: aggregate-threshold tests whose fixtures cannot
+  exist.
+- **A reviewer's empirical reproduction can use the wrong construction path.** The Task-14
+  quality reviewer "reproduced" a generation crash by building `MicroAR` directly with
+  `max_len=cfg.max_len`, bypassing `build_backbone`'s `+CONDITIONING_PREFIX_LEN` position
+  sizing — the production path fits exactly. Orchestrator adjudicated by reading the real
+  build path before dispatching a fix; the disputed fact is now pinned as a test
+  (`test_generation_at_exact_positional_capacity_through_production_build`). Companion fact
+  discovered during the pin: the true crash boundary is `max_new >= max_len + 2` (the last
+  sampled token is appended but never fed back).
+- **Long-running subagents can stall on a buffered slow-suite run** (Task 20 implementer
+  ended its turn waiting on output). The work was complete and correct in the tree;
+  orchestrator ran the full verification (suite, slow e2e, ruff) and committed with
+  provenance noted in the commit body. Verified-end-state discipline covered the gap.
+- **n_cond axis conflation is a recurring trap**: `n_cond=conditioning_id_span()=512` is
+  embedding-table ROWS; sequence positions come from `CONDITIONING_PREFIX_LEN=8`. The
+  conflation propagated from an orchestrator dispatch text into an sbatch comment before
+  review caught it. Both axes now documented at config.py max_len and the diagnostic sbatch.

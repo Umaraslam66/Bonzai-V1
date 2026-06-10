@@ -1,8 +1,9 @@
 """Pure-logic tests for the Task-9 conditioning-discrimination gate (input (i)).
 
-NO real tiles — synthetic per-(city, stratum, metric) feature lists only. The IO
-function ``extract_features_by_city_stratum_metric`` runs on Leonardo against the
-real corpus and is exercised there, not here.
+Mostly pure-logic: synthetic per-(city, stratum, metric) feature lists. Since
+readiness Task 21, the IO function ``extract_features_by_city_stratum_metric`` IS
+exercised locally too — against a synthetic monkeypatched-reader tile tree (the
+coverage-counter + CRS-guard tests below); only the real-corpus run stays Leonardo.
 
 The 6 TDD teeth (design note §"TDD teeth") plus unit tests for the pure stats
 helpers (``noise_floor``, ``ks_pvalue``, ``benjamini_hochberg``).
