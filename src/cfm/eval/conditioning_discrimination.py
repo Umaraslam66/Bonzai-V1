@@ -33,6 +33,7 @@ import yaml
 from shapely.geometry import shape
 
 from cfm.data.sub_g.readers import read_sub_f_cells
+from cfm.eval.geometry import promote_building_rings
 from cfm.eval.holdout.labels import read_tile_labels
 from cfm.eval.holdout.paths import (
     epsg_label_for_region,
@@ -270,6 +271,31 @@ def conditioning_discrimination_verdict(
 # --------------------------------------------------------------------------- #
 
 
+def _tile_features(
+    blocks: list[list[int]],
+    geoms: list[dict],
+    density_strata: list[int],
+) -> list[tuple[str, float, int]]:
+    """Promote building closed-rings to Polygon (construction identity), THEN classify
+    each feature as ``(metric, value, density)``.
+
+    The sealed decoder returns building closed rings as ``LineString`` BY CONTRACT;
+    without ``promote_building_rings`` every building is miscounted as a road
+    (``building_area`` empty, ``road_length`` contaminated with building perimeters) —
+    the same n_polygons=0 construction-identity trap caught in Phase 1. Roads (incl.
+    closed roundabouts) are NOT promoted and stay road_length.
+    """
+    promoted = promote_building_rings(blocks, geoms)
+    out: list[tuple[str, float, int]] = []
+    for geom, density in zip(promoted, density_strata, strict=True):
+        g = shape(geom)
+        if g.geom_type in _POLYGON_TYPES:
+            out.append((FeatureMetric.BUILDING_AREA.value, float(g.area), int(density)))
+        elif g.geom_type in _LINE_TYPES:
+            out.append((FeatureMetric.ROAD_LENGTH.value, float(g.length), int(density)))
+    return out
+
+
 def extract_features_by_city_stratum_metric(
     release: str,
     cities: Sequence[str],
@@ -284,8 +310,6 @@ def extract_features_by_city_stratum_metric(
     Runs on Leonardo against the real corpus; there is no corpus locally.
     """
     features: dict[tuple[str, tuple, str], list[float]] = {}
-    building_metric = FeatureMetric.BUILDING_AREA.value
-    road_metric = FeatureMetric.ROAD_LENGTH.value
 
     for city in cities:
         manifest = yaml.safe_load(holdout_manifest_for_region(release, city).read_text())
@@ -313,17 +337,9 @@ def extract_features_by_city_stratum_metric(
 
             cdbc = _cell_density_by_cell(sub_d / dirname)
             tokens = read_sub_f_cells(cells_path)
-            _blocks, geoms, density_strata = decode_region_blocks(tokens, cdbc)
-
-            for geom, density in zip(geoms, density_strata, strict=True):
-                g = shape(geom)
-                if g.geom_type in _POLYGON_TYPES:
-                    metric, value = building_metric, float(g.area)
-                elif g.geom_type in _LINE_TYPES:
-                    metric, value = road_metric, float(g.length)
-                else:
-                    continue
-                stratum = (zoning, skeleton, int(density), coastal)
+            blocks, geoms, density_strata = decode_region_blocks(tokens, cdbc)
+            for metric, value, density in _tile_features(blocks, geoms, density_strata):
+                stratum = (zoning, skeleton, density, coastal)
                 features.setdefault((city, stratum, metric), []).append(value)
 
     return features

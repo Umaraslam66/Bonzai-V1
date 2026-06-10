@@ -133,6 +133,26 @@ def test_tooth3_mc_guard_noise_tail_does_not_reopen_t5() -> None:
     assert all(not p.significant for p in raw_exceedances)
 
 
+def test_tile_features_promotes_building_rings_to_area() -> None:
+    """A building (closed-ring LineString by decoder contract) must become building_area,
+    NOT road_length. RED-ON-DIVERGENCE: drop ``promote_building_rings`` and the closed
+    ring stays LineString -> miscounted as a road -> building_area empty (the munich
+    building_area=0 bug caught by the Leonardo sanity-extract 2026-06-10)."""
+    from cfm.eval.conditioning_discrimination import _tile_features
+    from cfm.eval.emergence import building_token_ids
+
+    bid = min(building_token_ids())
+    closed_ring = {"type": "LineString", "coordinates": [[0, 0], [1, 0], [1, 1], [0, 0]]}
+    open_road = {"type": "LineString", "coordinates": [[0, 0], [2, 0]]}
+    blocks = [[bid], [0]]  # block 0 carries a building token; block 1 does not
+    out = _tile_features(blocks, [closed_ring, open_road], [1, 1])
+
+    areas = [v for m, v, _ in out if m == "building_area_m2"]
+    lengths = [v for m, v, _ in out if m == "road_length_m"]
+    assert len(areas) == 1 and areas[0] > 0, "building closed-ring not promoted to area"
+    assert len(lengths) == 1 and lengths[0] > 0, "open road not classified as road_length"
+
+
 def test_tooth4_thin_n_excluded_and_counted() -> None:
     """A (city, stratum, metric) below min_n is excluded, counted, in no pair."""
     rng = random.Random(7)
