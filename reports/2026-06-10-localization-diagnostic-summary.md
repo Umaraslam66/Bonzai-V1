@@ -119,3 +119,45 @@ determinism check, free); coverage unchanged (1952/1952, zero skipped).
    unidentified by this diagnostic. What to wire as Task 24's character field
    is therefore a genuinely open PI decision; the diagnostic's contribution is
    to RULE OUT per-cell zoning and density quantization as candidates.
+
+---
+
+# V4 run — per-cell building-size candidate (PI-ordered; rate-judged per the locked criterion)
+
+**Run 3:** 2026-06-11 00:00–00:07 CEST, Leonardo login node (CPU), code @ `ddc0e84`
+(V4 + uniform `rate` field at `6ee3506`; reader-output mutation pins at `09d8e17`;
+column projection at `ddc0e84`), RC=0. Coverage unchanged (1952/1952, zero
+skipped); pools identical across all 8 variants; **the prior 7 variant blocks
+reproduced bit-identically again** (third consecutive deterministic reproduction).
+
+## V0 vs V4 (rate = n_significant_effect / n_pairs; PI-locked criterion)
+
+| | n_pairs | n_sig_effect | rate | median KS |
+|---|---|---|---|---|
+| V0 building_area_m2 | 141 | 82 | **58.2%** | 0.1854 |
+| **V4** building_area_m2 | 336 | 176 | **52.4%** | 0.1711 |
+| V0 road_length_m | 180 | 59 | **32.8%** | 0.1186 |
+| **V4** road_length_m | 720 | 216 | **30.0%** | 0.1234 |
+| V0 total | 321 | 141 | **43.9%** | — |
+| **V4** total | 1056 | 392 | **37.1%** | — |
+
+The dim demonstrably engaged (unlike V3): strata split 321→1056 qualifying pairs,
+buckets populated across the range. Yet the building_area rate drops only
+58.2%→52.4% (−5.8pp) and the total 43.9%→37.1% (−6.8pp, no better than V1d's
+mechanical dim-drop). **Conditioning on per-cell median building size leaves a
+majority of building-area comparisons still effect-significant at δ=0.15 within
+identical strata.**
+
+## Net result: the spec's cheap-candidate list is EXHAUSTED
+
+Per-cell zoning (V1b): ruled out. Density un-quantization (V2): ruled out.
+Sea dim (V3): structurally untestable on a one-coastal-city holdout. Per-cell
+building-size — the §4.1-anchored prime candidate — engages the strata but does
+NOT materially reduce the discrimination rate (V4). No tested single cheap
+conditioning dimension localizes the cross-city character; the signal persists
+at 30–62% per-metric rates under every variant. What remains is distributional
+(e.g. the SHAPE of within-cell building-size distributions, not their median)
+and/or multi-factor and/or genuinely city-idiosyncratic. **Per the PI's framing,
+this is the "different, important conversation": the character may not be
+addable as one feature. Task 24 is NOT dispatched; the decision returns to the
+PI with this evidence.**
