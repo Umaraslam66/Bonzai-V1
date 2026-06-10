@@ -271,3 +271,30 @@ def test_zero_tile_dirs_is_fail(tmp_path):
     v = summary["per_region"]["beta"]
     assert v["verdict"] == "FAIL"
     assert v["tile_dir_labels"] == []
+
+
+# ---------------------------------------------------------------------------
+# Lock-and-guard twin: allowlist == distinct projected_crs of the LIVE configs
+# ---------------------------------------------------------------------------
+
+
+def test_allowlist_matches_the_live_region_configs():
+    """PROJECTED_CRS_ALLOWLIST claims to be exactly the distinct projected_crs
+    values declared across the REAL configs/data/regions/*.yaml. Hold it to
+    that, both directions: adding a region config with a 9th CRS fails here
+    until the allowlist is deliberately extended, and a stale allowlist entry
+    no region declares fails here until it is deliberately removed.
+    """
+    mod = _load_module()
+    config_paths = sorted((_REPO / "configs" / "data" / "regions").glob("*.yaml"))
+    assert config_paths, "no region configs found — repo layout changed?"
+
+    live_values: set[str] = set()
+    for path in config_paths:
+        cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
+        crs = cfg.get("projected_crs")
+        if crs is None:  # tolerated skip; as of 2026-06-10 every config has it
+            continue
+        live_values.add(crs)
+
+    assert live_values == mod.PROJECTED_CRS_ALLOWLIST

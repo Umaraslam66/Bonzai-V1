@@ -55,8 +55,9 @@ _LOG = logging.getLogger("check_crs_consistency")
 
 #: Projected/metric CRS allowlist — exactly the 8 distinct ``projected_crs``
 #: values declared across configs/data/regions/*.yaml (verified 2026-06-10).
-#: A guard test below the configs is the lock; extend ONLY when a new region
-#: config introduces a new projected CRS.
+#: Locked by ``test_allowlist_matches_the_live_region_configs`` in
+#: ``tests/scripts/test_check_crs_consistency.py``: adding a region config with
+#: a 9th CRS fails that test until this allowlist is deliberately extended.
 PROJECTED_CRS_ALLOWLIST: frozenset[str] = frozenset(
     {
         "EPSG:3414",  # Singapore SVY21
