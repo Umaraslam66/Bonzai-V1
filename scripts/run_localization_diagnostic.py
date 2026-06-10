@@ -422,7 +422,8 @@ def _tile_cell_features(
 
 
 # --------------------------------------------------------------------------- #
-# IO walk (thin; mirrors the gate-(i) reference extraction)
+# IO walk + per-tile readers (mirrors the gate-(i) reference extraction;
+# readers also do WKB parsing + median aggregation)
 # --------------------------------------------------------------------------- #
 
 
@@ -453,10 +454,16 @@ def _read_cell_building_sizes(
     ``_require`` lookup stays uniform; a cell with zero building rows maps to
     None (bucket 0 — genuinely no buildings, not a missing layer).
 
+    BUILDING rows whose (cell_i, cell_j) is absent from the cells.parquet
+    universe are dropped by the keyed comprehension — deliberate asymmetry with
+    V4's ``_require``: it mirrors ``derive_density_evidence``'s iteration over
+    the cells scope, and the sub-C contract (features-cells ⊆ cells) makes the
+    drop vacuous on conforming data.
+
     ``pq.ParquetFile(path).read()`` — NEVER bare ``pq.read_table`` (Hive partition
     inference on ``tile=...`` dirs; established project correction).
     """
-    table = pq.ParquetFile(path).read()
+    table = pq.ParquetFile(path).read(columns=["cell_i", "cell_j", "feature_class", "geometry"])
     fi = table.column("cell_i").to_pylist()
     fj = table.column("cell_j").to_pylist()
     fc = table.column("feature_class").to_pylist()
