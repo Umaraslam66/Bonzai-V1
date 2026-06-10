@@ -9,8 +9,9 @@ cities — the variant that kills the most discrimination signal localizes the l
   V0     baseline — the EXACT gate-(i) stratum
          (dominant_zoning, modal_skeleton, per-cell 4-bucket density, coastal);
          must reproduce the gate-(i) extraction's feature pool byte-for-byte.
-  V1     un-collapse — (per_cell_zoning, per_cell_density) REPLACE the tile-level
-         dims (each feature is assigned its OWN cell's stratum).
+  V1     un-collapse — per-cell zoning REPLACES the tile-dominant zoning and the
+         skeleton+coastal tile dims are DROPPED; the density slot is unchanged
+         (already per-cell). Stratum = (per_cell_zoning, cell_density_bucket).
   V1b    attribution: zoning swap, dims KEPT — V0 with only the zoning slot
          un-collapsed (per_cell_zoning, modal_skeleton, per-cell density, coastal).
   V1d    attribution: dims DROPPED, zoning kept — (tile_zoning, per-cell density);
@@ -18,6 +19,8 @@ cities — the variant that kills the most discrimination signal localizes the l
          V1's two simultaneous changes (Task-23 step-6 PI request). The PI-requested
          "V1c = per-cell-density-only swap" is identical to V0 by construction
          (V0's density slot is ALREADY per-cell) — see the methodology note.
+         (The variant lettering therefore skips V1a/V1c: it follows the PI's
+         step-6 request as posed, with V1c ≡ V0 per the v1c_note.)
   V2_8   un-quantize — V0's 4-bucket density slot replaced by an 8-bucket
   V2_16  (resp. 16-bucket) equal-width index over the raw building_footprint_ratio
          (derivation_evidence.parquet).
@@ -217,7 +220,8 @@ def variant_features(
             if variant == "V0":
                 stratum = (rec.tile_zoning, rec.tile_skeleton, density, rec.tile_coastal)
             elif variant == "V1":
-                # Un-collapse: the cell's OWN zoning + density REPLACE the tile dims.
+                # Un-collapse: cell zoning replaces tile zoning; skeleton+coastal
+                # dropped; density slot unchanged (already per-cell).
                 zoning = _require(rec.cell_zoning, cell, "per-cell zoning_class", rec.city)
                 stratum = (zoning, density)
             elif variant == "V1b":
@@ -501,10 +505,11 @@ def _methodology(
         },
         "V1": {
             "description": (
-                "un-collapse: per-cell zoning + per-cell density REPLACE the "
-                "tile-level dims (each feature gets its own cell's stratum)"
+                "un-collapse: per-cell zoning REPLACES the tile-dominant zoning "
+                "and the skeleton+coastal tile dims are DROPPED; the density "
+                "slot is unchanged (already per-cell)"
             ),
-            "stratum": ["per_cell_zoning_class", "per_cell_density_bucket"],
+            "stratum": ["per_cell_zoning_class", "cell_density_bucket"],
         },
         "V1b": {
             "description": (

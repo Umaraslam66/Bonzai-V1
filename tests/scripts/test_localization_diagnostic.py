@@ -139,8 +139,31 @@ def test_unknown_variant_is_loud() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# V1: un-collapse — per-cell zoning + per-cell density REPLACE the tile dims
+# V1: un-collapse — per-cell zoning replaces tile zoning; skeleton+coastal
+# dropped; density unchanged (already per-cell)
 # --------------------------------------------------------------------------- #
+
+
+def _kill_fixture() -> list:
+    """The shared n=60 two-cloud kill fixture: cities a/b differ strongly WITHIN
+    one V0 stratum (same density bucket, tile dims defaulted) but live in
+    different per-cell zoning classes — any variant that un-collapses zoning
+    partitions them apart (zero shared strata). Used by BOTH the V1 kill test
+    and the V1b/V1d attribution test so their regimes are structurally coupled."""
+    n = 60
+    rec_a = _record(
+        "a",
+        cell_density={(0, 0): 0},
+        cell_zoning={(0, 0): 1},
+        features=[(_ROAD, 10.0 + i * 0.001, (0, 0)) for i in range(n)],
+    )
+    rec_b = _record(
+        "b",
+        cell_density={(0, 0): 0},
+        cell_zoning={(0, 0): 2},
+        features=[(_ROAD, 100.0 + i * 0.001, (0, 0)) for i in range(n)],
+    )
+    return [rec_a, rec_b]
 
 
 def test_v1_uncollapses_to_per_cell_stratum() -> None:
@@ -166,22 +189,7 @@ def test_v1_kills_signal_that_v0_sees() -> None:
     """THE localization tooth: two cities differ strongly WITHIN one V0 stratum but
     are homogeneous once V1 splits by per-cell zoning — V1's n_significant_effect
     must drop below V0's (here to zero: the per-cell split leaves no shared stratum)."""
-    n = 60
-    rec_a = _record(
-        "a",
-        cell_density={(0, 0): 0},
-        cell_zoning={(0, 0): 1},
-        features=[(_ROAD, 10.0 + i * 0.001, (0, 0)) for i in range(n)],
-    )
-    rec_b = _record(
-        "b",
-        cell_density={(0, 0): 0},
-        cell_zoning={(0, 0): 2},
-        features=[(_ROAD, 100.0 + i * 0.001, (0, 0)) for i in range(n)],
-    )
-    records = [rec_a, rec_b]
-
-    out = MOD.diagnose(records, min_n=50, alpha=0.05, effect_size_floor=0.15)
+    out = MOD.diagnose(_kill_fixture(), min_n=50, alpha=0.05, effect_size_floor=0.15)
 
     # Fixture regime self-check (gate-must-distinguish-regimes): V0 actually fires.
     v0 = out["V0"]["per_metric"][_ROAD]
@@ -252,22 +260,7 @@ def test_attribution_pair_v1b_kills_v1d_fires() -> None:
     exactly like V1, while the dim DROP alone (V1d) leaves it firing exactly like
     V0 — satisfiability screened by computing that V1d's pooling relabels but does
     not merge/split the V0 groups on this fixture (groups identical up to key)."""
-    n = 60
-    rec_a = _record(
-        "a",
-        cell_density={(0, 0): 0},
-        cell_zoning={(0, 0): 1},
-        features=[(_ROAD, 10.0 + i * 0.001, (0, 0)) for i in range(n)],
-    )
-    rec_b = _record(
-        "b",
-        cell_density={(0, 0): 0},
-        cell_zoning={(0, 0): 2},
-        features=[(_ROAD, 100.0 + i * 0.001, (0, 0)) for i in range(n)],
-    )
-    records = [rec_a, rec_b]
-
-    out = MOD.diagnose(records, min_n=50, alpha=0.05, effect_size_floor=0.15)
+    out = MOD.diagnose(_kill_fixture(), min_n=50, alpha=0.05, effect_size_floor=0.15)
 
     # Fixture regime self-check (gate-must-distinguish-regimes): V0 actually fires.
     v0 = out["V0"]["per_metric"][_ROAD]
@@ -286,6 +279,7 @@ def test_attribution_pair_v1b_kills_v1d_fires() -> None:
     assert v1d["n_pairs"] == 1
     assert v1d["n_significant_effect"] == 1
     assert v1d["median_ks"] == 1.0
+    # Cross-pin (redundant given both literals above): states the INTENT V1d ≡ V0.
     assert v1d["n_significant_effect"] == v0["n_significant_effect"]
 
 
@@ -727,7 +721,13 @@ def test_main_end_to_end_writes_full_variant_table(tmp_path, monkeypatch, capsys
     assert meth["variants"]["V2_8"]["density_bucket_scheme"]["scheme"] == "equal_width"
     assert "sea_bucket_scheme" in meth["variants"]["V3"]
 
-    # The V1b/V1d attribution decomposition is serialized for the PI's read.
+    # The V1/V1b/V1d strata are serialized for the PI's read; V1's density slot
+    # carries the SAME label as V0/V1b/V1d (it is the same per-cell slot — the
+    # v1c_note depends on this).
+    assert meth["variants"]["V1"]["stratum"] == [
+        "per_cell_zoning_class",
+        "cell_density_bucket",
+    ]
     assert meth["variants"]["V1b"]["stratum"] == [
         "per_cell_zoning_class",
         "modal_road_skeleton_class",
