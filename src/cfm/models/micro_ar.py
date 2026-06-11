@@ -18,7 +18,9 @@ its input embedding is ``Linear(n_char_stats -> d_model)`` of the per-cell
 position. POSITION axis only -- the token-id span (``n_cond``) is unchanged.
 
 DECISION (slice v1, tier-2 / model-side encoding): the conditioning prefix is the
-9 field-SLOT tokens ``[CONDITIONING_ID_BASE .. +9)`` -- value-agnostic. The locked
+9 field-SLOT tokens ``[CONDITIONING_ID_BASE .. +9)`` -- value-agnostic (slot scheme
+superseded by the 24a value-bearing path for production; retained for the legacy
+builder). The locked
 id-block is ``n_cond=conditioning_id_span()`` (= 576 embedding rows reserved above
 the sub-F vocab; 9 fields x 64-id stride since Task 24a, wired in ``backbone.py``)
 and the model
@@ -58,6 +60,16 @@ class MicroARConfig:
     #: CONDITIONING_PREFIX_LEN (9: the 10th position, after the 9 id positions).
     #: Required when n_char_stats > 0.
     char_position: int | None = None
+
+    def __post_init__(self) -> None:
+        # Cross-check both directions: char_position without a carrier would be
+        # silently ignored (the carrier never builds) — loud, never silent.
+        if self.n_char_stats == 0 and self.char_position is not None:
+            raise ValueError(
+                f"MicroARConfig: char_position={self.char_position} set while "
+                f"n_char_stats=0 — the carrier never builds, so the position would "
+                f"be silently ignored (mismatched wiring, refusing)"
+            )
 
 
 @dataclass
@@ -124,6 +136,7 @@ class MicroAR(nn.Module):
                     f"char_stats=None — refusing the silent placeholder-embedding regime"
                 )
             p = self.cfg.char_position
+            assert p is not None  # constructor invariant: n_char_stats > 0 => set
             if t <= p:
                 raise ValueError(
                     f"sequence length {t} does not reach the character position {p} — "

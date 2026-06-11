@@ -437,6 +437,18 @@ def test_guard_all_absent_fires_even_when_some_continuous_channels_are_nonzero()
         BS.guard_character_stats({"welwyn": [weird]})
 
 
+def test_guard_character_stats_wrong_length_vector_fires_loudly():
+    """Quality review #3: the guard indexes v[5]/v[6], so a wrong-length vector
+    must die as CharacterStatsError naming the source — never a bare IndexError
+    (short) or a silent pass (long)."""
+    short = (1.0, 0.5, 0.2, 1.1, 0.9, 1.0)  # 6 channels: v[6] would IndexError
+    with pytest.raises(BS.CharacterStatsError, match="almere"):
+        BS.guard_character_stats({"almere": [short]})
+    long = (1.0, 0.5, 0.2, 1.1, 0.9, 1.0, 1.0, 0.0)  # 8 channels: would pass silently
+    with pytest.raises(BS.CharacterStatsError, match="welwyn"):
+        BS.guard_character_stats({"welwyn": [long]})
+
+
 def test_build_multiregion_shards_runs_the_character_guard(monkeypatch):
     """Wire-in proof at the build seam: per-city builds whose stats are one
     constant vector across BOTH cities must raise (city_identity itself is

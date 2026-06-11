@@ -21,6 +21,10 @@ import torch
 
 from cfm.data.sub_f.decoder import decode_feature
 from cfm.data.sub_g.seam_decodability import split_cell_into_features
+from cfm.data.training.conditioning import (
+    CHARACTER_PREFIX_POSITIONS,
+    CONDITIONING_PREFIX_LEN,
+)
 from cfm.models.micro_ar import MicroAR
 
 __all__ = [
@@ -49,7 +53,20 @@ def generate_cell_tokens(
 
     ``char_stats`` (Task 24b): the per-cell continuous character vector; required by
     a char-built model (its forward refuses None — fail-loud), threaded into EVERY
-    step's forward so the carrier conditions the whole generation."""
+    step's forward so the carrier conditions the whole generation. When given,
+    ``prefix`` MUST be the 10-position Task-24b layout (9 value-bearing conditioning
+    ids + the character placeholder slot) — a pre-24b 9-id prefix would put the
+    projection overwrite on the first CELL token, so the layout is checked loudly."""
+    if char_stats is not None:
+        expected = CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS
+        if len(prefix) != expected:
+            raise ValueError(
+                f"char_stats given but prefix has {len(prefix)} ids — a char-built "
+                f"generation requires the {expected}-position Task-24b layout "
+                f"({CONDITIONING_PREFIX_LEN} value-bearing conditioning ids + "
+                f"{CHARACTER_PREFIX_POSITIONS} character placeholder slot); a pre-24b "
+                f"prefix would silently hand the projection a cell-token position"
+            )
     was_training = model.training
     model.eval()
     try:

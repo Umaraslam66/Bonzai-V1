@@ -34,6 +34,7 @@ from cfm.data.sub_d.enums import FeatureClass, SlotKind
 from cfm.data.sub_d.io import read_macro_core_parquet
 from cfm.data.sub_g.readers import read_sub_f_cells
 from cfm.data.training.atomic_io import atomic_write_text
+from cfm.data.training.conditioning import CHARACTER_STAT_CHANNELS
 from cfm.data.training.paths import (
     epsg_label_for_region,
     holdout_manifest_for_region,
@@ -404,6 +405,18 @@ def guard_character_stats(stats_by_source: dict[str, list[tuple[float, ...]]]) -
     for source, vectors in stats_by_source.items():
         if not vectors:
             continue
+        # Length validation FIRST: the checks below index v[5]/v[6], so a
+        # wrong-length vector must die HERE as CharacterStatsError — never a bare
+        # IndexError (too short) or a silent pass (too long; the `and` below
+        # short-circuits, so even a 6-channel vector could slip through quietly).
+        for idx, v in enumerate(vectors):
+            if len(v) != CHARACTER_STAT_CHANNELS:
+                raise CharacterStatsError(
+                    f"region {source!r} cell #{idx}: character_stats has {len(v)} "
+                    f"channels, expected CHARACTER_STAT_CHANNELS == "
+                    f"{CHARACTER_STAT_CHANNELS} — wrong-width vector (wiring/"
+                    f"schema-skew bug; Task 24b quality review #3)."
+                )
         if all(
             v[CHARACTER_BUILDINGS_PRESENT_IDX] == 0.0 and v[CHARACTER_ROADS_PRESENT_IDX] == 0.0
             for v in vectors

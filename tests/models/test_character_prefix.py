@@ -136,6 +136,39 @@ def test_zero_vector_and_absent_layer_vector_are_distinguishable_downstream():
     assert not torch.allclose(a, b)
 
 
+def test_char_proj_weight_receives_gradient_through_the_overwrite():
+    """In-suite gradient pin (quality review #1): a future ``torch.no_grad()`` /
+    ``.detach()`` around the embedding overwrite would leave the logits DIFFERENT
+    (every other test here still passes) while silently cutting ``char_proj`` out
+    of the graph — the loss still backprops through all other params. The pin:
+    ``training_loss(...).loss.backward()`` must land a nonzero grad on
+    ``char_proj.weight``."""
+    model, _ = _production_model()
+    body = torch.randint(0, 64, (1, 6))
+    ids = torch.cat([torch.tensor([_prefix_ids()], dtype=torch.long), body], dim=1)
+    out = model.training_loss(ids, prefix_len=torch.tensor([10]), char_stats=torch.tensor([_STATS]))
+    out.loss.backward()
+    grad = model.char_proj.weight.grad
+    assert grad is not None
+    assert float(grad.norm()) > 0.0
+
+
+def test_config_refuses_char_position_without_char_stats():
+    """Quality review #4: ``char_position`` set while ``n_char_stats == 0`` was
+    silently ignored (the carrier never built) — now a loud config error."""
+    with pytest.raises(ValueError, match="char_position"):
+        MicroARConfig(
+            d_model=32,
+            n_layers=1,
+            n_heads=2,
+            n_subf_vocab=64,
+            n_cond=8,
+            max_len=32,
+            n_char_stats=0,
+            char_position=9,
+        )
+
+
 def test_training_loss_masks_all_ten_prefix_targets():
     """Verified, not assumed (mini-spec §2): the mask keys on per-example
     prefix_len, so prefix_len=10 supervises exactly (T - 10) targets/example."""
@@ -165,3 +198,20 @@ def test_generation_threads_char_stats_and_is_seed_reproducible():
     # without char_stats the char-built model refuses (no silent placeholder gen)
     with pytest.raises(ValueError, match="char_stats"):
         generate_cell_tokens(model, prefix=prefix, max_new=4, seed=7)
+
+
+def test_generate_refuses_pre_24b_nine_id_prefix_with_char_stats():
+    """Quality review #2: a caller passing the pre-24b 9-id prefix layout to a
+    char-built generation would otherwise get its FIRST CELL TOKEN's embedding
+    silently replaced by the projection (char_position == 9 lands on it). At
+    generation time the prefix length is known — the layout check is loud."""
+    from cfm.inference.generate import generate_cell_tokens
+
+    model, _ = _production_model()
+    nine_ids = _prefix_ids()[:-1]  # pre-24b layout: no placeholder slot
+    assert len(nine_ids) == CONDITIONING_PREFIX_LEN == 9
+    with pytest.raises(ValueError, match="10-position"):
+        generate_cell_tokens(model, prefix=nine_ids, max_new=4, seed=7, char_stats=_STATS)
+    # the 10-position layout passes the check and generates
+    out = generate_cell_tokens(model, prefix=_prefix_ids(), max_new=4, seed=7, char_stats=_STATS)
+    assert len(out) == 4
