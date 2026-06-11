@@ -32,6 +32,12 @@ class ScaffoldConfig(BaseModel):
     #: for both, so a mismatch is silent without this tag.
     conditioning_scheme: Literal["slot", "value"] = "value"
 
+    #: Task 24a (spec §8): conditioning-ablation switch, applied IDENTICALLY to the
+    #: train-side prefix build and the generation-side matched conditioning (the
+    #: datamodule builds both). "no_city" = Lane S's scored-generalization instrument
+    #: (city_identity slot forced to bucket 0); "no_character" is loud until Task 24b.
+    conditioning_ablation: Literal["full", "no_city", "no_character"] = "full"
+
     # model
     #: Bake-off backbone: "transformer-ar" (today) | "mamba-hybrid" | "discrete-diffusion"
     #: (the latter two gated behind Task 5's mamba-ssm verify-before-lock).
@@ -41,8 +47,8 @@ class ScaffoldConfig(BaseModel):
     n_layers: int = 6
     n_heads: int = 8
     #: CELL token budget (sub-F P99.9 lock = 5760 tokens/cell). The model's positional
-    #: capacity is this PLUS the conditioning prefix (CONDITIONING_PREFIX_LEN, 8
-    #: positions) -- see models/backbone.py.
+    #: capacity is this PLUS the conditioning prefix (CONDITIONING_PREFIX_LEN, 9
+    #: positions since Task 24a) -- see models/backbone.py.
     max_len: int = 5760
 
     # optimisation

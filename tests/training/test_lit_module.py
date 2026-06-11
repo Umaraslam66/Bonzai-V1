@@ -21,10 +21,10 @@ def _cfg(**kw) -> ScaffoldConfig:
 def test_lit_builds_model_from_real_vocab_sizes():
     lit = ScaffoldLit(_cfg())
     assert lit.model.cfg.n_subf_vocab == max(vocab_tag_to_id().values()) + 1  # 1508
-    # n_cond = the VALUE-BEARING conditioning embedding span (Task 6/7), not the 8-field
+    # n_cond = the VALUE-BEARING conditioning embedding span (Task 6/7), not the 9-field
     # count: the embedding must cover every value-bearing id above the sub-F vocab.
-    assert lit.model.cfg.n_cond == conditioning_id_span()  # 8 fields * 64 stride = 512
-    # positional capacity covers the conditioning PREFIX (8 positions) PLUS the cell budget
+    assert lit.model.cfg.n_cond == conditioning_id_span()  # 9 fields * 64 stride = 576 (Task 24a)
+    # positional capacity covers the conditioning PREFIX (9 positions) PLUS the cell budget
     assert lit.model.cfg.max_len == 128 + CONDITIONING_PREFIX_LEN
 
 

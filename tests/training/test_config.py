@@ -25,3 +25,21 @@ def test_conditioning_scheme_lands_in_model_dump():
     # into the report's Config block, so presence in the dump == presence in every
     # reports/ summary (no report-side code needed).
     assert "conditioning_scheme" in ScaffoldConfig().model_dump()
+
+
+# --- Task 24a: the conditioning_ablation switch (spec §8 Lane S instrument) ---
+
+
+def test_config_carries_conditioning_ablation_default_full():
+    assert ScaffoldConfig().conditioning_ablation == "full"
+    assert "conditioning_ablation" in ScaffoldConfig().model_dump()  # reproducibility record
+
+
+def test_config_accepts_the_three_ablation_modes():
+    for mode in ("full", "no_city", "no_character"):
+        assert ScaffoldConfig(conditioning_ablation=mode).conditioning_ablation == mode
+
+
+def test_config_rejects_unknown_conditioning_ablation():
+    with pytest.raises(ValidationError):
+        ScaffoldConfig(conditioning_ablation="no_everything")

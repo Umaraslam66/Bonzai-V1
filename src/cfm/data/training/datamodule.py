@@ -34,7 +34,7 @@ import torch.distributed as dist
 import yaml
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
-from cfm.data.training.build_shards import build_shards_in_memory
+from cfm.data.training.build_shards import build_shards_in_memory, guard_city_identity
 from cfm.data.training.conditioning import build_value_bearing_prefix, conditioning_field_to_id
 from cfm.data.training.holdout_guard import (
     load_training_manifest,
@@ -82,7 +82,10 @@ def build_conditioning_prefix() -> list[int]:
 
 
 def _cell_prefix_ids(
-    shard: TrainingShard, cell_density_bucket: int | None, seed: int
+    shard: TrainingShard,
+    cell_density_bucket: int | None,
+    seed: int,
+    ablation: str = "full",
 ) -> tuple[int, ...]:
     """The VALUE-BEARING prefix for one (shard, cell).
 
@@ -93,7 +96,9 @@ def _cell_prefix_ids(
     road_skeleton_class, admin_region -> region (the admin DIVISION, never the city —
     see build_shards._tile_conditioning_dict). cell_density_bucket is PER-CELL (from
     the cell payload; None allowed — the builder buckets absence to 0). ``seed`` is
-    constant-bucketed by the builder, so its value is inert in the ids."""
+    constant-bucketed by the builder, so its value is inert in the ids.
+    ``city_identity`` (Task 24a) is the shard's CITY name (``TrainingShard.region``),
+    registry-encoded; ``ablation`` ("no_city" = Lane S) threads from the config."""
     tc = shard.tile_conditioning
     return tuple(
         build_value_bearing_prefix(
@@ -105,6 +110,8 @@ def _cell_prefix_ids(
             coastal_inland_river=tc["coastal_inland_river"],
             sub_c_morphology_class=tc["sub_c_morphology_class"],
             seed=seed,
+            city_identity=shard.region,
+            ablation=ablation,
         )
     )
 
@@ -149,12 +156,15 @@ def flatten_shards_to_cells(
     *,
     max_cell_tokens: int = DEFAULT_MAX_CELL_TOKENS,
     seed: int = 0,
+    ablation: str = "full",
 ) -> tuple[list[CellExample], dict[str, int]]:
     """Flatten shards to per-cell examples, dropping empty + over-length cells.
 
     Each example's prefix is the VALUE-BEARING conditioning block of its (shard, cell)
     — see ``_cell_prefix_ids``. ``seed`` is wired from the datamodule's run seed but is
     constant-bucketed in the prefix (the value is inert in the ids; see conditioning).
+    ``ablation`` (Task 24a) threads to every prefix built here — train AND val, and
+    therefore the generation-side matched conditioning too (it consumes val prefixes).
 
     Returns ``(examples, dropped)`` where ``dropped`` counts ``{"empty", "too_long"}``
     (LOGGED, never silently truncated). Examples are ordered by (tile, cell) so the
@@ -177,7 +187,7 @@ def flatten_shards_to_cells(
                     tile_j=shard.tile_j,
                     cell_i=cell.cell_i,
                     cell_j=cell.cell_j,
-                    prefix_ids=_cell_prefix_ids(shard, cell.cell_density_bucket, seed),
+                    prefix_ids=_cell_prefix_ids(shard, cell.cell_density_bucket, seed, ablation),
                     tokens=tuple(cell.tokens),
                     cell_density_bucket=cell.cell_density_bucket,
                 )
@@ -272,6 +282,7 @@ class CellDataModule(L.LightningDataModule):
         num_workers: int = 0,
         max_cell_tokens: int = DEFAULT_MAX_CELL_TOKENS,
         expected_holdout_schema: str = "2.0",
+        conditioning_ablation: str = "full",
     ) -> None:
         """Two construction modes, ONE audit-then-build-then-split pipeline:
 
@@ -301,6 +312,9 @@ class CellDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.max_cell_tokens = max_cell_tokens
         self._expected_holdout_schema = expected_holdout_schema
+        # Task 24a (spec §8): "full" | "no_city" | "no_character"; applied to EVERY
+        # prefix this module builds (train + val => generation-side too, by construction)
+        self._conditioning_ablation = conditioning_ablation
         self._train: list[CellExample] = []
         self._val: list[CellExample] = []
         self._batches_yielded = 0
@@ -326,20 +340,29 @@ class CellDataModule(L.LightningDataModule):
         # union lives here, not in a new manifest schema.
         examples: list[CellExample] = []
         total_dropped = {"empty": 0, "too_long": 0}
+        carried_by_source: dict[str, list[str | None]] = {}
         for manifest in manifests:
             tile_ids = [(int(t["tile_i"]), int(t["tile_j"])) for t in manifest.get("tiles", [])]
             shards = build_shards_in_memory(
                 manifest["release"], manifest["region"], tile_ids=tile_ids
             )
+            # Task-24a city-identity guard input: the carried TrainingShard.region per
+            # DECLARED manifest region (the value the city_identity field will encode).
+            carried_by_source.setdefault(manifest["region"], []).extend(s.region for s in shards)
             city_examples, dropped = flatten_shards_to_cells(
                 # seed: the run seed, constant-bucketed in the prefix (value inert in ids)
                 shards,
                 max_cell_tokens=self.max_cell_tokens,
                 seed=self.seed,
+                ablation=self._conditioning_ablation,
             )
             total_dropped["empty"] += dropped["empty"]
             total_dropped["too_long"] += dropped["too_long"]
             examples.extend(city_examples)
+
+        # Task 24a: halt on city_identity wiring bugs (all-None city / the same city
+        # value across distinct manifests) BEFORE any split/loader exists.
+        guard_city_identity(carried_by_source)
 
         # F13 action contract: accumulate-then-check over the WHOLE union (never
         # per-city — a small city's tail must not halt a corpus it cannot skew).

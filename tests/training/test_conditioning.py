@@ -50,10 +50,14 @@ def test_conditioning_prefix_carries_values_at_their_recorded_slots():
         admin_region="SG",
         sub_c_morphology_class="Asian-megacity",
     )
-    prefix = C.conditioning_prefix_ids(labels, cell_density_bucket=1, seed=7)
+    prefix = C.conditioning_prefix_ids(
+        labels, cell_density_bucket=1, seed=7, city_identity="singapore"
+    )
     base, m = C.CONDITIONING_ID_BASE, C.conditioning_field_to_id()
     assert prefix[m["population_density_bucket"] - base] == 2
     assert prefix[m["zoning_class"] - base] == 3
     assert prefix[m["road_skeleton_class"] - base] == 1
     assert prefix[m["cell_density_bucket"] - base] == 1
     assert prefix[m["seed"] - base] == 7
+    # Task 24a: the city value rides along at the appended 9th slot (tier-1 VALUES)
+    assert prefix[m["city_identity"] - base] == "singapore"

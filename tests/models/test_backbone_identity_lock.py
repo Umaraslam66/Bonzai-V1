@@ -46,6 +46,7 @@ def test_embedding_covers_the_value_bearing_conditioning_id_span() -> None:
         coastal_inland_river=1,
         sub_c_morphology_class="Asian-megacity",
         seed=7,
+        city_identity="singapore",  # Task 24a: 9th field (registry-encoded)
     )
     ids = torch.tensor([prefix], dtype=torch.long)  # (1, prefix_len)
     out = model(ids)  # must not raise an index error

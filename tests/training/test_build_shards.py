@@ -144,3 +144,63 @@ def test_verify_union_manifests_strict_holdout_read_raises(tmp_path, monkeypatch
         bs.verify_union_manifests(
             _RELEASE, g4_rollup=g4, holdout_manifest={"holdout_schema_version": "2.0"}
         )
+
+
+# --- Task 24a: city-identity wiring guards (all-None + constant-across-cities) ---
+
+
+def _carried(**by_source):
+    """Convenience: {requested_city: [carried city_identity values]}."""
+    return dict(by_source)
+
+
+def test_guard_city_identity_all_none_fires_naming_the_region():
+    """A region whose city_identity column is all-None is a wiring bug (the city
+    field would silently constant-bucket to 0 for the whole city) -> loud."""
+    import cfm.data.training.build_shards as bs
+
+    with pytest.raises(bs.CityIdentityError, match="almere"):
+        bs.guard_city_identity(_carried(almere=[None, None, None]))
+
+
+def test_guard_city_identity_constant_across_distinct_cities_fires():
+    """The same city value carried by >=2 DISTINCT requested cities = the
+    constant-across-cities regime (#22 class) -> loud, naming the shared value."""
+    import cfm.data.training.build_shards as bs
+
+    with pytest.raises(bs.CityIdentityError, match="almere"):
+        bs.guard_city_identity(_carried(almere=["almere"], welwyn=["almere"]))
+
+
+def test_guard_city_identity_healthy_fixture_passes():
+    import cfm.data.training.build_shards as bs
+
+    bs.guard_city_identity(_carried(almere=["almere"], welwyn=["welwyn"]))  # must not raise
+    # same source repeated (e.g. two manifests for one city) is NOT cross-city
+    bs.guard_city_identity(_carried(singapore=["singapore", "singapore"]))
+    # empty source (no shards built) is vacuous, never an all-None false positive
+    bs.guard_city_identity(_carried(almere=[]))
+
+
+def test_build_multiregion_shards_runs_the_city_identity_guard(monkeypatch):
+    """Wire-in proof: a per-city builder that stamps the WRONG (constant) region
+    must make build_multiregion_shards raise -- the guard runs at the build seam."""
+    import cfm.data.training.build_shards as bs
+    from cfm.data.training.shard_schema import TrainingShard
+
+    def fake_city_shards(release, city):
+        return [
+            TrainingShard(
+                region="almere",  # constant regardless of the requested city: wiring bug
+                tile_i=0,
+                tile_j=0,
+                tile_conditioning={},
+                macro_tokens=(),
+                cells=(),
+                lineage=frozenset({("almere", 0, 0)}),
+            )
+        ]
+
+    monkeypatch.setattr(bs, "build_train_city_shards", fake_city_shards)
+    with pytest.raises(bs.CityIdentityError, match="almere"):
+        bs.build_multiregion_shards(_RELEASE, ["almere", "welwyn"])

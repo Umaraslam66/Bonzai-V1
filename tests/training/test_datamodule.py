@@ -128,6 +128,7 @@ def test_prefix_is_exactly_the_value_bearing_layout():
         coastal_inland_river=0,
         sub_c_morphology_class="Asian-megacity",
         seed=0,  # flatten's default seed; inert — the seed slot is constant-bucketed
+        city_identity=_REGION,  # Task 24a: the shard's city name (TrainingShard.region)
     )
     assert list(ex.prefix_ids) == expected
 
@@ -151,6 +152,7 @@ def test_flatten_drops_empty_and_overlength_cells():
         coastal_inland_river=0,
         sub_c_morphology_class="Asian-megacity",
         seed=0,  # inert (constant-bucketed)
+        city_identity=_REGION,  # Task 24a: from TrainingShard.region
     )
 
 
@@ -202,8 +204,9 @@ def test_collated_batch_carries_value_prefixes_not_a_constant_block():
     ea = DM.flatten_shards_to_cells([a])[0][0]
     eb = DM.flatten_shards_to_cells([b])[0][0]
     batch = DM.collate_cells([DM._as_item(ea), DM._as_item(eb)])
-    assert not torch.equal(batch["ids"][0, :8], batch["ids"][1, :8])  # value-bearing, not constant
-    assert batch["prefix_len"].tolist() == [8, 8]
+    n = len(conditioning_field_to_id())  # 9 after the Task-24a city_identity append
+    assert not torch.equal(batch["ids"][0, :n], batch["ids"][1, :n])  # value-bearing, not constant
+    assert batch["prefix_len"].tolist() == [n, n] == [9, 9]
 
 
 # ----- audit-halt wiring (synthetic manifests; no real data) -----
@@ -439,3 +442,108 @@ def test_union_check_runs_on_the_union_not_per_manifest(tmp_path, monkeypatch):
     )
     dm.setup("fit")  # must not raise: 1/1000 is under the union threshold
     assert len(dm.train_cells) + len(dm.val_cells) == 999
+
+
+# ----- Task 24a: conditioning_ablation threading (Lane S instrument) -----
+#
+# The generation-side conditioning path consumes dm.val_cells' prefix_ids verbatim
+# (train_scaffold._generate_and_score, matched conditioning), so proving BOTH
+# train_cells and val_cells carry the ablated prefix proves the ablation acts
+# identically train-side and generation-side, by construction.
+
+
+def _city_slot_ids(examples):
+    from cfm.data.training.conditioning import _VALUE_STRIDE, CONDITIONING_VALUE_BASE
+
+    city_block_base = CONDITIONING_VALUE_BASE + 8 * _VALUE_STRIDE
+    return city_block_base, [e.prefix_ids[8] for e in examples]
+
+
+def test_flatten_no_city_ablation_zeroes_only_the_city_slot():
+    shard = _shard(0, 0, [_cell(0, 0, 10)])
+    full = DM.flatten_shards_to_cells([shard])[0][0]
+    ablated = DM.flatten_shards_to_cells([shard], ablation="no_city")[0][0]
+    assert ablated.prefix_ids[:8] == full.prefix_ids[:8]  # other 8 ids untouched
+    base, [city_id] = _city_slot_ids([ablated])
+    assert city_id == base  # bucket 0 (ablated)
+    assert full.prefix_ids[8] != city_id  # full carries a real registry id
+
+
+def test_setup_threads_conditioning_ablation_to_train_and_val_prefixes(tmp_path, monkeypatch):
+    """End-to-end through CellDataModule(conditioning_ablation="no_city"): every
+    train AND val example (the generation-side conditioning source) has the city
+    slot at bucket 0; the full twin carries the real singapore registry id."""
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    monkeypatch.setattr(DM, "build_shards_in_memory", lambda *a, **k: _clean_synthetic_shards())
+    hp = _write_holdout(tmp_path)
+
+    dm_full = DM.CellDataModule(training_manifest=clean, holdout_manifest=hp, seed=7)
+    dm_ablated = DM.CellDataModule(
+        training_manifest=clean, holdout_manifest=hp, seed=7, conditioning_ablation="no_city"
+    )
+    dm_full.setup("fit")
+    dm_ablated.setup("fit")
+
+    base, ablated_ids = _city_slot_ids(dm_ablated.train_cells + dm_ablated.val_cells)
+    assert dm_ablated.val_cells, "generation-side source must be non-vacuous"
+    assert all(i == base for i in ablated_ids)  # city ablated everywhere
+    _, full_ids = _city_slot_ids(dm_full.train_cells + dm_full.val_cells)
+    assert all(i != base for i in full_ids)  # full run carries the real city id
+    # the ablation touches ONLY the city slot: everything else identical
+    for fe, ae in zip(
+        dm_full.train_cells + dm_full.val_cells,
+        dm_ablated.train_cells + dm_ablated.val_cells,
+        strict=True,
+    ):
+        assert fe.key == ae.key
+        assert fe.prefix_ids[:8] == ae.prefix_ids[:8]
+        assert fe.tokens == ae.tokens
+
+
+def test_setup_runs_the_city_identity_guard_on_the_union(tmp_path, monkeypatch):
+    """Constant-across-cities regime at the LIVE training seam: two manifests
+    declaring distinct regions whose built shards all carry the same city ->
+    setup halts loud (CityIdentityError), before any split/loader."""
+    from cfm.data.training.build_shards import CityIdentityError
+
+    mf_a = tmp_path / "a.yaml"
+    mf_a.write_text(
+        yaml.safe_dump(
+            {
+                "release": "2026-04-15.0",
+                "region": "almere",
+                "tiles": [{"tile_i": 2, "tile_j": 2, "lineage": [["almere", 2, 2]]}],
+            }
+        )
+    )
+    mf_b = tmp_path / "b.yaml"
+    mf_b.write_text(
+        yaml.safe_dump(
+            {
+                "release": "2026-04-15.0",
+                "region": "welwyn",
+                "tiles": [{"tile_i": 3, "tile_j": 3, "lineage": [["welwyn", 3, 3]]}],
+            }
+        )
+    )
+    # the wiring bug under test: the builder stamps "almere" regardless of region
+    monkeypatch.setattr(
+        DM,
+        "build_shards_in_memory",
+        lambda release, region, *, tile_ids=None: [
+            TrainingShard(
+                region="almere",
+                tile_i=tile_ids[0][0],
+                tile_j=tile_ids[0][1],
+                tile_conditioning=dict(_TILE_CONDITIONING),
+                macro_tokens=(),
+                cells=(_cell(0, 0, 10),),
+                lineage=frozenset({(region, tile_ids[0][0], tile_ids[0][1])}),
+            )
+        ],
+    )
+    dm = DM.CellDataModule(
+        training_manifests=[mf_a, mf_b], holdout_manifest=_write_holdout(tmp_path), seed=7
+    )
+    with pytest.raises(CityIdentityError, match="almere"):
+        dm.setup("fit")

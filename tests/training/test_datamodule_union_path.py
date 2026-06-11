@@ -128,3 +128,28 @@ def test_union_branch_never_calls_single_region_build(
     cfg = ScaffoldConfig(train_set="eu-train-union", release=_RELEASE)
     dm = mod._datamodule(cfg, build=True)  # build flag is a no-op on the union path
     assert dm._expected_holdout_schema == "2.0"
+
+
+def test_conditioning_ablation_threads_cfg_to_datamodule_on_both_paths(
+    monkeypatch: pytest.MonkeyPatch, union_fixtures: tuple[Path, Path]
+) -> None:
+    """Task 24a: cfg.conditioning_ablation reaches CellDataModule on the union AND
+    the single-region path (the datamodule applies it to every prefix it builds,
+    train and val — val being the generation-side conditioning source)."""
+    g4, holdout = union_fixtures
+    mod = _load_module()
+    monkeypatch.setattr(mod, "_g4_rollup_path", lambda: g4)
+    monkeypatch.setattr(mod, "multiregion_holdout_manifest_path", lambda release: holdout)
+
+    union_cfg = ScaffoldConfig(
+        train_set="eu-train-union", release=_RELEASE, conditioning_ablation="no_city"
+    )
+    assert mod._datamodule(union_cfg, build=False)._conditioning_ablation == "no_city"
+
+    single_cfg = ScaffoldConfig(release=_RELEASE, conditioning_ablation="no_city")
+    assert mod._datamodule(single_cfg, build=False)._conditioning_ablation == "no_city"
+    # default stays full (the scored Lane-S run opts IN to the ablation explicitly)
+    assert (
+        mod._datamodule(ScaffoldConfig(release=_RELEASE), build=False)._conditioning_ablation
+        == "full"
+    )

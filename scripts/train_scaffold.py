@@ -138,6 +138,7 @@ def _union_datamodule(cfg: ScaffoldConfig) -> CellDataModule:
         batch_size=cfg.batch_size,
         max_cell_tokens=cfg.max_len,
         expected_holdout_schema="2.0",
+        conditioning_ablation=cfg.conditioning_ablation,  # Task 24a: Lane-S instrument
     )
 
 
@@ -162,6 +163,7 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
         batch_size=cfg.batch_size,
         max_cell_tokens=cfg.max_len,
         expected_holdout_schema=expected_holdout_schema_for_region(cfg.region),
+        conditioning_ablation=cfg.conditioning_ablation,  # Task 24a: Lane-S instrument
     )
 
 
@@ -406,7 +408,7 @@ def _cost(cfg: ScaffoldConfig, *, fit_seconds: float, steps: int, params_m: floa
 
 def _param_count(cfg: ScaffoldConfig) -> int:
     # Use the ONE backbone factory so the count matches the real model (value-bearing
-    # embedding span = conditioning_id_span(), not the 8-field count -- the build_backbone
+    # embedding span = conditioning_id_span(), not the 9-field count -- the build_backbone
     # sizing, Task 7). Reconstructing MicroAR by hand here would drift.
     from cfm.models.backbone import build_backbone
 

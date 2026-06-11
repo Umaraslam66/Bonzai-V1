@@ -13,9 +13,10 @@ Two locked invariants:
     the first-cell-token-from-conditioning prediction (target index ``prefix_len-1``).
 
 DECISION (slice v1, tier-2 / model-side encoding): the conditioning prefix is the
-8 field-SLOT tokens ``[CONDITIONING_ID_BASE .. +8)`` -- value-agnostic. The locked
-id-block is ``n_cond=conditioning_id_span()`` (= 512 embedding rows reserved above
-the sub-F vocab; 8 fields x 64-id stride, wired in ``backbone.py``) and the model
+9 field-SLOT tokens ``[CONDITIONING_ID_BASE .. +9)`` -- value-agnostic. The locked
+id-block is ``n_cond=conditioning_id_span()`` (= 576 embedding rows reserved above
+the sub-F vocab; 9 fields x 64-id stride since Task 24a, wired in ``backbone.py``)
+and the model
 takes a single id sequence
 with no value channel, so value-bearing conditioning is out of scope for the slice;
 its informative encoding is a bake-off concern. The tier-1 conditioning VALUES

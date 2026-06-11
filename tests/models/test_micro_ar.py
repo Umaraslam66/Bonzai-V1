@@ -88,15 +88,16 @@ def test_model_embeds_conditioning_ids_without_predicting_them():
     assert logits.shape[-1] == _N_SUBF
 
 
-def test_prefix_mask_invariant_holds_at_live_n_cond_512():
+def test_prefix_mask_invariant_holds_at_live_n_cond_576():
     """F16 hygiene: the tests above prove the prefix-mask invariant at n_cond=8
     fixtures, but production (backbone.build_micro_ar) builds
-    n_cond=conditioning_id_span()=512 — exercise the LIVE shape. Tiny dims keep
+    n_cond=conditioning_id_span()=576 — exercise the LIVE shape. Tiny dims keep
     it CPU-cheap; the input prefix is a REAL value-bearing prefix (ids in
-    [CONDITIONING_ID_BASE, CONDITIONING_ID_BASE + 512)), so this also proves the
-    embedding table spans the live conditioning block."""
+    [CONDITIONING_ID_BASE, CONDITIONING_ID_BASE + 576)), so this also proves the
+    embedding table spans the live conditioning block. (512 -> 576: Task 24a
+    appended the city_identity field, 9 fields * 64 stride.)"""
     n_cond = conditioning_id_span()
-    assert n_cond == 512  # the live span this test pins
+    assert n_cond == 576  # the live span this test pins (Task 24a reverse-lock)
     m = MicroAR(
         MicroARConfig(
             d_model=32,
@@ -116,26 +117,28 @@ def test_prefix_mask_invariant_holds_at_live_n_cond_512():
         coastal_inland_river=0,
         sub_c_morphology_class="Asian-megacity",
         seed=7,
+        city_identity="singapore",  # Task 24a: 9th field
     )
-    assert len(prefix) == 8
+    assert len(prefix) == 9
     assert all(CONDITIONING_ID_BASE <= i < CONDITIONING_ID_BASE + n_cond for i in prefix)
     T, B = 20, 2
     body = torch.randint(0, _N_SUBF, (B, T - len(prefix)))
     tokens = torch.cat([torch.tensor([prefix, prefix]), body], dim=1)
-    out = m.training_loss(tokens, prefix_len=torch.tensor([8, 8]))
+    out = m.training_loss(tokens, prefix_len=torch.tensor([9, 9]))
     assert out.loss.requires_grad
     # the load-bearing invariant at the live shape: prefix targets are masked
-    assert out.n_supervised_positions == (T - 8) * B  # == 24
+    assert out.n_supervised_positions == (T - 9) * B  # == 22
 
 
 def test_generation_at_exact_positional_capacity_through_production_build():
     """Pins the F15 commensurability-note arithmetic (Task 14 follow-up) on the
     PRODUCTION build path: build_backbone sizes positions as
-    cfg.max_len + CONDITIONING_PREFIX_LEN (n_cond=512 is embedding-table ROWS on the
-    token-id axis, NOT positions). With max_len=32 the capacity is 40 positions, so
-    generate_cell_tokens(max_new=32) returns 8 + 32 = 40 tokens — exactly fills
+    cfg.max_len + CONDITIONING_PREFIX_LEN (n_cond=576 is embedding-table ROWS on the
+    token-id axis, NOT positions). With max_len=32 the capacity is 41 positions, so
+    generate_cell_tokens(max_new=32) returns 9 + 32 = 41 tokens — exactly fills
     capacity, zero headroom, by construction (the diagnostic sbatch's
-    --max-len 2048 / --eval-max-new 2048 = 2056-position case in miniature).
+    --max-len 2048 / --eval-max-new 2048 = 2057-position case in miniature; Task 24a
+    moved the prefix from 8 to 9 positions).
 
     Non-vacuity at the boundary: max_new = max_len + 1 ALSO survives because the
     generation loop's final forward sees only prefix + max_new - 1 positions (the
@@ -149,7 +152,7 @@ def test_generation_at_exact_positional_capacity_through_production_build():
         d_model=32, n_layers=1, n_heads=2, max_len=32, accelerator="cpu", devices=1
     )
     model = build_backbone("transformer-ar", cfg)
-    assert model.pos.num_embeddings == cfg.max_len + CONDITIONING_PREFIX_LEN  # == 40
+    assert model.pos.num_embeddings == cfg.max_len + CONDITIONING_PREFIX_LEN  # == 41
     prefix = build_value_bearing_prefix(
         population_density_bucket=0,
         zoning_class=1,
@@ -159,10 +162,11 @@ def test_generation_at_exact_positional_capacity_through_production_build():
         coastal_inland_river=0,
         sub_c_morphology_class="Asian-megacity",
         seed=7,
+        city_identity="singapore",  # Task 24a: 9th field
     )
-    assert len(prefix) == CONDITIONING_PREFIX_LEN == 8
+    assert len(prefix) == CONDITIONING_PREFIX_LEN == 9
 
-    # exact fit: 8-token prefix + 32 generated == 40 == positional capacity
+    # exact fit: 9-token prefix + 32 generated == 41 == positional capacity
     out = generate_cell_tokens(model, prefix=prefix, max_new=cfg.max_len, seed=0)
     assert len(out) == cfg.max_len
 

@@ -77,9 +77,9 @@ python -c "from cfm.data.training.build_shards import build_training_shards as b
 # F15 COMMENSURABILITY NOTE (readiness Task 14): --eval-max-new 2048 < the floor's 5760
 # derivation regime, so a run of THIS script renders emergence_verdict=INCOMMENSURATE by
 # construction. That is HONEST, not a bug. Positional capacity = max_len +
-# CONDITIONING_PREFIX_LEN = 2048 + 8 = 2056 POSITIONS (n_cond=512 is embedding-table
-# rows on the token-id axis, NOT positions). --eval-max-new 2048 yields 8 + 2048 = 2056
-# tokens — exactly fills capacity, zero headroom, fits by construction (boundary pinned
+# CONDITIONING_PREFIX_LEN = 2048 + 9 = 2057 POSITIONS since Task 24a (n_cond=576 is
+# embedding-table rows on the token-id axis, NOT positions). --eval-max-new 2048 yields
+# 9 + 2048 = 2057 tokens — exactly fills capacity, zero headroom, fits by construction (boundary pinned
 # in tests/models/test_micro_ar.py); bumping it toward 5760 would CRASH generation, not
 # fix the verdict. Making the verdict scoreable requires max_len >= the floor regime —
 # a re-planned model budget, i.e. a Phase-6 / PI decision; do NOT silently edit these

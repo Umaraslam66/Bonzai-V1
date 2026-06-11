@@ -203,11 +203,63 @@ def build_train_city_manifest(
 
 def build_multiregion_shards(release: str, cities: list[str]) -> list[TrainingShard]:
     """Build the UNION of shards across all train cities (per-city all-validated-tiles
-    build, concatenated). Cities are built in sorted order for deterministic output."""
+    build, concatenated). Cities are built in sorted order for deterministic output.
+
+    Runs the Task-24a city-identity guard over the union: the per-city carried
+    ``TrainingShard.region`` values feed the ``city_identity`` conditioning field,
+    so an all-None city or one value shared across distinct cities is a wiring bug
+    that must halt HERE, before any prefix is built."""
     shards: list[TrainingShard] = []
+    carried_by_city: dict[str, list[str | None]] = {}
     for city in sorted(cities):
-        shards.extend(build_train_city_shards(release, city))
+        city_shards = build_train_city_shards(release, city)
+        carried_by_city[city] = [s.region for s in city_shards]
+        shards.extend(city_shards)
+    guard_city_identity(carried_by_city)
     return shards
+
+
+class CityIdentityError(RuntimeError):
+    """The city_identity conditioning wiring is broken (Task 24a guard).
+
+    Two regimes, both wiring bugs that would otherwise train silently wrong:
+      * ALL-NONE: a city's shards all carry ``region=None`` -> the city_identity
+        field constant-buckets to 0 for the whole city (city-blind while claiming
+        identity conditioning);
+      * CONSTANT-ACROSS-CITIES: the same city value carried by >=2 DISTINCT
+        requested cities (the #22 constant-column class) -> the field cannot
+        discriminate the cities it exists to separate.
+    """
+
+
+def guard_city_identity(carried_by_source: dict[str, list[str | None]]) -> None:
+    """Task-24a wiring guard over ``{requested_city: [carried city_identity values]}``.
+
+    The carried values are the per-shard ``TrainingShard.region`` (the city name the
+    conditioning's ``city_identity`` field will encode). Empty value lists (no shards
+    built for a source) are vacuous — never an all-None false positive. The same
+    source key appearing with its own value repeatedly is healthy; only a value
+    shared across DISTINCT source keys fires the constant-across-cities regime.
+    """
+    sources_by_value: dict[str, set[str]] = {}
+    for source, values in carried_by_source.items():
+        if values and all(v is None for v in values):
+            raise CityIdentityError(
+                f"region {source!r}: city_identity is all-None across its "
+                f"{len(values)} shards — the conditioning city field would silently "
+                f"constant-bucket to 0 for the whole city (wiring bug; Task 24a)."
+            )
+        for v in values:
+            if v is not None:
+                sources_by_value.setdefault(v, set()).add(source)
+    for value, sources in sources_by_value.items():
+        if len(sources) >= 2:
+            raise CityIdentityError(
+                f"city_identity value {value!r} is carried by {len(sources)} distinct "
+                f"regions ({sorted(sources)}) — constant-across-cities is a wiring bug "
+                f"(the field cannot discriminate the cities it exists to separate; "
+                f"Task 24a / the #22 constant-column class)."
+            )
 
 
 def _cell_density_by_cell(sub_d_tile_dir: Path) -> dict[tuple[int, int], int]:
