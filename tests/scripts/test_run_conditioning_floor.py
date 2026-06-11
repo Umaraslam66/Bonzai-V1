@@ -56,7 +56,7 @@ def _coverage(cities: list[str]) -> dict[str, TileCoverage]:
 def _fake_extraction(shifts: dict[str, int], n: int = 100):
     """An extraction stand-in returning the uniform-grid fixture (exact KS)."""
 
-    def _extract(release: str, cities) -> ExtractionResult:
+    def _extract(release: str, cities, *, tiles_by_city=None) -> ExtractionResult:
         assert release == _RELEASE
         assert sorted(cities) == sorted(shifts)
         features = {(c, _SA, _M): _grid(s, n=n) for c, s in shifts.items()}
@@ -146,7 +146,7 @@ def test_tampered_manifest_is_refused_before_any_extraction(
     can never define the D-vs-T boundary the floor artifact freezes."""
     mod = _load_module()
 
-    def _never_extract(release: str, cities) -> ExtractionResult:
+    def _never_extract(release: str, cities, *, tiles_by_city=None) -> ExtractionResult:
         raise AssertionError("extraction must never run against a tampered manifest")
 
     monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _never_extract)
@@ -168,7 +168,7 @@ def test_unsealed_manifest_missing_lock_marker_is_refused(
     beside the manifest -> refused before any extraction."""
     mod = _load_module()
 
-    def _never_extract(release: str, cities) -> ExtractionResult:
+    def _never_extract(release: str, cities, *, tiles_by_city=None) -> ExtractionResult:
         raise AssertionError("extraction must never run against an unsealed manifest")
 
     monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _never_extract)
@@ -213,7 +213,7 @@ def test_missing_held_out_city_halts_and_writes_nothing(
     mod = _load_module()
     cities = ["d_city", "t1_city", "ghost_city"]
 
-    def _extract(release: str, extract_cities) -> ExtractionResult:
+    def _extract(release: str, extract_cities, *, tiles_by_city=None) -> ExtractionResult:
         assert release == _RELEASE
         assert sorted(extract_cities) == sorted(cities)
         features = {
@@ -285,6 +285,11 @@ def test_include_train_cities_routes_through_the_union_verifier(
         return ["t1_city", "t2_city"]
 
     monkeypatch.setattr(mod, "verify_union_manifests", _fake_union)
+    # The runner now resolves training-city inventories via _validated_inventory
+    # (sub-D one-source); stub it so this test stays focused on the union seam.
+    monkeypatch.setattr(
+        mod, "_validated_inventory", lambda release, city: [{"tile_i": 0, "tile_j": 0}]
+    )
     manifest = _write_manifest(tmp_path, ["d_city", "h_city"])
     out = tmp_path / "floor.yaml"
     rc = mod.main(
@@ -349,3 +354,86 @@ def test_default_g4_rollup_is_the_one_source_constant() -> None:
     from cfm.data.training.build_shards import DEFAULT_G4_ROLLUP
 
     assert rcf._DEFAULT_G4_ROLLUP == DEFAULT_G4_ROLLUP
+
+
+def test_train_city_inventory_wiring_reads_real_sub_d_manifests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stage-2 integration regression (Slurm job 45835276): the runner resolves
+    each TRAINING city's tile inventory through the REAL ``_validated_inventory``
+    read of on-disk sub-D manifests (the SAME tiles[] one-source the training
+    build walks — a train city has no tile-level holdout) and hands the
+    extractor a ``tiles_by_city`` map containing EXACTLY the training cities
+    with the sub-D tiles; held-out cities are NOT in the map (their frozen
+    holdout manifests stay the source). The extractor seam was previously only
+    ever fully mocked — this closes the mock-only-seam class at the wiring
+    layer: only the extractor itself is faked, the inventory read is real."""
+    mod = _load_module()
+    import cfm.data.training.build_shards as bs
+
+    # Synthetic on-disk sub-D manifests, read by the REAL _validated_inventory.
+    t1_tiles = [{"tile_i": 1, "tile_j": 2}, {"tile_i": 3, "tile_j": 4}]
+    t2_tiles = [{"tile_i": 7, "tile_j": 0}]
+    for city, tiles in {"t1_city": t1_tiles, "t2_city": t2_tiles}.items():
+        d = tmp_path / "sub_d" / _RELEASE / city
+        d.mkdir(parents=True)
+        (d / "manifest.yaml").write_text(yaml.safe_dump({"tiles": tiles}), encoding="utf-8")
+    monkeypatch.setattr(
+        bs, "sub_d_region_dir", lambda release, region: tmp_path / "sub_d" / release / region
+    )
+
+    captured: dict = {}
+
+    def _extract(release: str, cities, *, tiles_by_city=None) -> ExtractionResult:
+        captured["cities"] = list(cities)
+        captured["tiles_by_city"] = tiles_by_city
+        shifts = {"d_city": 0, "h_city": 20, "t1_city": 30, "t2_city": 50}
+        features = {(c, _SA, _M): _grid(s) for c, s in shifts.items()}
+        return ExtractionResult(features=features, tile_coverage=_coverage(list(shifts)))
+
+    monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _extract)
+    monkeypatch.setattr(
+        mod,
+        "verify_union_manifests",
+        lambda release, *, g4_rollup, holdout_manifest: ["t1_city", "t2_city"],
+    )
+    manifest = _write_manifest(tmp_path, ["d_city", "h_city"])
+    out = tmp_path / "floor.yaml"
+    rc = mod.main(
+        [
+            "--release",
+            _RELEASE,
+            "--holdout-manifest",
+            str(manifest),
+            "--include-train-cities",
+            "--out",
+            str(out),
+        ]
+    )
+    assert rc == 0
+    # EXACTLY the training cities, with the sub-D manifest tiles, in the map;
+    # the held-out cities are absent (default holdout-manifest path).
+    assert captured["tiles_by_city"] == {"t1_city": t1_tiles, "t2_city": t2_tiles}
+    assert set(captured["cities"]) == {"d_city", "h_city", "t1_city", "t2_city"}
+
+
+def test_held_out_only_run_passes_no_inventory_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without --include-train-cities the extractor receives tiles_by_city=None —
+    the byte-identical default path the held-out bit-identity guarantee rides on."""
+    mod = _load_module()
+    captured: dict = {}
+
+    def _extract(release: str, cities, *, tiles_by_city=None) -> ExtractionResult:
+        captured["tiles_by_city"] = tiles_by_city
+        shifts = {"d_city": 0, "t1_city": 20, "t2_city": 40}
+        features = {(c, _SA, _M): _grid(s) for c, s in shifts.items()}
+        return ExtractionResult(features=features, tile_coverage=_coverage(list(shifts)))
+
+    monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _extract)
+    manifest = _write_manifest(tmp_path, ["d_city", "t1_city", "t2_city"])
+    out = tmp_path / "floor.yaml"
+    rc = mod.main(["--release", _RELEASE, "--holdout-manifest", str(manifest), "--out", str(out)])
+    assert rc == 0
+    assert captured["tiles_by_city"] is None

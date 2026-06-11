@@ -51,8 +51,16 @@ sys.path.insert(0, str(_REPO / "src"))
 
 import yaml  # noqa: E402
 
+# _validated_inventory private import SANCTIONED (stage-2 integration fix, Slurm
+# job 45835276; the _has_outbound_bref / _verify_manifest_integrity precedent):
+# it is the ONE source of a training city's tile inventory — the sub-D manifest
+# tiles[] the training data itself walks (build_train_city_shards; a train city
+# has no tile-level holdout, see compute_training_tile_ids). Reusing it means the
+# floor's training-city tiles can never drift from what training consumes;
+# holdout_manifest_for_region rightly RAISES for a train city (fail-closed).
 from cfm.data.training.build_shards import (  # noqa: E402
     DEFAULT_G4_ROLLUP,
+    _validated_inventory,
     verify_union_manifests,
 )
 
@@ -199,9 +207,17 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("union verifier resolved %d training cities", len(train))
 
     held_out_set = set(held_out)
-    cities = held_out + [c for c in train if c not in held_out_set]
+    train_only = [c for c in train if c not in held_out_set]
+    cities = held_out + train_only
+    # TRAINING cities have no tile-level holdout (their holdout-manifest read
+    # would rightly raise): hand the extractor their sub-D validated inventories
+    # as an override; held-out cities stay OFF the map (frozen holdout-manifest
+    # path, byte-identical to a held-out-only run when the map is empty -> None).
+    tiles_by_city = {c: _validated_inventory(args.release, c) for c in train_only}
     logger.info("extracting features for %d cities, release=%s", len(cities), args.release)
-    extraction = extract_features_by_city_stratum_metric(args.release, cities)
+    extraction = extract_features_by_city_stratum_metric(
+        args.release, cities, tiles_by_city=tiles_by_city or None
+    )
     logger.info("extracted %d (city, stratum, metric) cells", len(extraction.features))
 
     # The builder constructs BOTH BH families itself: family 1 from the

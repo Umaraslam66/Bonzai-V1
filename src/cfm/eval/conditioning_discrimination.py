@@ -378,13 +378,27 @@ _SHRINKAGE_CEILING: float = 0.1
 def extract_features_by_city_stratum_metric(
     release: str,
     cities: Sequence[str],
+    *,
+    tiles_by_city: dict[str, list[dict]] | None = None,
 ) -> ExtractionResult:
     """Accumulate per-(city, full-stratum, metric) real feature scalars + coverage.
 
-    For each held-out city, for each held-out tile: read the tile-level conditioning
+    For each city, for each of its tiles: read the tile-level conditioning
     labels (zoning / skeleton / coastal), decode the round-tripped-real geoms tagged
     with per-cell density, and bin each feature into
     ``(city, (zoning, skeleton, density, coastal), metric)``.
+
+    Tile inventory (stage-2 integration fix, Slurm job 45835276): a city present
+    in ``tiles_by_city`` uses its provided tile dicts (each carrying
+    ``tile_i``/``tile_j``, like the manifest ``tiles[]`` entries) — the runner
+    hands TRAINING cities in this way (sub-D validated inventory; a train city
+    has no tile-level holdout, so ``holdout_manifest_for_region`` rightly raises
+    for it — that fail-closed boundary is kept). A city ABSENT from the map keeps
+    the EXACT holdout-manifest path. Default ``None`` keeps behavior BYTE-IDENTICAL
+    to the pre-override extractor — the held-out bit-identity guarantee (family-1
+    determinism anchor) rides on this default. Everything per-tile (labels,
+    density, decode, bref exclusion, coverage counters, F3 halts) is shared
+    regardless of inventory source.
 
     Per-city tile coverage is counted (``n_tiles_expected/read/skipped``) and gated
     at the END of extraction: any city with ``skipped/expected > 0.1`` raises — the
@@ -398,8 +412,11 @@ def extract_features_by_city_stratum_metric(
     tile_coverage: dict[str, TileCoverage] = {}
 
     for city in cities:
-        manifest = yaml.safe_load(holdout_manifest_for_region(release, city).read_text())
-        tiles = manifest["regions"][city]["tiles"]
+        if tiles_by_city is not None and city in tiles_by_city:
+            tiles = tiles_by_city[city]
+        else:
+            manifest = yaml.safe_load(holdout_manifest_for_region(release, city).read_text())
+            tiles = manifest["regions"][city]["tiles"]
         epsg = epsg_label_for_region(city)
         sub_d = sub_d_region_dir(release, city)
         sub_f = sub_f_region_dir(release, city)

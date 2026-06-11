@@ -500,3 +500,127 @@ def test_bref_features_excluded_from_road_length_by_construction_identity_and_co
     assert out.tile_coverage["testcity"].n_bref_excluded == 2  # 1 per tile x 2 tiles
     # Only the plain road per tile survives into the feature pool.
     assert sum(len(v) for v in out.features.values()) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Training-city inventory override (stage-2 integration defect, Slurm 45835276):
+# tiles_by_city hands a city's tile inventory in directly; cities absent from the
+# map keep the EXACT holdout-manifest path (default None => byte-identical).
+# --------------------------------------------------------------------------- #
+
+
+def _train_tiles(n: int) -> list[dict]:
+    """Inventory entries shaped like the manifest tiles[] the extractor walks."""
+    return [{"tile_i": i, "tile_j": 0} for i in range(n)]
+
+
+def _make_city_tiles(tmp_path, *, city, n_tiles, missing=frozenset()):
+    """sub-F tile dirs (cells.parquet present) for a city; indices in ``missing``
+    get NO cells.parquet (the F3 shrinkage path)."""
+    for i in range(n_tiles):
+        if i in missing:
+            continue
+        tile_dir = tmp_path / "sub_f" / city / f"tile={_FIXTURE_EPSG}_i{i}_j0"
+        tile_dir.mkdir(parents=True)
+        (tile_dir / "cells.parquet").touch()
+
+
+def _patch_tile_readers(tmp_path, monkeypatch):
+    """Region-aware reader stubs (per-city sub-D/sub-F dirs). Deliberately does
+    NOT patch ``holdout_manifest_for_region`` — each test decides whether the
+    REAL fail-closed router or a recorder sits at that seam."""
+    monkeypatch.setattr(CD, "epsg_label_for_region", lambda region: _FIXTURE_EPSG)
+    monkeypatch.setattr(CD, "sub_d_region_dir", lambda release, region: tmp_path / "sub_d" / region)
+    monkeypatch.setattr(CD, "sub_f_region_dir", lambda release, region: tmp_path / "sub_f" / region)
+    monkeypatch.setattr(CD, "read_tile_labels", _stub_labels)
+    monkeypatch.setattr(CD, "_cell_density_by_cell", lambda tile_dir: {})
+    monkeypatch.setattr(CD, "read_sub_f_cells", lambda path: [])
+    monkeypatch.setattr(
+        CD,
+        "decode_region_blocks",
+        lambda tokens, cdbc: (
+            [[0]],
+            [{"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0]]}],
+            [1],
+        ),
+    )
+
+
+def test_defect_repro_training_city_without_override_raises_fail_closed(
+    tmp_path, monkeypatch
+) -> None:
+    """Slurm 45835276 pin: WITHOUT an override, a non-holdout city reaches the
+    REAL ``holdout_manifest_for_region`` router and must raise LOUDLY (the
+    fail-closed boundary that killed the floor run — and rightly died loud)."""
+    _patch_tile_readers(tmp_path, monkeypatch)  # manifest router stays REAL
+    with pytest.raises(ValueError, match="unknown region"):
+        CD.extract_features_by_city_stratum_metric("rel", ["a_coruna"])
+
+
+def test_override_city_uses_provided_inventory_not_holdout_manifest(tmp_path, monkeypatch) -> None:
+    """A city present in ``tiles_by_city`` is extracted via the provided tile
+    dicts; ``holdout_manifest_for_region`` is NOT called for it (recorder proof)
+    and the coverage counters are keyed off the provided inventory."""
+    _patch_tile_readers(tmp_path, monkeypatch)
+    manifest_calls: list[str] = []
+
+    def _recording_router(release, region):
+        manifest_calls.append(region)
+        raise AssertionError(f"holdout manifest must not be read for {region!r}")
+
+    monkeypatch.setattr(CD, "holdout_manifest_for_region", _recording_router)
+    _make_city_tiles(tmp_path, city="traincity", n_tiles=5)
+    out = CD.extract_features_by_city_stratum_metric(
+        "rel", ["traincity"], tiles_by_city={"traincity": _train_tiles(5)}
+    )
+    assert manifest_calls == []
+    assert out.tile_coverage["traincity"] == CD.TileCoverage(
+        n_tiles_expected=5, n_tiles_read=5, n_tiles_skipped=0
+    )
+    assert sum(len(v) for v in out.features.values()) == 5
+
+
+def test_mixed_heldout_default_path_and_training_override_in_one_call(
+    tmp_path, monkeypatch
+) -> None:
+    """One held-out city (manifest path) + one training city (override) in a
+    single call: the manifest router is consulted EXACTLY once — for the
+    held-out city — and both cities land features + coverage."""
+    _patch_tile_readers(tmp_path, monkeypatch)
+    mf = tmp_path / "held_holdout.yaml"
+    mf.write_text(yaml.safe_dump({"regions": {"heldcity": {"tiles": _train_tiles(3)}}}))
+    manifest_calls: list[str] = []
+
+    def _router(release, region):
+        manifest_calls.append(region)
+        assert region == "heldcity", f"manifest read attempted for {region!r}"
+        return mf
+
+    monkeypatch.setattr(CD, "holdout_manifest_for_region", _router)
+    _make_city_tiles(tmp_path, city="heldcity", n_tiles=3)
+    _make_city_tiles(tmp_path, city="traincity", n_tiles=4)
+    out = CD.extract_features_by_city_stratum_metric(
+        "rel",
+        ["heldcity", "traincity"],
+        tiles_by_city={"traincity": _train_tiles(4)},
+    )
+    assert manifest_calls == ["heldcity"]
+    assert out.tile_coverage["heldcity"].n_tiles_read == 3
+    assert out.tile_coverage["traincity"].n_tiles_read == 4
+    assert {city for (city, _, _) in out.features} == {"heldcity", "traincity"}
+
+
+def test_override_city_shrinkage_halt_applies_regardless_of_inventory_source(
+    tmp_path, monkeypatch
+) -> None:
+    """F3 is source-agnostic: a TRAINING city (override inventory) missing
+    cells.parquet beyond the ceiling halts exactly like a held-out city."""
+    _patch_tile_readers(tmp_path, monkeypatch)
+    _make_city_tiles(tmp_path, city="traincity", n_tiles=3, missing={1})
+    with pytest.raises(RuntimeError) as excinfo:
+        CD.extract_features_by_city_stratum_metric(
+            "rel", ["traincity"], tiles_by_city={"traincity": _train_tiles(3)}
+        )
+    msg = str(excinfo.value)
+    assert "traincity" in msg
+    assert "1/3" in msg
