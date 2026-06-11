@@ -1,6 +1,12 @@
 # Readiness-closure + conditioning-enrichment — design spec (2026-06-10)
 
-**Status:** LOCKED — PI-approved 2026-06-10 (reviewed against the file). All four §5 PI-CALLs
+**Status:** LOCKED — PI-approved 2026-06-10 (reviewed against the file). **REVISED 2026-06-11
+(§8): Phase-2 eval re-scope, PI-approved** — the Task-23 diagnostic + V4 + residual recon
+(`reports/2026-06-11-residual-character-recon.md`) proved gate-PASS unreachable by
+conditioning-stratum enrichment; the T5 bar is re-scoped to floor-judged generalization +
+memorization discriminator per `docs/superpowers/specs/2026-06-11-phase2-eval-rescope-PROPOSAL.md`
+(approved with all four knobs locked). Sections §4.3/§4.4/§4.5 carry dated annotations; §8 is
+authoritative where they conflict. All four §5 PI-CALLs
 resolved by Umar 2026-06-10:
 1. **δ = 0.15** effect-size floor for the recalibrated gate (accepted as recommended).
 2. **Both, asymmetric — CHARACTER-anchored** (locked rationale: identity-only conditioning would
@@ -202,6 +208,17 @@ separates from building_area's (real) signal — but the number carries Umar's n
 The recalibrated gate must satisfy `feedback_gate_must_distinguish_regimes`: demonstrate it CAN
 pass (synthetic same-character cities at real n) and still fails on the real artifact.
 
+> **[REVISED 2026-06-11 — see §8]** The δ=0.15 verdict machinery shipped (Task 22) and ran
+> (three diagnostic runs + recon). The recon BOUNDED every bucketed enrichment at a ~30%
+> significance-rate floor (kitchen-sink: 781 significant pairs) ⇒ a PASS/FAIL bar on
+> cities-differ is structurally unreachable and is REMOVED. The gate is demoted to the
+> **conditioning-floor MEASUREMENT instrument**: it reports the per-(city-pair, metric,
+> stratum) real-real KS table, the δ ladder (0.15…0.50), and writes the sha-stamped floor
+> artifact Lane S consumes (§8). δ=0.15 is retained as the reporting-ladder anchor AND the
+> Lane-M distinctness threshold. It still HALTS, integrity-only: all F3/sha-lock/zero-tile
+> halts, UNSUPPORTED, floor-collapse (median real-real KS < 0.049 ⇒ broken extraction),
+> floor-explosion (median > 0.5 ⇒ conditioning carries nothing ⇒ PI).
+
 **4.4 Enrichment candidates (decided AFTER §4.2; the fork framed now).**
 **[PI-CALL #2] Identity-conditioning vs character-conditioning** — the central fork:
 - *(i) Identity:* a per-city/region label the model can condition on (#13 admin_region restored,
@@ -228,9 +245,22 @@ deferred regen sub-project (#16/#17 bundle) — uniform-defect-level rule forbid
 delivery wiring (explicit field list, never `dict(**tile_conditioning)`); their data-layer fix
 rides the same deferred regen.
 
-**4.5 Expressivity teeth.** The recalibrated gate-(i) re-run (with bref exclusion + coverage
-counters) on the enriched conditioning is the acceptance check: **PASS at the PI-chosen δ = the
-enrichment worked; FAIL = T5 stays open.** Plus constant-column guards (a conditioning field that
+> **[REVISED 2026-06-11 — see §8] PI-call #2 outcome update:** "both, asymmetric" SURVIVES.
+> The identity floor (city-name shortcut, ablation-separable) is unchanged. The CHARACTER half
+> is re-parameterized by the diagnostic+recon evidence: not a stratum bucket (every candidate
+> eliminated by direct test — V1b zoning, V2 quantization, V3 sea/untestable, V4 size-median;
+> kitchen-sink bounded) but a **continuous distributional carrier via the provisioned-but-empty
+> `macro_tokens` channel** (per-cell building log-median / log-IQR / p90-p50 / count + road
+> median length — the recon's residual content verbatim). Pretraining capability, not
+> post-training. Honest expectation: model-quality enrichment; it cannot and need not flip a
+> stratum-measured gate.
+
+**4.5 Expressivity teeth.** ~~The recalibrated gate-(i) re-run (with bref exclusion + coverage
+counters) on the enriched conditioning is the acceptance check: PASS at the PI-chosen δ = the
+enrichment worked; FAIL = T5 stays open.~~ **[REVISED 2026-06-11 — see §8]** Acceptance moves
+to the bake-off itself: the floor artifact (produced+verified at Task 25) + **Lane-S
+floor-judged generalization** + the **Lane-M memorization tooth** (must-fire fixtures
+pre-named in §8). Surviving verbatim: constant-column guards (a conditioning field that
 is constant across all 38 train cities fails loud — kills the #22 class structurally) and an
 all-None guard per region (kills the #13 silent regime).
 
@@ -261,3 +291,55 @@ are not sized by provisional parameters (§10.1 — the EU emergence floor recor
 regime); per-stratum thresholds are relative-to-base-rate where base rates differ (§10.2);
 detection power verified in the correct unit (§10.3 — pairs vs strata vs features in the
 recalibrated gate). Subagent-driven, implementer ≠ reviewer, stop-before-commit at every gate.
+
+---
+
+## 8. REVISION 2026-06-11 — Phase-2 eval re-scope (PI-approved; authoritative over §4.3/§4.4/§4.5)
+
+**Evidence:** three diagnostic runs (V0–V4 + attribution 2×2; bit-identical reproductions) +
+`reports/2026-06-11-residual-character-recon.md` (anchored). Cross-city character at δ=0.15 is
+real, broad (all 6 pairs 0.27–0.43), shape-dominated (buildings 70% beyond-median; roads 54%
+fine-location), and bounded below ~30% significance rate under ANY bucketed conditioning ⇒
+same-conditioning ⇒ same-distribution is empirically FALSE; zero-difference PASS is
+structurally unreachable. The bake-off delta-spec §4 co-located gate's REOPEN branch fired and
+is ANSWERED here (its worst-case aggregation, binding-city power gate, and munich #21 rules
+survive verbatim with quantity = excess-over-floor).
+
+**The re-scoped claim:** *given conditioning for geometry it did not train on, the model
+produces plausible, realistic geometry matching that character — by learned grammar, not
+memorization.* Full design: `2026-06-11-phase2-eval-rescope-PROPOSAL.md` (approved). Summary:
+
+- **Lane S — scored generalization (held-out cities, identity ABLATED via
+  `conditioning_ablation="no_city"`):** per (metric, qualifying stratum),
+  `excess_D = max(0, KS(gen_D, real_D) − floor_D)` where **floor_D = min over other real
+  cities T of KS(real_D, real_T)** [PI knob 1: STRICT min_T; median-over-T reported as context
+  only]. Aggregate per city = median + p90 of per-stratum excess [PI knob 3]; cross-city
+  aggregation = worst-case (max), binding city reported, binding-city power gate retained.
+- **Lane M — memorization discriminator (hard halt):** on strata where D is measured-distinct
+  from training city T (real-real KS ≥ 0.15, BH-significant; selected from REAL data only),
+  require median `KS(gen_D, real_D) < KS(gen_D, real_T)` for **every one of the 38 training
+  cities** [PI knob 2: ALL 38, not top-k]. Measured discriminator power ≈ 0.2 median KS
+  (recon). FAIL ⇒ memorizer ⇒ no crowning. This supersedes "plausibility" as the anti-overfit
+  guarantee — a memorizer passes realism by construction and cannot pass Lane M.
+- **Lane D — seen-city diagnostic (identity LIVE):** per-seen-city bars via the per-region
+  emergence-floors artifact (Task 13). Never aggregated with Lane S.
+- **Gate role:** conditioning-floor measurement instrument (annotation at §4.3). Halts are
+  integrity-only; floor-collapse < 0.049, floor-explosion > 0.5 [PI knob 4].
+- **Carrier:** continuous distributional via `macro_tokens` (annotation at §4.4); pretraining
+  capability; derivation shard-build-time from existing sub-C/sub-D artifacts; wholesale shard
+  rebuild under the uniform-defect rule; NO sub-C regen.
+
+**Verification obligations (non-negotiable; proven when their tasks execute):**
+1. Floor artifact sha-stamped + write-once beside the holdout manifests; **Lane S refuses to
+   run against an absent/mismatched sha/lock** (mirrors Task-20 reader-side discipline).
+2. **Lane-M must-fire pair:** synthetic regurgitator fixture (generated := training city T's
+   real samples) MUST FAIL Lane M; oracle fixture (generated := D's own held-out samples)
+   MUST PASS both lanes.
+3. Floor-collapse/explosion halts: regime fixtures in BOTH directions.
+4. **No-leakage pin:** the discriminating-strata selection provably reads only real data
+   (test asserts the selection function's inputs).
+
+**Blast radius applied with this revision:** plan Goal + Tasks 24/25/26 (same-day edit);
+PRD §9 generalization wording (same-day edit; §6/§10 re-checked — no edit needed);
+bake-off delta-spec §4 discharge annotation (same-day edit). Eval-set artifacts and all
+Task 0–23 deliverables unchanged.

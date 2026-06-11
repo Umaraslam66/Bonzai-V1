@@ -78,6 +78,19 @@ The EU eval stack (coherence metric, leak guard, §7 coherence power gate) was b
 
 **[GATE — co-located with the bar; MUST pass before the bar is a decision rule] Conditioning-discrimination gate.** Worst-case (or mean) is a coherent per-city bar **IFF the Task-1 diagnostic confirms per-city KS tracks macro-plan differences** — same-macro-stratum tiles across cities sharing their building-area/road-length distributions — so that a per-city miss reads *"failed to render the handed structure,"* not *"wasn't told the city."* **If the diagnostic shows materially different real feature distributions for same-stratum tiles across cities — equivalently, that the conditioning span doesn't carry enough to distinguish the EU cities — the per-city miss is ambiguous and T5 REOPENS before any scored run.** The diagnostic **GATES** this bar; the bar is **not** locked ahead of it. (One gate, two former framings: this subsumes both the "macro-tracking" check and the "multi-country expressivity" residual — one concern, discharged together.)
 
+> **[DISCHARGED 2026-06-11 — REOPEN branch fired and ANSWERED.]** Gate-(i) ran FAIL
+> (2026-06-10); the localization diagnostic (V0–V4 + attribution 2×2) and the residual recon
+> (`reports/2026-06-11-residual-character-recon.md`) proved same-stratum cross-city differences
+> are real, broad, shape-dominated, and irreducible by any bucketed conditioning (kitchen-sink
+> bound: ~30% significance rate). T5 is RE-SCOPED per the readiness-closure spec §8
+> (PI-approved 2026-06-11): a per-city miss is decomposed via the MEASURED same-conditioning
+> floor — **the bar quantity becomes per-city excess-over-floor
+> (`max(0, KS(gen,D) − min_T KS(real_D, real_T))`)**, judged worst-case across held-out cities
+> exactly as locked above; the binding-city power gate and the munich #21 rules apply verbatim
+> to the new quantity. Memorization is failed by the Lane-M nearest-training-city
+> discriminator (hard halt at crowning). The PI-CALL above (worst-case vs mean) stays resolved
+> as worst-case, now composing with excess-over-floor.
+
 **[LOCKED] munich included, not excluded — defect-class reasoning.** Structural exclusion does **not** transfer from coherence: coherence has a shuffle-NULL that munich's density *saturates* (breaks → exclude); KS is a direct two-sample CDF distance with **no null to saturate** (doesn't break → munich's per-city KS is legitimate generalization signal). Same munich fact, *different correct consequence per metric* (the rigorous consistency, not the mechanical one).
 
 **[RULE] Pre-committed #21-artifact check** (set before any numbers; judge munich against *its own* floor, not the moderate-city band):

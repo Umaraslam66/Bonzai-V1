@@ -6,7 +6,11 @@
 
 **Goal:** Close the 17-class audit's gap register (Mission A) and make the cross-city eval valid
 via the two-axis conditioning fix (Mission B), so the bake-off can resume on a surface with no
-unexamined latent-failure class and a reopened T5 gate that can actually render PASS.
+unexamined latent-failure class and a ~~reopened T5 gate that can actually render PASS~~
+**[REVISED 2026-06-11, spec §8] re-scoped T5 bar that is valid by construction: floor-judged
+generalization (excess over the measured same-conditioning cross-city floor, worst-case across
+held-out cities) + the Lane-M memorization discriminator.** Phases 7–9 below carry dated
+revisions; the spec's §8 is authoritative where older task text conflicts.
 
 **Architecture:** The **F16 sequencing spine is hard ordering**: Phase 1 cheap debt → Phase 2
 F6 delivery (before ANY GPU — zero scored checkpoints exist; the prefix-scheme change is free
@@ -488,6 +492,18 @@ def test_bref_features_excluded_from_road_length_by_construction_identity_and_co
 ## PHASE 7 — Expressivity wire-in (after Task 23's PI gate)
 
 ### Task 24: City-name floor + character feature into the conditioning vector — SEPARABLE
+> **[REVISED 2026-06-11, spec §8 — Task 24 SPLITS:]**
+> **24a (identity floor + separability)** survives ~verbatim from the steps below: `city_identity`
+> value-bearing from `TrainingShard.region`, the `conditioning_ablation` switch
+> (`"full"/"no_city"/"no_character"`), constant-column + all-None guards, vocab append-only
+> checks. Lane S is computed under `"no_city"` — the switch is the scored lane's instrument.
+> **24b (character)** is RE-PARAMETERIZED: not a bucketed `character_<chosen>` field (every
+> candidate eliminated by the diagnostic — V1b/V2/V3/V4) but the **continuous distributional
+> carrier via `macro_tokens`** (per-cell building log-median / log-IQR / p90-p50 / count +
+> road median length; spec §8). Bigger than the original task: gets its OWN mini-spec at
+> dispatch (Gate-2 read of the empty carrier; quantization/schema; wholesale shard rebuild
+> under the uniform-defect rule; NO sub-C regen). The bucketed-character steps below apply to
+> 24a's city field only.
 **Files:** Modify `src/cfm/data/training/conditioning.py` (append-only: 2 new `_CONDITIONING_FIELDS`
 entries — `city_identity`, `character_<chosen>` — extending `conditioning_id_span`),
 `build_shards.py::_tile_conditioning_dict` (+ the per-cell carrier if the diagnostic picks a
@@ -511,20 +527,25 @@ per-cell feature: `CellPayload` gains the field, mirrored from `_cell_density_by
 
 ---
 
-## PHASE 8 — Re-derive (the reopened-T5 verdict)
+## PHASE 8 — Floor-artifact production (T5 closes as re-scoped; revised 2026-06-11)
 
-### Task 25 [LEONARDO — GATED; HALT-GATE]: recalibrated gate-(i) re-run on enriched conditioning
-**Files:** Create `scripts/run_gate_i_rederive.py` (the existing runner + `--effect-size-floor
-0.15` + the Task-21 counters + Task-22 exclusion + the enriched stratum (incl. the character
-dim)); report `reports/2026-06-XX-gate-i-rederive-*.yaml|.md`.
-- [ ] **Step 1:** local synthetic test of the runner wiring (PASS/FAIL/UNSUPPORTED reachable).
-- [ ] **Step 2 [GATED]:** run on Leonardo CPU (4 held-out cities; zero GPU). Verified-end-state:
-  re-read result YAML; counters: every city `n_tiles_skipped/expected ≤ 0.1`; `n_bref_excluded`
-  noisy-nonzero; per-pair table internally consistent.
-- [ ] **Step 3 — HALT-GATE:** **PASS at δ=0.15 ⇒ T5 closes** (the worst-case per-city bar is
-  valid; bake-off may be re-planned). **FAIL ⇒ halt to Umar** with the per-variant evidence —
-  enrichment round 2 is a NEW PI decision, not an improvisation. Either way: report committed,
-  PRD §6/§10 updated only on Umar's word (experiments win, flagged first).
+### Task 25 [LEONARDO — GATED]: conditioning-floor artifact production (re-scoped 2026-06-11)
+> **[REVISED 2026-06-11, spec §8 — HALT semantics replaced.]** No PASS/FAIL on cities-differ.
+**Files:** Create the floor-artifact runner (the Task-22 measurement machinery + Task-21
+counters + bref exclusion); artifact + report `reports/2026-06-XX-conditioning-floor-*.yaml|.md`.
+- [ ] **Step 1:** local synthetic test of the runner wiring — floor table computed; integrity
+  halts reachable BOTH directions (floor-collapse < 0.049 fixture; floor-explosion > 0.5
+  fixture; UNSUPPORTED); sha-stamp + write-once grammar (mirrors Task-20 / `_EVAL_SET_LOCKED`).
+- [ ] **Step 2 [GATED]:** run on Leonardo CPU. (a) 4 held-out cities → per-(city-pair, metric,
+  stratum) real-real KS table + `floor_D = min_T KS(real_D, real_T)` (median-over-T as
+  context) + δ ladder. (b) the 38 training cities' per-stratum real distributions (Lane-M
+  inputs; ALL 38, PI knob 2). Verified-end-state: re-read YAML; every city
+  `n_tiles_skipped/expected ≤ 0.1`; `n_bref_excluded` noisy-nonzero; per-pair table internally
+  consistent; sanity halts clean.
+- [ ] **Step 3:** **floor artifact written + sha-stamped + sanity clean ⇒ T5 CLOSES as
+  re-scoped** (the bar is valid by construction). Report committed; PRD §9 already revised
+  with this re-scope (PRD §6/§10 re-checked 2026-06-11 — no edit needed). Any anomaly ⇒ halt
+  to Umar, never improvised.
 
 ---
 
@@ -540,13 +561,23 @@ test pins them equal), `scripts/train_scaffold.py` (--config loader → resolves
 `src/cfm/eval/slice_metrics.py` (Point semantics pinned: Points excluded from the OGC
 denominator + counted as `n_points`), compile-OUTCOME into the report; sbatch preamble
 buildability dry-run (`python -c "from cfm.models.backbone import build_backbone; ..."`).
+> **[REVISED 2026-06-11, spec §8]** The decision quantity is **per-city excess-over-floor**
+> (Lane S; floor artifact is a sha-verified input — the runner REFUSES an absent/mismatched
+> sha/lock, mirroring Task-20), aggregated worst-case with the binding-city power gate.
+> `pick_winner` requires `memorization_check_ok` (Lane M, all 38 training cities) PAIRED with
+> `structural_check_ok`. Lane-M must-fire pair is part of Step 1: a synthetic regurgitator
+> fixture (generated := training city T's real samples) MUST FAIL Lane M; an oracle fixture
+> (generated := D's own held-out samples) MUST PASS both lanes. No-leakage pin: the
+> discriminating-strata selection provably reads only real data.
 - [ ] **Step 1 (failing tests):** (a) `decide(...)` asserts path == persisted basis (YAML in,
   enum compared); (b) 4-city completeness: `set(real_by_city) == frozenset(held_out_cities from
   the manifest)` else loud; (c) `pick_winner` requires ≥2 backbones AND `structural_check_ok`
   per fit (the pairing test: garbage non-monotone fit → no crowning); (d) `feature_samples`
   promotion: building-ring fixture → polygon sample (red on today's non-promoting helper);
   (e) `--config` round-trip (xfail flips to pass — named reverse-lock); (f) Point-semantics
-  pin; (g) constants cross-guard.
+  pin; (g) constants cross-guard; **(h) [2026-06-11] the Lane-M must-fire pair + floor-sha
+  refusal + no-leakage pin + excess-over-floor quantity + `memorization_check_ok` pairing
+  (per the revision note above).**
 - [ ] **Step 2-4:** FAIL→impl→PASS + full suite. **Step 5:** commit
   `feat(eval): bake-off decision runner with paired obligations (F11/F4/F12; Task-12 surface)`.
 

@@ -1,5 +1,13 @@
 # RESUME: readiness-closure — segment 4 (Task 23 step 5 onward), 2026-06-10
 
+> **SUPERSEDED IN PART (2026-06-11):** Task 23 steps 5–6 are DONE (three Leonardo CPU runs +
+> attribution 2×2 + V4 + residual recon) and the Phase-2 eval was RE-SCOPED with PI approval —
+> see readiness-closure spec §8, the approved proposal
+> `docs/superpowers/specs/2026-06-11-phase2-eval-rescope-PROPOSAL.md`, and
+> `reports/2026-06-11-residual-character-recon.md`. The "NEXT" section below is stale: resume
+> point is now Task 24a/24b per the REVISED plan (Tasks 24/25/26 carry dated revision notes).
+> Corrections 1–19 below still ride every dispatch.
+
 **This is a thin continuation handoff.** The authoritative documents are:
 - Spec (LOCKED): `docs/superpowers/specs/2026-06-10-readiness-closure-and-conditioning-enrichment-design.md`
 - Plan (APPROVED; 27 tasks / 10 phases): `docs/superpowers/plans/2026-06-10-readiness-closure-and-conditioning-enrichment.md`
