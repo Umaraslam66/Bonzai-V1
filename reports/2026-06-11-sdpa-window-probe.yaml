@@ -1,0 +1,87 @@
+probe: sdpa-window-13312
+decision_memo: reports/2026-06-11-token-budget-coupled-decision-memo.md
+locked_window: 13312
+sequence_length_probed: 13322
+flash_class_threshold_gib:
+  toy: 10.0
+  300m: 35.0
+env:
+  torch: 2.5.1+cu121
+  locked_torch: 2.5.1+cu121
+  torch_matches_lock: true
+  gpu: NVIDIA A100-SXM-64GB
+  capability: '8.0'
+  total_mem_gib: 63.4
+  script_sha256: 83bab82ebf18b3332995421f3aefa129b803330abee79c692666f11d2b6aa21c
+model_300m_params_m: 319.6
+variants:
+- label: toy_default_b8_fwdbwd
+  ok: true
+  backward: true
+  error: null
+  loss: 7.974074840545654
+  peak_gib: 5.909
+- label: toy_flash_only_b8_fwdbwd
+  ok: true
+  backward: true
+  error: null
+  loss: 7.974074840545654
+  peak_gib: 5.909
+- label: toy_efficient_only_b8_fwdbwd
+  ok: true
+  backward: true
+  error: null
+  loss: 7.974098205566406
+  peak_gib: 6.214
+- label: toy_math_only_b1_fwd_CONTRAST
+  ok: true
+  backward: false
+  error: null
+  loss: 7.957998275756836
+  peak_gib: 45.689
+- label: toy_math_only_b8_fwd_CLIFF
+  ok: false
+  backward: false
+  error: 'OutOfMemoryError: CUDA out of memory. Tried to allocate 42.31 GiB. GPU 0
+    has a total capacity of 63.42 GiB of which 17.90 GiB is free. Including non-PyTorch
+    memory, this process has 45.51 GiB memory in use. Of the allocated memory 44.71
+    GiB is allocated by PyTorch, and 240.15 MiB is reserved by PyTorch but unallocate'
+  peak_gib: 44.707
+- label: 300m_default_b2_fwdbwd
+  ok: true
+  backward: true
+  error: null
+  loss: 16.314128875732422
+  peak_gib: 19.959
+default_context_top_kernels:
+- void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32,
+  128, 128, 4, false, false, cutlass::bflo
+- void cutlass::Kernel<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_
+- void at::native::(anonymous namespace)::vectorized_layer_norm_kernel<float, float>(int,
+  float, float const*, float const
+- ampere_bf16_s16816gemm_bf16_128x128_ldg8_relu_f2f_stages_32x5_tn
+- void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16
+- 'void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}:'
+- void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::T
+- void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorItera
+- ampere_bf16_s16816gemm_bf16_128x256_ldg8_relu_f2f_stages_64x3_tn
+- void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::CUDAFunctor_add<float>
+  >(at::TensorI
+- void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<float>,
+  at::detail::Array<char*, 3>, TrivialOff
+- void at::native::triu_tril_kernel<float, int, true, 2, false>(at::cuda::detail::TensorInfo<float,
+  int>, at::cuda::detail
+- void cutlass::Kernel<cutlass_80_tensorop_bf16_s16816gemm_bf16_256x128_32x3_tn_align2>(cutlass_80_tensorop_bf16_s16816gem
+- 'void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>,
+  at::detail::Array<char*, 1> >(int, at:'
+- void at::native::(anonymous namespace)::indexSelectLargeIndex<float, long, unsigned
+  int, 2, 2, -2, true>(at::cuda::detai
+attention_kernel_evidence:
+- void pytorch_flash::flash_fwd_kernel<pytorch_flash::Flash_fwd_kernel_traits<32,
+  128, 128, 4, false, false, cutlass::bflo
+verdict: PASS
+verdict_rule: PASS iff default-context fwd+bwd succeeds at toy b8 with peak < 10.0
+  GiB AND at 300M b2 with peak < 35.0 GiB (per-shape flash-class bounds; math-path
+  attention exceeds both by >=2x); the math-only b1 contrast variant must show a visibly
+  larger peak for the discrimination to hold
+scope: kernel engagement + worst-batch memory ONLY; non-scored; no training
