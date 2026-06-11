@@ -74,7 +74,13 @@ def _synthetic_multiregion_holdout() -> dict:
     }
 
 
-def _cell(ci: int, cj: int, n_tokens: int, density: int = 1) -> CellPayload:
+def _cell(
+    ci: int,
+    cj: int,
+    n_tokens: int,
+    density: int = 1,
+    character_stats: tuple[float, ...] | None = None,
+) -> CellPayload:
     return CellPayload(
         cell_i=ci,
         cell_j=cj,
@@ -82,6 +88,12 @@ def _cell(ci: int, cj: int, n_tokens: int, density: int = 1) -> CellPayload:
         tokens=tuple(range(1, n_tokens + 1)),  # pure ints, 1-based (non-empty, non-PAD)
         cell_density_bucket=density,
         boundary_contracts=(),
+        # Task 24b: healthy default (flags present, varies with coords/length)
+        character_stats=(
+            (1.0 + ci, 0.5 + cj, 0.2, float(n_tokens), 0.9, 1.0, 1.0)
+            if character_stats is None
+            else character_stats
+        ),
     )
 
 
@@ -343,9 +355,14 @@ def test_datamodule_union_spans_both_regions(tmp_path, monkeypatch):
 
     # Stub the per-region build so the union is data-free. Each region's shards carry
     # that region as provenance (region field), so a union that spans both regions
-    # yields examples from both.
+    # yields examples from both. Stats vary BY REGION (a constant vector across the
+    # two cities would legitimately trip the Task-24b §4.5 character guard).
     def fake_in_memory(release, region, *, tile_ids=None):
-        return [_shard(region, ti, tj, [_cell(0, 0, 6)]) for (ti, tj) in (tile_ids or [])]
+        stats = (float(len(region)), 0.5, 0.2, 1.1, 0.9, 1.0, 1.0)
+        return [
+            _shard(region, ti, tj, [_cell(0, 0, 6, character_stats=stats)])
+            for (ti, tj) in (tile_ids or [])
+        ]
 
     monkeypatch.setattr(DM, "build_shards_in_memory", fake_in_memory)
 
@@ -455,6 +472,7 @@ def test_cell_key_is_collision_free_across_regions_for_same_coords():
         prefix_ids=(1, 2, 3),
         tokens=(4, 5, 6),
         cell_density_bucket=1,
+        character_stats=(1.0, 0.5, 0.2, 1.1, 0.9, 1.0, 1.0),  # Task 24b required field
     )
     a = DM.CellExample(region="prague", **shared)
     b = DM.CellExample(region="barcelona", **shared)

@@ -21,18 +21,23 @@ the fatal write-once direction, and the format is not under-provisioned.
 
 from __future__ import annotations
 
+import math
+import statistics
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import yaml
+from shapely import wkb as shapely_wkb
 
 from cfm.data.io import canonicalize_yaml
-from cfm.data.sub_d.enums import SlotKind
+from cfm.data.sub_d.enums import FeatureClass, SlotKind
 from cfm.data.sub_d.io import read_macro_core_parquet
 from cfm.data.sub_g.readers import read_sub_f_cells
 from cfm.data.training.atomic_io import atomic_write_text
 from cfm.data.training.paths import (
     epsg_label_for_region,
     holdout_manifest_for_region,
+    sub_c_region_dir,
     sub_d_region_dir,
     sub_f_region_dir,
     tile_dirname,
@@ -211,11 +216,16 @@ def build_multiregion_shards(release: str, cities: list[str]) -> list[TrainingSh
     that must halt HERE, before any prefix is built."""
     shards: list[TrainingShard] = []
     carried_by_city: dict[str, list[str | None]] = {}
+    stats_by_city: dict[str, list[tuple[float, ...]]] = {}
     for city in sorted(cities):
         city_shards = build_train_city_shards(release, city)
         carried_by_city[city] = [s.region for s in city_shards]
+        stats_by_city[city] = [c.character_stats for s in city_shards for c in s.cells]
         shards.extend(city_shards)
     guard_city_identity(carried_by_city)
+    # Task 24b (spec §4.5 extension): constant-across-regions / all-absent character
+    # stats are wiring bugs that must halt HERE, before any prefix is built.
+    guard_character_stats(stats_by_city)
     return shards
 
 
@@ -262,6 +272,162 @@ def guard_city_identity(carried_by_source: dict[str, list[str | None]]) -> None:
             )
 
 
+# ----- Task 24b: per-cell character stats (mini-spec §1) + the §4.5 guard twins -----
+
+#: character_stats channel indices for the two presence flags (mini-spec §1 channels
+#: 6/7). The flags disambiguate a genuinely-zero stat from an absent layer — the
+#: zero-means-absent aliasing class (structural-boundary discipline).
+CHARACTER_BUILDINGS_PRESENT_IDX: int = 5
+CHARACTER_ROADS_PRESENT_IDX: int = 6
+
+#: DECISION (knob A, mini-spec §1): fixed log10 transforms with a documented clip
+#: range, NO data-derived normalization artifact. The clip exists ONLY to keep the
+#: channels finite (a degenerate zero-area/zero-length input would otherwise emit
+#: -inf): inputs <= 10^-3 clamp to -3.0; outputs cap at 9.0 (no real m^2/m value in
+#: the corpus approaches 10^9). Inside the range the transform is exact log10.
+#: Revisit if a real channel ever lands on a clip boundary.
+_CHAR_LOG10_CLIP: tuple[float, float] = (-3.0, 9.0)
+
+
+def _log10_clipped(x: float) -> float:
+    if x <= 10.0 ** _CHAR_LOG10_CLIP[0]:
+        return _CHAR_LOG10_CLIP[0]
+    return min(math.log10(x), _CHAR_LOG10_CLIP[1])
+
+
+def character_stats_for_cell(
+    building_areas: list[float], road_lengths: list[float]
+) -> tuple[float, ...]:
+    """The 7 fixed-transform character channels for one cell (mini-spec §1):
+
+      0. log10(median building footprint area m^2)
+      1. log10(building-size IQR m^2 + 1)         (0.0 when < 2 buildings: no spread)
+      2. log10(p90/p50 building-size ratio)       (0.0 when < 2 buildings or p50 <= 0)
+      3. log10(building count + 1)
+      4. log10(median road segment length m + 1)
+      5. buildings_present in {0, 1}
+      6. roads_present in {0, 1}
+
+    Absent layer => its stats are 0.0 AND its flag is 0 (the flag disambiguates —
+    a genuinely-zero stat must never alias absence). Uses ``statistics.median`` /
+    ``statistics.quantiles`` so the derivation stays call-for-call comparable with
+    the recon script's independent computation (the external-source-of-truth tooth).
+    """
+    b_med = b_iqr = b_ratio = b_count = 0.0
+    if building_areas:
+        med = statistics.median(building_areas)
+        b_med = _log10_clipped(med)
+        if len(building_areas) >= 2:
+            qs4 = statistics.quantiles(building_areas, n=4)
+            b_iqr = _log10_clipped(qs4[2] - qs4[0] + 1.0)
+            p90 = statistics.quantiles(building_areas, n=10)[8]
+            if med > 0:
+                b_ratio = _log10_clipped(p90 / med)
+        b_count = _log10_clipped(len(building_areas) + 1.0)
+    r_med = 0.0
+    if road_lengths:
+        r_med = _log10_clipped(statistics.median(road_lengths) + 1.0)
+    return (
+        b_med,
+        b_iqr,
+        b_ratio,
+        b_count,
+        r_med,
+        1.0 if building_areas else 0.0,
+        1.0 if road_lengths else 0.0,
+    )
+
+
+def _read_cell_geometry_measures(
+    features_parquet: Path,
+) -> tuple[dict[tuple[int, int], list[float]], dict[tuple[int, int], list[float]]]:
+    """Per-cell building areas (m^2) + road segment lengths (m) from one tile's
+    sub-C features.parquet — the proven V4-reader walk (recon
+    ``_read_cell_building_areas``, generalized to roads): 4-column projected read
+    via ``pq.ParquetFile(...).read`` (NEVER bare ``pq.read_table`` — Hive partition
+    inference on tile=... dirs injects a spurious column), class filter BEFORE the
+    WKB decode. Geometry is stored in the region's projected CRS (per-region UTM /
+    SVY21), so shapely ``.area`` is m^2 and ``.length`` is m."""
+    table = pq.ParquetFile(features_parquet).read(
+        columns=["cell_i", "cell_j", "feature_class", "geometry"]
+    )
+    areas: dict[tuple[int, int], list[float]] = {}
+    lengths: dict[tuple[int, int], list[float]] = {}
+    fi = table["cell_i"].to_pylist()
+    fj = table["cell_j"].to_pylist()
+    fc = table["feature_class"].to_pylist()
+    fg = table["geometry"].to_pylist()
+    for i, j, c, g in zip(fi, fj, fc, fg, strict=True):
+        cls = int(c)
+        if cls == int(FeatureClass.BUILDING):
+            areas.setdefault((int(i), int(j)), []).append(float(shapely_wkb.loads(bytes(g)).area))
+        elif cls == int(FeatureClass.ROAD):
+            lengths.setdefault((int(i), int(j)), []).append(
+                float(shapely_wkb.loads(bytes(g)).length)
+            )
+    return areas, lengths
+
+
+def derive_character_stats(features_parquet: Path) -> dict[tuple[int, int], tuple[float, ...]]:
+    """(cell_i, cell_j) -> the 7 character channels, for every cell that has at
+    least one building or road in the tile's features.parquet. Cells absent here
+    get the absent vector (``character_stats_for_cell([], [])``) at shard build."""
+    areas, lengths = _read_cell_geometry_measures(features_parquet)
+    return {
+        cell: character_stats_for_cell(areas.get(cell, []), lengths.get(cell, []))
+        for cell in sorted(set(areas) | set(lengths))
+    }
+
+
+class CharacterStatsError(RuntimeError):
+    """The character-stats wiring is broken (Task 24b guard; spec §4.5 extension).
+
+    Two regimes, both wiring bugs that would otherwise train silently wrong:
+      * ALL-ABSENT region: every cell of a region carries both presence flags 0 ->
+        the sub-C read found NOTHING for the whole region (wrong dir / CRS label /
+        empty parquet), which is a read bug, not a city without geometry;
+      * CONSTANT-ACROSS-REGIONS: the same stats vector is the constant value of
+        >= 2 DISTINCT regions (the #22 constant-column class) -> the carrier
+        cannot discriminate the cities it exists to separate.
+    """
+
+
+def guard_character_stats(stats_by_source: dict[str, list[tuple[float, ...]]]) -> None:
+    """Task-24b wiring guard over ``{region: [per-cell character_stats]}`` — the
+    §4.5 twin of ``guard_city_identity``, wired at the SAME two seams
+    (``build_multiregion_shards`` and ``CellDataModule.setup``). Reads the SHARDS'
+    raw stats (pre-ablation), so a deliberate "no_character" run never trips it.
+    Empty value lists (no cells built for a source) are vacuous — never a false
+    positive. A constant vector within ONE region is healthy; only a vector that
+    is the unique constant of >= 2 distinct regions fires."""
+    constant_by_value: dict[tuple[float, ...], set[str]] = {}
+    for source, vectors in stats_by_source.items():
+        if not vectors:
+            continue
+        if all(
+            v[CHARACTER_BUILDINGS_PRESENT_IDX] == 0.0 and v[CHARACTER_ROADS_PRESENT_IDX] == 0.0
+            for v in vectors
+        ):
+            raise CharacterStatsError(
+                f"region {source!r}: EVERY one of its {len(vectors)} cells has "
+                f"buildings_present=0 AND roads_present=0 — an all-absent region means "
+                f"the sub-C features read found nothing (wrong dir / CRS label / empty "
+                f"parquet), not a city without geometry (wiring bug; Task 24b)."
+            )
+        distinct = set(vectors)
+        if len(distinct) == 1:
+            constant_by_value.setdefault(next(iter(distinct)), set()).add(source)
+    for value, sources in constant_by_value.items():
+        if len(sources) >= 2:
+            raise CharacterStatsError(
+                f"character_stats vector {value!r} is the constant value of "
+                f"{len(sources)} distinct regions ({sorted(sources)}) — "
+                f"constant-across-regions is a wiring bug (the carrier cannot "
+                f"discriminate the cities it exists to separate; Task 24b / the "
+                f"#22 constant-column class)."
+            )
+
+
 def _cell_density_by_cell(sub_d_tile_dir: Path) -> dict[tuple[int, int], int]:
     """(cell_i, cell_j) -> cell_density_bucket (same derivation as
     cfm.eval.holdout.pipeline._cell_density_by_cell)."""
@@ -302,7 +468,12 @@ def build_shards_in_memory(
     (sorted) for fast tests; default is the full validated-minus-holdout set."""
     sub_d_dir = sub_d_region_dir(release, region)
     sub_f_dir = sub_f_region_dir(release, region)
+    sub_c_dir = sub_c_region_dir(release, region)
     ids = sorted(tile_ids) if tile_ids is not None else compute_training_tile_ids(release, region)
+
+    # Task 24b: a cell with no building/road features gets the absent vector (stats
+    # 0.0 + both flags 0) — distinguishable from a genuinely-zero cell by the flags.
+    absent_stats = character_stats_for_cell([], [])
 
     # Per-tile dir names embed the REGION's CRS label (e.g. EPSG25834), NOT the Singapore
     # EPSG3414 default — derive it once per region. Without this, an EU region's tiles
@@ -316,6 +487,9 @@ def build_shards_in_memory(
         labels = read_tile_labels(sub_d_dir / dirname, tile_i=ti, tile_j=tj)
         density = _cell_density_by_cell(sub_d_dir / dirname)
         tokens_by_cell = read_sub_f_cells(sub_f_dir / dirname / "cells.parquet")
+        # Task 24b: per-cell character stats from the tile's sub-C features.parquet
+        # (the V4-reader walk; NO sub-C regen — the artifacts are already on disk).
+        char_by_cell = derive_character_stats(sub_c_dir / dirname / "features.parquet")
         cells = tuple(
             CellPayload(
                 cell_i=ci,
@@ -324,6 +498,7 @@ def build_shards_in_memory(
                 tokens=tuple(toks),
                 cell_density_bucket=density.get((ci, cj)),
                 boundary_contracts=(),  # provisioned-empty (slice unread; see docstring)
+                character_stats=char_by_cell.get((ci, cj), absent_stats),
             )
             for (ci, cj), toks in sorted(tokens_by_cell.items())
         )

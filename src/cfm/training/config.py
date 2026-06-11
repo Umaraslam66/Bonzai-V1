@@ -27,10 +27,12 @@ class ScaffoldConfig(BaseModel):
     train_set: Literal["single", "eu-train-union"] = "single"
 
     #: F16 generation-coherence tag: which conditioning-prefix scheme the model was trained
-    #: under. "value" = value-bearing prefix (readiness Phase 2); "slot" = the legacy constant
-    #: field-slot block. A checkpoint loads ONLY under its own scheme - the embedding is sized
-    #: for both, so a mismatch is silent without this tag.
-    conditioning_scheme: Literal["slot", "value"] = "value"
+    #: under. "value-char-v1" (knob B, Task 24b) = value-bearing 9-id prefix + the continuous
+    #: character position — ONE bump covering 24a+24b (version-fold: no checkpoint was blessed
+    #: under the interim 24a layout, so the pre-24a "value" literal is retired with it).
+    #: "slot" = the legacy constant field-slot block. A checkpoint loads ONLY under its own
+    #: scheme - a mismatch is silent without this tag.
+    conditioning_scheme: Literal["slot", "value-char-v1"] = "value-char-v1"
 
     #: Task 24a (spec §8): conditioning-ablation switch, applied IDENTICALLY to the
     #: train-side prefix build and the generation-side matched conditioning (the
@@ -47,8 +49,9 @@ class ScaffoldConfig(BaseModel):
     n_layers: int = 6
     n_heads: int = 8
     #: CELL token budget (sub-F P99.9 lock = 5760 tokens/cell). The model's positional
-    #: capacity is this PLUS the conditioning prefix (CONDITIONING_PREFIX_LEN, 9
-    #: positions since Task 24a) -- see models/backbone.py.
+    #: capacity is this PLUS the conditioning prefix (CONDITIONING_PREFIX_LEN = 9 id
+    #: positions + CHARACTER_PREFIX_POSITIONS = 1 continuous position since Task 24b)
+    #: -- see models/backbone.py.
     max_len: int = 5760
 
     # optimisation

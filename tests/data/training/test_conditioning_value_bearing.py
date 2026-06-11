@@ -106,9 +106,14 @@ def test_ablation_no_city_zeroes_only_the_city_slot() -> None:
     assert full[_CITY_SLOT] != ablated[_CITY_SLOT]  # the ablation actually ablates
 
 
-def test_ablation_no_character_is_loud_until_task_24b() -> None:
-    with pytest.raises(NotImplementedError, match="24b"):
-        _prefix(ablation="no_character")
+def test_ablation_no_character_leaves_all_nine_ids_identical_to_full() -> None:
+    """Task 24b DELIBERATE REVERSE-LOCK FLIP of the 24a pin
+    (test_ablation_no_character_is_loud_until_task_24b): the carrier has landed, so
+    "no_character" is FUNCTIONAL — and in the pure id builder it is an exact no-op
+    (all 9 id positions bit-identical to "full"). What it ablates is the CONTINUOUS
+    character position, zeroed data-side in datamodule.flatten_shards_to_cells
+    (see tests/data/training/test_character_carrier.py)."""
+    assert _prefix(ablation="no_character") == _prefix()
 
 
 def test_unknown_ablation_value_raises() -> None:

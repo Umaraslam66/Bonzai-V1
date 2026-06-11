@@ -186,7 +186,9 @@ def test_generate_and_score_passes_lengths_to_slice_eval(monkeypatch) -> None:
 
     monkeypatch.setattr(ts, "slice_eval", fake_slice_eval)
     monkeypatch.setattr(
-        ts, "generate_cell_tokens", lambda model, *, prefix, max_new, seed: [7, 8, 9]
+        ts,
+        "generate_cell_tokens",
+        lambda model, *, prefix, max_new, seed, char_stats=None: [7, 8, 9],
     )
     monkeypatch.setattr(ts, "split_cell_into_features", lambda tokens: [])
     example = CellExample(
@@ -198,6 +200,7 @@ def test_generate_and_score_passes_lengths_to_slice_eval(monkeypatch) -> None:
         prefix_ids=(101, 102),
         tokens=(1, 2, 3),
         cell_density_bucket=2,
+        character_stats=(0.0,) * 7,  # Task 24b required field
     )
     dm = SimpleNamespace(val_cells=[example])
     cfg = ScaffoldConfig(devices=1, accelerator="cpu")

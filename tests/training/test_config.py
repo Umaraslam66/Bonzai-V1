@@ -12,7 +12,9 @@ from cfm.training.config import ScaffoldConfig
 
 
 def test_config_carries_conditioning_scheme_default_value():
-    assert ScaffoldConfig().conditioning_scheme == "value"
+    # Task 24b reverse-lock (knob B): the tag flips "value" -> "value-char-v1" AT 24b
+    # (one bump covering 24a+24b; the pre-carrier "value" literal is retired with it).
+    assert ScaffoldConfig().conditioning_scheme == "value-char-v1"
 
 
 def test_config_rejects_unknown_conditioning_scheme():

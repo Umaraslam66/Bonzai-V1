@@ -34,7 +34,11 @@ import torch.distributed as dist
 import yaml
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
-from cfm.data.training.build_shards import build_shards_in_memory, guard_city_identity
+from cfm.data.training.build_shards import (
+    build_shards_in_memory,
+    guard_character_stats,
+    guard_city_identity,
+)
 from cfm.data.training.conditioning import build_value_bearing_prefix, conditioning_field_to_id
 from cfm.data.training.holdout_guard import (
     load_training_manifest,
@@ -51,6 +55,14 @@ DEFAULT_MAX_CELL_TOKENS = 5760
 
 #: id for right-padding (a valid sub-F id; padded targets are masked in the loss).
 PAD_ID = 0
+
+#: Task 24b: the token id occupying the continuous character prefix POSITION
+#: (ids[CONDITIONING_PREFIX_LEN], the 10th prefix slot). DECISION: 0 (== PAD_ID, a
+#: valid sub-F input id) — the id value is INERT by construction: the model
+#: overwrites that position's token embedding with Linear(7 -> d_model) of
+#: ``char_stats`` (micro_ar), and its target is masked (position < prefix_len).
+#: Revisit if a backbone ever reads the raw id at that position.
+CHARACTER_PLACEHOLDER_ID = PAD_ID
 
 #: F13 action contract (readiness-closure Task 15): ceiling on the fraction of
 #: NON-EMPTY cells dropped for exceeding max_cell_tokens, checked over the whole
@@ -98,10 +110,14 @@ def _cell_prefix_ids(
     the cell payload; None allowed — the builder buckets absence to 0). ``seed`` is
     constant-bucketed by the builder, so its value is inert in the ids.
     ``city_identity`` (Task 24a) is the shard's CITY name (``TrainingShard.region``),
-    registry-encoded; ``ablation`` ("no_city" = Lane S) threads from the config."""
+    registry-encoded; ``ablation`` ("no_city" = Lane S) threads from the config.
+
+    Task 24b: the prefix is the 9 value-bearing ids PLUS ``CHARACTER_PLACEHOLDER_ID``
+    at position 9 (the continuous character position; the model overwrites its
+    embedding with the projected ``character_stats``), so ``prefix_len`` is 10."""
     tc = shard.tile_conditioning
-    return tuple(
-        build_value_bearing_prefix(
+    return (
+        *build_value_bearing_prefix(
             population_density_bucket=tc["population_density_bucket"],
             zoning_class=tc["dominant_zoning_class"],
             road_skeleton_class=tc["modal_road_skeleton_class"],
@@ -112,7 +128,8 @@ def _cell_prefix_ids(
             seed=seed,
             city_identity=shard.region,
             ablation=ablation,
-        )
+        ),
+        CHARACTER_PLACEHOLDER_ID,
     )
 
 
@@ -126,6 +143,10 @@ class CellExample:
     prefix_ids: tuple[int, ...]
     tokens: tuple[int, ...]
     cell_density_bucket: int | None
+    #: Task 24b: the per-cell continuous character vector this example trains/generates
+    #: under — ALREADY ablation-applied (zeroed under "no_character"), so the
+    #: generation side consuming val examples gets the SAME stats by construction.
+    character_stats: tuple[float, ...]
 
     @property
     def key(self) -> tuple[str, int, int, int, int]:
@@ -180,6 +201,14 @@ def flatten_shards_to_cells(
             if n > max_cell_tokens:
                 dropped["too_long"] += 1
                 continue
+            # Task 24b: "no_character" zeroes the stats vector AND the presence flags
+            # DATA-SIDE (the all-zeros input is the learned-nothing signal); the 9 id
+            # positions stay identical to "full" (the pure builder handles those).
+            stats = (
+                (0.0,) * len(cell.character_stats)
+                if ablation == "no_character"
+                else tuple(cell.character_stats)
+            )
             examples.append(
                 CellExample(
                     region=shard.region,
@@ -190,6 +219,7 @@ def flatten_shards_to_cells(
                     prefix_ids=_cell_prefix_ids(shard, cell.cell_density_bucket, seed, ablation),
                     tokens=tuple(cell.tokens),
                     cell_density_bucket=cell.cell_density_bucket,
+                    character_stats=stats,
                 )
             )
     examples.sort(key=lambda e: e.key)
@@ -232,12 +262,19 @@ def split_train_val(
 
 
 def _as_item(example: CellExample) -> dict[str, Any]:
-    return {"ids": example.ids, "prefix_len": example.prefix_len, "seq_len": example.seq_len}
+    return {
+        "ids": example.ids,
+        "prefix_len": example.prefix_len,
+        "seq_len": example.seq_len,
+        "char_stats": list(example.character_stats),
+    }
 
 
 def collate_cells(batch: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
     """Right-pad ``ids`` to the batch max with ``PAD_ID``; carry per-example
-    ``prefix_len`` + ``seq_len`` (the loss masks both the prefix and the padding)."""
+    ``prefix_len`` + ``seq_len`` (the loss masks both the prefix and the padding)
+    and the Task-24b ``char_stats`` float tensor [B, 7] (float32 — torch's input
+    convention; exactness lives at the example layer, which carries Python floats)."""
     max_len = max(len(item["ids"]) for item in batch)
     ids = torch.full((len(batch), max_len), PAD_ID, dtype=torch.long)
     for row, item in enumerate(batch):
@@ -246,6 +283,7 @@ def collate_cells(batch: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         "ids": ids,
         "prefix_len": torch.tensor([item["prefix_len"] for item in batch], dtype=torch.long),
         "seq_len": torch.tensor([item["seq_len"] for item in batch], dtype=torch.long),
+        "char_stats": torch.tensor([item["char_stats"] for item in batch], dtype=torch.float32),
     }
 
 
@@ -341,6 +379,7 @@ class CellDataModule(L.LightningDataModule):
         examples: list[CellExample] = []
         total_dropped = {"empty": 0, "too_long": 0}
         carried_by_source: dict[str, list[str | None]] = {}
+        stats_by_source: dict[str, list[tuple[float, ...]]] = {}
         for manifest in manifests:
             tile_ids = [(int(t["tile_i"]), int(t["tile_j"])) for t in manifest.get("tiles", [])]
             shards = build_shards_in_memory(
@@ -349,6 +388,11 @@ class CellDataModule(L.LightningDataModule):
             # Task-24a city-identity guard input: the carried TrainingShard.region per
             # DECLARED manifest region (the value the city_identity field will encode).
             carried_by_source.setdefault(manifest["region"], []).extend(s.region for s in shards)
+            # Task-24b character guard input: the SHARDS' raw stats (pre-ablation, so
+            # a deliberate "no_character" run never trips the all-absent regime).
+            stats_by_source.setdefault(manifest["region"], []).extend(
+                c.character_stats for s in shards for c in s.cells
+            )
             city_examples, dropped = flatten_shards_to_cells(
                 # seed: the run seed, constant-bucketed in the prefix (value inert in ids)
                 shards,
@@ -363,6 +407,9 @@ class CellDataModule(L.LightningDataModule):
         # Task 24a: halt on city_identity wiring bugs (all-None city / the same city
         # value across distinct manifests) BEFORE any split/loader exists.
         guard_city_identity(carried_by_source)
+        # Task 24b (spec §4.5 extension): halt on character-stats wiring bugs
+        # (all-absent region / constant-across-regions) at the same seam.
+        guard_character_stats(stats_by_source)
 
         # F13 action contract: accumulate-then-check over the WHOLE union (never
         # per-city — a small city's tail must not halt a corpus it cannot skew).

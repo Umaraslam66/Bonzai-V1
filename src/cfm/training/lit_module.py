@@ -38,7 +38,12 @@ class ScaffoldLit(L.LightningModule):
 
     def _loss(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         out = self.model.training_loss(
-            batch["ids"], prefix_len=batch["prefix_len"], seq_len=batch.get("seq_len")
+            batch["ids"],
+            prefix_len=batch["prefix_len"],
+            seq_len=batch.get("seq_len"),
+            # Task 24b: the continuous character carrier; the char-built model's
+            # forward REFUSES None, so a batch missing the key fails loud here.
+            char_stats=batch.get("char_stats"),
         )
         return out.loss
 

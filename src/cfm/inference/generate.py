@@ -14,6 +14,7 @@ not an exception. The caller (slice eval) gets the attempted-block count from
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import torch
@@ -33,21 +34,35 @@ __all__ = [
 
 @torch.no_grad()
 def generate_cell_tokens(
-    model: MicroAR, *, prefix: list[int], max_new: int, seed: int
+    model: MicroAR,
+    *,
+    prefix: list[int],
+    max_new: int,
+    seed: int,
+    char_stats: Sequence[float] | None = None,
 ) -> list[int]:
     """Autoregressively sample ``max_new`` cell tokens after the conditioning ``prefix``.
 
     Seeded via a dedicated ``torch.Generator`` so the same seed yields identical
     tokens (reproducibility / resume-safe). Returns only the generated tail (the
-    conditioning prefix is stripped)."""
+    conditioning prefix is stripped).
+
+    ``char_stats`` (Task 24b): the per-cell continuous character vector; required by
+    a char-built model (its forward refuses None — fail-loud), threaded into EVERY
+    step's forward so the carrier conditions the whole generation."""
     was_training = model.training
     model.eval()
     try:
         device = next(model.parameters()).device
         gen = torch.Generator(device=device).manual_seed(seed)
         ids = torch.tensor([prefix], dtype=torch.long, device=device)
+        cs = (
+            torch.tensor([list(char_stats)], dtype=torch.float32, device=device)
+            if char_stats is not None
+            else None
+        )
         for _ in range(max_new):
-            logits = model(ids)[:, -1]  # (1, n_subf_vocab) -- sub-F range only
+            logits = model(ids, char_stats=cs)[:, -1]  # (1, n_subf_vocab) -- sub-F range only
             probs = torch.softmax(logits, dim=-1)
             nxt = torch.multinomial(probs, num_samples=1, generator=gen)
             ids = torch.cat([ids, nxt], dim=1)

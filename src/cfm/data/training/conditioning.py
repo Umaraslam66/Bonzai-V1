@@ -176,9 +176,12 @@ def city_identity_bucket(city: str | None) -> int:
         ) from None
 
 
-#: The Task-24a ablation switch (spec §8): Lane S scores with the city-identity
-#: block ABLATED ("no_city"); Lane D runs it live ("full"). "no_character" is the
-#: Task-24b macro_tokens carrier — loud until 24b lands, never a silent no-op.
+#: The conditioning ablation switch (spec §8): Lane S scores with the city-identity
+#: block ABLATED ("no_city"); Lane D runs it live ("full"). "no_character" (Task 24b)
+#: ablates the CONTINUOUS character carrier: the 9 id positions stay identical to
+#: "full" here, and the datamodule zeroes the stats vector + presence flags data-side
+#: BEFORE the model's projection (the all-zeros input is the learned-nothing signal,
+#: the bucket-0 analog).
 _ABLATION_MODES: tuple[str, ...] = ("full", "no_city", "no_character")
 
 
@@ -210,8 +213,24 @@ def conditioning_prefix_ids(
     ]
 
 
-#: Number of conditioning POSITIONS in the prefix (one per field; append-only).
+#: Number of conditioning ID POSITIONS in the prefix (one per field; append-only).
 CONDITIONING_PREFIX_LEN: int = len(_CONDITIONING_FIELDS)
+
+# ----- Task 24b: the continuous character-carrier prefix position (mini-spec §2) -----
+#
+# AXIS SEPARATION (the recurring n_cond conflation trap): these two constants live on
+# the POSITION axis and the CHANNEL axis respectively — NEITHER is an embedding row.
+# The carrier adds ONE position (the 10th, after the 9 id positions) whose input
+# embedding is Linear(CHARACTER_STAT_CHANNELS -> d_model) of the cell's
+# CellPayload.character_stats; the token-id span (conditioning_id_span() == 576 rows)
+# is UNCHANGED — no new vocabulary ids.
+
+#: Continuous prefix POSITIONS appended after the id positions (position axis).
+CHARACTER_PREFIX_POSITIONS: int = 1
+
+#: Width of the per-cell character_stats vector (channel axis; mini-spec §1's 7
+#: channels: building median/IQR/p90-p50/count, road median length, two presence flags).
+CHARACTER_STAT_CHANNELS: int = 7
 
 #: VALUE-BEARING layout. Each field reserves a block of ``_VALUE_STRIDE`` embedding ids
 #: above the sealed sub-F vocab; a field's value maps to one id inside its block.
@@ -276,16 +295,13 @@ def build_value_bearing_prefix(
     NEVER ``_value_bucket``, which collides madrid=rome among 11 groups). None -> 0.
 
     ``ablation`` (spec §8): "full" = everything live; "no_city" forces ONLY the
-    city_identity slot to bucket 0 (Lane S's instrument); "no_character" is loud
-    until Task 24b delivers the macro_tokens character carrier.
+    city_identity slot to bucket 0 (Lane S's instrument); "no_character" (Task 24b)
+    leaves ALL 9 id positions identical to "full" — it ablates the CONTINUOUS
+    character position instead, zeroed data-side where the stats are threaded
+    (datamodule.flatten_shards_to_cells), never here.
     """
     if ablation not in _ABLATION_MODES:
         raise ValueError(f"unknown conditioning ablation {ablation!r}; expected {_ABLATION_MODES}")
-    if ablation == "no_character":
-        raise NotImplementedError(
-            "ablation='no_character' is the Task-24b macro_tokens character carrier, "
-            "which has not landed yet — refusing a silent no-op (loud-until-24b)."
-        )
     # Field-order values; seed -> None so it constant-buckets to 0 (not value-embedded).
     values: list[object] = [
         population_density_bucket,

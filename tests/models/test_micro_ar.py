@@ -133,17 +133,20 @@ def test_prefix_mask_invariant_holds_at_live_n_cond_576():
 def test_generation_at_exact_positional_capacity_through_production_build():
     """Pins the F15 commensurability-note arithmetic (Task 14 follow-up) on the
     PRODUCTION build path: build_backbone sizes positions as
-    cfg.max_len + CONDITIONING_PREFIX_LEN (n_cond=576 is embedding-table ROWS on the
-    token-id axis, NOT positions). With max_len=32 the capacity is 41 positions, so
-    generate_cell_tokens(max_new=32) returns 9 + 32 = 41 tokens — exactly fills
-    capacity, zero headroom, by construction (the diagnostic sbatch's
-    --max-len 2048 / --eval-max-new 2048 = 2057-position case in miniature; Task 24a
-    moved the prefix from 8 to 9 positions).
+    cfg.max_len + CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS (n_cond=576
+    is embedding-table ROWS on the token-id axis, NOT positions). With max_len=32
+    the capacity is 42 positions, so generate_cell_tokens(max_new=32) returns
+    (9 ids + 1 character placeholder) + 32 generated = 42 — exactly fills capacity,
+    zero headroom, by construction (the diagnostic sbatch's --max-len 2048 /
+    --eval-max-new 2048 = 2058-position case in miniature; Task 24a moved the
+    prefix from 8 to 9 id positions, Task 24b appended the continuous position).
 
     Non-vacuity at the boundary: max_new = max_len + 1 ALSO survives because the
     generation loop's final forward sees only prefix + max_new - 1 positions (the
     last sampled token is appended, never fed back); max_new = max_len + 2 is the
     first overflow and raises IndexError from the positional-embedding lookup."""
+    from cfm.data.training.conditioning import CHARACTER_PREFIX_POSITIONS
+    from cfm.data.training.datamodule import CHARACTER_PLACEHOLDER_ID
     from cfm.inference.generate import generate_cell_tokens
     from cfm.models.backbone import build_backbone
     from cfm.training.config import ScaffoldConfig
@@ -152,24 +155,31 @@ def test_generation_at_exact_positional_capacity_through_production_build():
         d_model=32, n_layers=1, n_heads=2, max_len=32, accelerator="cpu", devices=1
     )
     model = build_backbone("transformer-ar", cfg)
-    assert model.pos.num_embeddings == cfg.max_len + CONDITIONING_PREFIX_LEN  # == 41
-    prefix = build_value_bearing_prefix(
-        population_density_bucket=0,
-        zoning_class=1,
-        road_skeleton_class=1,
-        cell_density_bucket=2,
-        region=None,
-        coastal_inland_river=0,
-        sub_c_morphology_class="Asian-megacity",
-        seed=7,
-        city_identity="singapore",  # Task 24a: 9th field
-    )
-    assert len(prefix) == CONDITIONING_PREFIX_LEN == 9
+    capacity = cfg.max_len + CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS
+    assert model.pos.num_embeddings == capacity == 42
+    prefix = [
+        *build_value_bearing_prefix(
+            population_density_bucket=0,
+            zoning_class=1,
+            road_skeleton_class=1,
+            cell_density_bucket=2,
+            region=None,
+            coastal_inland_river=0,
+            sub_c_morphology_class="Asian-megacity",
+            seed=7,
+            city_identity="singapore",  # Task 24a: 9th field
+        ),
+        CHARACTER_PLACEHOLDER_ID,  # Task 24b: the continuous character position
+    ]
+    assert len(prefix) == CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS == 10
+    stats = [0.9, 0.4, 0.3, 1.1, 0.7, 1.0, 1.0]
 
-    # exact fit: 9-token prefix + 32 generated == 41 == positional capacity
-    out = generate_cell_tokens(model, prefix=prefix, max_new=cfg.max_len, seed=0)
+    # exact fit: 10-token prefix + 32 generated == 42 == positional capacity
+    out = generate_cell_tokens(model, prefix=prefix, max_new=cfg.max_len, seed=0, char_stats=stats)
     assert len(out) == cfg.max_len
 
     # one past the loop's last in-capacity forward: positional lookup overflows
     with pytest.raises(IndexError):
-        generate_cell_tokens(model, prefix=prefix, max_new=cfg.max_len + 2, seed=0)
+        generate_cell_tokens(
+            model, prefix=prefix, max_new=cfg.max_len + 2, seed=0, char_stats=stats
+        )

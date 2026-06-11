@@ -59,7 +59,14 @@ def _shard(ti, tj, cells, tile_conditioning=None):
     )
 
 
-def _cell(ci, cj, n_tokens, density=1):
+#: Task 24b: synthetic cells carry a healthy non-constant stats vector (flags
+#: present; varies with the cell coords so single-region fixtures never look
+#: constant-across-regions to the §4.5 guard).
+def _stats(ci, cj):
+    return (1.0 + ci, 0.5 + cj, 0.2, 1.1, 0.9, 1.0, 1.0)
+
+
+def _cell(ci, cj, n_tokens, density=1, character_stats=None):
     return CellPayload(
         cell_i=ci,
         cell_j=cj,
@@ -67,6 +74,7 @@ def _cell(ci, cj, n_tokens, density=1):
         tokens=tuple(range(n_tokens)),
         cell_density_bucket=density,
         boundary_contracts=(),
+        character_stats=_stats(ci, cj) if character_stats is None else character_stats,
     )
 
 
@@ -115,7 +123,8 @@ def test_model_input_prefix_differs_across_differing_tile_conditioning():
 def test_prefix_is_exactly_the_value_bearing_layout():
     """Mutual-exclusivity: the live prefix must equal build_value_bearing_prefix(...) of
     the shard's conditioning — no slot ids, no mixing (slot block == field-0 value block,
-    so equality against the value layout rules the slot layout out entirely)."""
+    so equality against the value layout rules the slot layout out entirely) — PLUS the
+    Task-24b character placeholder at position 9 (total prefix: 10 positions)."""
     shard = _shard(0, 0, [_cell(0, 0, 10, density=2)])
     examples, _ = DM.flatten_shards_to_cells([shard])
     ex = examples[0]
@@ -130,7 +139,7 @@ def test_prefix_is_exactly_the_value_bearing_layout():
         seed=0,  # flatten's default seed; inert — the seed slot is constant-bucketed
         city_identity=_REGION,  # Task 24a: the shard's city name (TrainingShard.region)
     )
-    assert list(ex.prefix_ids) == expected
+    assert list(ex.prefix_ids) == [*expected, DM.CHARACTER_PLACEHOLDER_ID]  # Task 24b
 
 
 def test_flatten_drops_empty_and_overlength_cells():
@@ -138,12 +147,13 @@ def test_flatten_drops_empty_and_overlength_cells():
     # 6 cells total; 1 empty + 1 over-length dropped => 4 examples
     assert len(examples) == 4
     assert dropped == {"empty": 1, "too_long": 1}
-    # every example carries the conditioning prefix + its cell tokens
+    # every example carries the conditioning prefix + its cell tokens (Task 24b:
+    # the 9 id positions + the character placeholder => prefix_len 10)
     ex = next(e for e in examples if (e.tile_i, e.tile_j, e.cell_i, e.cell_j) == (0, 0, 0, 2))
-    assert ex.prefix_len == len(conditioning_field_to_id())
+    assert ex.prefix_len == len(conditioning_field_to_id()) + 1
     assert ex.seq_len == ex.prefix_len + 50
     # value-bearing layout (F6 delivery): the fixture's conditioning + this cell's density
-    assert list(ex.ids[: ex.prefix_len]) == build_value_bearing_prefix(
+    assert list(ex.ids[: ex.prefix_len - 1]) == build_value_bearing_prefix(
         population_density_bucket=0,
         zoning_class=0,
         road_skeleton_class=1,
@@ -189,7 +199,9 @@ def test_collate_right_pads_and_reports_lengths():
     batch = DM.collate_cells([DM._as_item(short), DM._as_item(long)])
     assert batch["ids"].shape == (2, long.seq_len)  # padded to batch max
     assert batch["seq_len"].tolist() == [short.seq_len, long.seq_len]
-    assert torch.all(batch["prefix_len"] == len(conditioning_field_to_id()))
+    # Task 24b: prefix = 9 id positions + the character placeholder position
+    assert torch.all(batch["prefix_len"] == len(conditioning_field_to_id()) + 1)
+    assert batch["char_stats"].shape == (2, 7)  # the continuous channel rides the batch
 
 
 def test_collated_batch_carries_value_prefixes_not_a_constant_block():
@@ -204,9 +216,10 @@ def test_collated_batch_carries_value_prefixes_not_a_constant_block():
     ea = DM.flatten_shards_to_cells([a])[0][0]
     eb = DM.flatten_shards_to_cells([b])[0][0]
     batch = DM.collate_cells([DM._as_item(ea), DM._as_item(eb)])
-    n = len(conditioning_field_to_id())  # 9 after the Task-24a city_identity append
+    n = len(conditioning_field_to_id())  # 9 id positions (Task-24a city_identity append)
     assert not torch.equal(batch["ids"][0, :n], batch["ids"][1, :n])  # value-bearing, not constant
-    assert batch["prefix_len"].tolist() == [n, n] == [9, 9]
+    # Task 24b reverse-lock: TOTAL prefix positions = 9 ids + 1 character placeholder
+    assert batch["prefix_len"].tolist() == [n + 1, n + 1] == [10, 10]
 
 
 # ----- audit-halt wiring (synthetic manifests; no real data) -----

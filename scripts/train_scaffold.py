@@ -223,7 +223,13 @@ def _generate_and_score(
     n_cells_with_building_tokens = 0
     for i, example in enumerate(sampled):
         tokens = generate_cell_tokens(
-            model.model, prefix=list(example.prefix_ids), max_new=max_new, seed=cfg.seed + i
+            model.model,
+            prefix=list(example.prefix_ids),
+            max_new=max_new,
+            seed=cfg.seed + i,
+            # Task 24b: the example's stats are ALREADY ablation-applied by the
+            # datamodule (train/gen identity by construction, like the prefix ids).
+            char_stats=list(example.character_stats),
         )
         if sequence_has_building_tokens(tokens):
             n_cells_with_building_tokens += 1

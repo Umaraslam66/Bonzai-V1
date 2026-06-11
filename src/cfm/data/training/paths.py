@@ -14,6 +14,7 @@ from cfm.eval.holdout.paths import (  # noqa: F401  (re-exported for one-source 
     eval_set_locked_marker,
     holdout_manifest_for_region,
     holdout_manifest_path,
+    sub_c_region_dir,
     sub_d_region_dir,
     sub_f_region_dir,
     sub_g_region_dir,
