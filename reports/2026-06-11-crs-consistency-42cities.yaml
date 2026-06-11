@@ -1,0 +1,489 @@
+n_fail: 0
+n_pass: 44
+n_regions: 44
+per_region:
+  a_coruna:
+    config_crs: EPSG:25829
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: a_coruna
+    sub_d_crs: EPSG:25829
+    tile_dir_labels:
+    - EPSG25829
+    verdict: PASS
+  almere:
+    config_crs: EPSG:25831
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: almere
+    sub_d_crs: EPSG:25831
+    tile_dir_labels:
+    - EPSG25831
+    verdict: PASS
+  amsterdam:
+    config_crs: EPSG:25831
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: amsterdam
+    sub_d_crs: EPSG:25831
+    tile_dir_labels:
+    - EPSG25831
+    verdict: PASS
+  barcelona:
+    config_crs: EPSG:25831
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: barcelona
+    sub_d_crs: EPSG:25831
+    tile_dir_labels:
+    - EPSG25831
+    verdict: PASS
+  berlin:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: berlin
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  bologna:
+    config_crs: EPSG:25832
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: bologna
+    sub_d_crs: EPSG:25832
+    tile_dir_labels:
+    - EPSG25832
+    verdict: PASS
+  bruges:
+    config_crs: EPSG:25831
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: bruges
+    sub_d_crs: EPSG:25831
+    tile_dir_labels:
+    - EPSG25831
+    verdict: PASS
+  budapest:
+    config_crs: EPSG:25834
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: budapest
+    sub_d_crs: EPSG:25834
+    tile_dir_labels:
+    - EPSG25834
+    verdict: PASS
+  cergy:
+    config_crs: EPSG:25831
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: cergy
+    sub_d_crs: EPSG:25831
+    tile_dir_labels:
+    - EPSG25831
+    verdict: PASS
+  copenhagen:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: copenhagen
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  debrecen:
+    config_crs: EPSG:25834
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: debrecen
+    sub_d_crs: EPSG:25834
+    tile_dir_labels:
+    - EPSG25834
+    verdict: PASS
+  edinburgh:
+    config_crs: EPSG:25830
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: edinburgh
+    sub_d_crs: EPSG:25830
+    tile_dir_labels:
+    - EPSG25830
+    verdict: PASS
+  eindhoven:
+    config_crs: EPSG:25831
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: eindhoven
+    sub_d_crs: EPSG:25831
+    tile_dir_labels:
+    - EPSG25831
+    verdict: PASS
+  eisenhuttenstadt:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: EPSG:25833
+    projected_ok: true
+    region: eisenhuttenstadt
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  espoo:
+    config_crs: EPSG:25835
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: espoo
+    sub_d_crs: EPSG:25835
+    tile_dir_labels:
+    - EPSG25835
+    verdict: PASS
+  glasgow:
+    config_crs: EPSG:25830
+    consistent: true
+    diffs: []
+    holdout_crs: EPSG:25830
+    projected_ok: true
+    region: glasgow
+    sub_d_crs: EPSG:25830
+    tile_dir_labels:
+    - EPSG25830
+    verdict: PASS
+  hamburg:
+    config_crs: EPSG:25832
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: hamburg
+    sub_d_crs: EPSG:25832
+    tile_dir_labels:
+    - EPSG25832
+    verdict: PASS
+  helsinki:
+    config_crs: EPSG:25835
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: helsinki
+    sub_d_crs: EPSG:25835
+    tile_dir_labels:
+    - EPSG25835
+    verdict: PASS
+  karlsruhe:
+    config_crs: EPSG:25832
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: karlsruhe
+    sub_d_crs: EPSG:25832
+    tile_dir_labels:
+    - EPSG25832
+    verdict: PASS
+  krakow:
+    config_crs: EPSG:25834
+    consistent: true
+    diffs: []
+    holdout_crs: EPSG:25834
+    projected_ok: true
+    region: krakow
+    sub_d_crs: EPSG:25834
+    tile_dir_labels:
+    - EPSG25834
+    verdict: PASS
+  linz:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: linz
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  lisbon:
+    config_crs: EPSG:25829
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: lisbon
+    sub_d_crs: EPSG:25829
+    tile_dir_labels:
+    - EPSG25829
+    verdict: PASS
+  ljubljana:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: ljubljana
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  lodz:
+    config_crs: EPSG:25834
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: lodz
+    sub_d_crs: EPSG:25834
+    tile_dir_labels:
+    - EPSG25834
+    verdict: PASS
+  malmo:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: malmo
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  manchester:
+    config_crs: EPSG:25830
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: manchester
+    sub_d_crs: EPSG:25830
+    tile_dir_labels:
+    - EPSG25830
+    verdict: PASS
+  mannheim:
+    config_crs: EPSG:25832
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: mannheim
+    sub_d_crs: EPSG:25832
+    tile_dir_labels:
+    - EPSG25832
+    verdict: PASS
+  milton_keynes:
+    config_crs: EPSG:25830
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: milton_keynes
+    sub_d_crs: EPSG:25830
+    tile_dir_labels:
+    - EPSG25830
+    verdict: PASS
+  munich:
+    config_crs: EPSG:25832
+    consistent: true
+    diffs: []
+    holdout_crs: EPSG:25832
+    projected_ok: true
+    region: munich
+    sub_d_crs: EPSG:25832
+    tile_dir_labels:
+    - EPSG25832
+    verdict: PASS
+  prague:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: prague
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  rotterdam:
+    config_crs: EPSG:25831
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: rotterdam
+    sub_d_crs: EPSG:25831
+    tile_dir_labels:
+    - EPSG25831
+    verdict: PASS
+  singapore:
+    config_crs: EPSG:3414
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: singapore
+    sub_d_crs: EPSG:3414
+    tile_dir_labels:
+    - EPSG3414
+    verdict: PASS
+  szczecin:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: szczecin
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  tallinn:
+    config_crs: EPSG:25835
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: tallinn
+    sub_d_crs: EPSG:25835
+    tile_dir_labels:
+    - EPSG25835
+    verdict: PASS
+  telford:
+    config_crs: EPSG:25830
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: telford
+    sub_d_crs: EPSG:25830
+    tile_dir_labels:
+    - EPSG25830
+    verdict: PASS
+  tilburg:
+    config_crs: EPSG:25831
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: tilburg
+    sub_d_crs: EPSG:25831
+    tile_dir_labels:
+    - EPSG25831
+    verdict: PASS
+  toledo:
+    config_crs: EPSG:25830
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: toledo
+    sub_d_crs: EPSG:25830
+    tile_dir_labels:
+    - EPSG25830
+    verdict: PASS
+  turin:
+    config_crs: EPSG:25832
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: turin
+    sub_d_crs: EPSG:25832
+    tile_dir_labels:
+    - EPSG25832
+    verdict: PASS
+  tychy:
+    config_crs: EPSG:25834
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: tychy
+    sub_d_crs: EPSG:25834
+    tile_dir_labels:
+    - EPSG25834
+    verdict: PASS
+  umea:
+    config_crs: EPSG:25834
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: umea
+    sub_d_crs: EPSG:25834
+    tile_dir_labels:
+    - EPSG25834
+    verdict: PASS
+  valencia:
+    config_crs: EPSG:25830
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: valencia
+    sub_d_crs: EPSG:25830
+    tile_dir_labels:
+    - EPSG25830
+    verdict: PASS
+  vienna:
+    config_crs: EPSG:25833
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: vienna
+    sub_d_crs: EPSG:25833
+    tile_dir_labels:
+    - EPSG25833
+    verdict: PASS
+  warsaw:
+    config_crs: EPSG:25834
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: warsaw
+    sub_d_crs: EPSG:25834
+    tile_dir_labels:
+    - EPSG25834
+    verdict: PASS
+  wolfsburg:
+    config_crs: EPSG:25832
+    consistent: true
+    diffs: []
+    holdout_crs: null
+    projected_ok: true
+    region: wolfsburg
+    sub_d_crs: EPSG:25832
+    tile_dir_labels:
+    - EPSG25832
+    verdict: PASS
+release: 2026-04-15.0

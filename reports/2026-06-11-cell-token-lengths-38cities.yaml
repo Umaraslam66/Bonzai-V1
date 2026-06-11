@@ -1,0 +1,314 @@
+# Per-city sub-F cell-token-length stats (readiness-closure Task 15, F13).
+# Lengths are NON-EMPTY cells only; frac_over_budget uses len > budget
+# (STRICT, matching flatten_shards_to_cells's drop). Percentiles are numpy
+# linear interpolation. Written by scripts/measure_cell_token_lengths.py
+# (derived_at = git sha; deliberately no timestamp for byte-determinism).
+budget: 5760
+cities:
+  a_coruna:
+    budget: 5760
+    frac_over_budget: 0.002004845042185281
+    max: 12257
+    n_cells: 23942
+    p50: 141.0
+    p99: 2529.3600000000006
+    p99_9: 7339.121000000021
+  almere:
+    budget: 5760
+    frac_over_budget: 0.044592223899473704
+    max: 14132
+    n_cells: 24511
+    p50: 326.0
+    p99: 7858.500000000007
+    p99_9: 10186.980000000003
+  amsterdam:
+    budget: 5760
+    frac_over_budget: 0.057943149293189715
+    max: 14952
+    n_cells: 45769
+    p50: 460.0
+    p99: 8543.839999999997
+    p99_9: 11688.408000000069
+  barcelona:
+    budget: 5760
+    frac_over_budget: 0.07993245144947932
+    max: 13146
+    n_cells: 3553
+    p50: 1123.0
+    p99: 9869.36
+    p99_9: 12155.99200000009
+  bologna:
+    budget: 5760
+    frac_over_budget: 0.001153207886816865
+    max: 10939
+    n_cells: 35553
+    p50: 100.0
+    p99: 2280.920000000013
+    p99_9: 6094.712000000174
+  bruges:
+    budget: 5760
+    frac_over_budget: 0.010860570955730245
+    max: 11533
+    n_cells: 9668
+    p50: 227.0
+    p99: 5894.589999999998
+    p99_9: 8715.624000000069
+  budapest:
+    budget: 5760
+    frac_over_budget: 0.0
+    max: 5408
+    n_cells: 56012
+    p50: 105.0
+    p99: 2949.779999999999
+    p99_9: 4082.9120000000694
+  cergy:
+    budget: 5760
+    frac_over_budget: 0.015436679926378911
+    max: 11850
+    n_cells: 33686
+    p50: 155.0
+    p99: 6241.0
+    p99_9: 8461.520000000019
+  copenhagen:
+    budget: 5760
+    frac_over_budget: 0.0005880623346074683
+    max: 7393
+    n_cells: 23807
+    p50: 290.0
+    p99: 3840.9399999999987
+    p99_9: 5380.552000000025
+  debrecen:
+    budget: 5760
+    frac_over_budget: 0.0007564010438334405
+    max: 7507
+    n_cells: 26441
+    p50: 38.0
+    p99: 2511.0
+    p99_9: 5635.88000000003
+  edinburgh:
+    budget: 5760
+    frac_over_budget: 0.0034295659295659297
+    max: 9547
+    n_cells: 19536
+    p50: 93.0
+    p99: 4800.250000000007
+    p99_9: 6795.650000000038
+  eindhoven:
+    budget: 5760
+    frac_over_budget: 0.023095564834009753
+    max: 12855
+    n_cells: 34249
+    p50: 202.0
+    p99: 6941.639999999978
+    p99_9: 9414.328000000016
+  espoo:
+    budget: 5760
+    frac_over_budget: 0.0
+    max: 5619
+    n_cells: 7169
+    p50: 267.0
+    p99: 2793.959999999999
+    p99_9: 3903.7280000000264
+  hamburg:
+    budget: 5760
+    frac_over_budget: 0.00017103762827822122
+    max: 8172
+    n_cells: 52620
+    p50: 138.0
+    p99: 3271.6199999999953
+    p99_9: 4571.9530000001105
+  helsinki:
+    budget: 5760
+    frac_over_budget: 0.0008699143468950749
+    max: 8411
+    n_cells: 14944
+    p50: 418.0
+    p99: 3405.8499999999985
+    p99_9: 5550.161000000184
+  karlsruhe:
+    budget: 5760
+    frac_over_budget: 0.0007228141564491086
+    max: 7511
+    n_cells: 37354
+    p50: 115.0
+    p99: 4042.470000000001
+    p99_9: 5563.470000000045
+  linz:
+    budget: 5760
+    frac_over_budget: 5.461645593817417e-05
+    max: 6120
+    n_cells: 36619
+    p50: 136.0
+    p99: 2845.279999999999
+    p99_9: 4379.146000000015
+  lisbon:
+    budget: 5760
+    frac_over_budget: 0.006621656712542197
+    max: 11908
+    n_cells: 30808
+    p50: 255.0
+    p99: 5050.0
+    p99_9: 8944.386000000006
+  ljubljana:
+    budget: 5760
+    frac_over_budget: 0.0
+    max: 4945
+    n_cells: 35303
+    p50: 109.0
+    p99: 2341.0
+    p99_9: 3516.698000000004
+  lodz:
+    budget: 5760
+    frac_over_budget: 0.00036449186520428115
+    max: 6761
+    n_cells: 30179
+    p50: 144.0
+    p99: 3509.8800000000047
+    p99_9: 5134.9320000000225
+  malmo:
+    budget: 5760
+    frac_over_budget: 6.533812479581836e-05
+    max: 6344
+    n_cells: 15305
+    p50: 111.0
+    p99: 3211.5999999999913
+    p99_9: 4796.312000000038
+  manchester:
+    budget: 5760
+    frac_over_budget: 0.006275630669814838
+    max: 11038
+    n_cells: 32188
+    p50: 259.0
+    p99: 5047.650000000005
+    p99_9: 8516.959000000083
+  mannheim:
+    budget: 5760
+    frac_over_budget: 0.0023567655424624138
+    max: 9198
+    n_cells: 36915
+    p50: 126.0
+    p99: 4417.0
+    p99_9: 6463.344000000012
+  milton_keynes:
+    budget: 5760
+    frac_over_budget: 0.0
+    max: 4975
+    n_cells: 1670
+    p50: 926.0
+    p99: 3561.4799999999996
+    p99_9: 4750.9320000000225
+  prague:
+    budget: 5760
+    frac_over_budget: 0.002382327461738377
+    max: 7854
+    n_cells: 13852
+    p50: 407.0
+    p99: 4067.4699999999993
+    p99_9: 6380.857000000116
+  rotterdam:
+    budget: 5760
+    frac_over_budget: 0.06261578362356428
+    max: 13684
+    n_cells: 32388
+    p50: 479.0
+    p99: 8261.130000000001
+    p99_9: 10504.616000000155
+  szczecin:
+    budget: 5760
+    frac_over_budget: 0.0003516861396584737
+    max: 7378
+    n_cells: 25591
+    p50: 55.0
+    p99: 3249.69999999999
+    p99_9: 4994.850000000297
+  tallinn:
+    budget: 5760
+    frac_over_budget: 0.00014684287812041116
+    max: 7897
+    n_cells: 13620
+    p50: 131.0
+    p99: 2707.8099999999995
+    p99_9: 4097.144000000029
+  telford:
+    budget: 5760
+    frac_over_budget: 0.0
+    max: 4843
+    n_cells: 29131
+    p50: 76.0
+    p99: 2448.800000000003
+    p99_9: 3335.2200000000157
+  tilburg:
+    budget: 5760
+    frac_over_budget: 0.024088052205816016
+    max: 13634
+    n_cells: 33253
+    p50: 183.0
+    p99: 7045.400000000016
+    p99_9: 9720.644000000364
+  toledo:
+    budget: 5760
+    frac_over_budget: 0.002633386764369132
+    max: 8858
+    n_cells: 8734
+    p50: 46.0
+    p99: 3692.67
+    p99_9: 7472.2870000001
+  turin:
+    budget: 5760
+    frac_over_budget: 0.00010797387032338174
+    max: 6747
+    n_cells: 37046
+    p50: 127.0
+    p99: 2337.550000000003
+    p99_9: 4002.3900000001013
+  tychy:
+    budget: 5760
+    frac_over_budget: 0.0007860262008733624
+    max: 7765
+    n_cells: 34350
+    p50: 258.0
+    p99: 3723.530000000006
+    p99_9: 5638.2550000000265
+  umea:
+    budget: 5760
+    frac_over_budget: 0.0
+    max: 3207
+    n_cells: 1692
+    p50: 173.5
+    p99: 2412.899999999999
+    p99_9: 3046.613000000011
+  valencia:
+    budget: 5760
+    frac_over_budget: 0.013968659150535348
+    max: 19372
+    n_cells: 28206
+    p50: 177.0
+    p99: 6727.450000000008
+    p99_9: 13268.11000000011
+  vienna:
+    budget: 5760
+    frac_over_budget: 0.001652059474141069
+    max: 9483
+    n_cells: 35713
+    p50: 107.0
+    p99: 4031.5199999999895
+    p99_9: 6161.152000000002
+  warsaw:
+    budget: 5760
+    frac_over_budget: 0.000352655121851625
+    max: 7612
+    n_cells: 53877
+    p50: 218.0
+    p99: 3641.239999999998
+    p99_9: 4986.124000000003
+  wolfsburg:
+    budget: 5760
+    frac_over_budget: 0.0
+    max: 5745
+    n_cells: 30908
+    p50: 55.0
+    p99: 2757.9300000000003
+    p99_9: 4167.139000000101
+derived_at: 8f9fc453fdfa41e44ba35e1912f8f064abc80563
+release: 2026-04-15.0
+schema_version: '1.0'
