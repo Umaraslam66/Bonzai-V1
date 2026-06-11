@@ -17,6 +17,11 @@ Named teeth covered (dispatch list):
   4. collapse/explosion halts fire ONLY on their regime; healthy freezes
   5. no-leakage pin: strata selection takes ONLY the real-real pair table
   6. floor strictness: min over other cities, median as context
+
+Task-25 spec-review pins (on top of the dispatch list):
+  R1. Lane-M exact tie => FAIL with margin 0.0 (kills a `<` -> `<=` mutation)
+  R2. non-degenerate floor fixture: the table's global-min pair EXCLUDES D
+  R3. producer halts when a held-out city has zero qualifying pairs (no floor)
 """
 
 from __future__ import annotations
@@ -71,6 +76,14 @@ def _features_one_stratum(
 #: Floor-strictness fixture (tooth 6): KS(D,T1)=0.2, KS(D,T2)=0.4, KS(T1,T2)=0.2.
 _STRICT_SHIFTS = {"d_city": 0, "t1_city": 20, "t2_city": 40}
 
+#: Non-degenerate floor fixture (Task-25 spec review #2): the SMALLEST pair in
+#: the table EXCLUDES D — KS(T1,T2)=0.1 < KS(D,T1)=0.3 < KS(D,T2)=0.4 — so a
+#: global-min-over-the-table implementation (0.1) is distinguishable from the
+#: correct min-over-D's-own-pairs (0.3). NOTE: the review's example KS(D,T2)=0.5
+#: is unreachable here — KS is a metric, so KS(D,T2) <= KS(D,T1) + KS(T1,T2)
+#: = 0.4; 0.4 preserves the property under test.
+_NONDEGEN_SHIFTS = {"d_city": 0, "t1_city": 30, "t2_city": 40}
+
 #: Regurgitator/oracle fixture (tooth 3): KS(D,T1)=0.3, KS(D,T2)=0.5, KS(T1,T2)=0.2;
 #: all three pairs BH-significant at alpha=0.05 with n=100 (screened: p_bh max 0.031).
 _LANE_SHIFTS = {"d_city": 0, "t1_city": 30, "t2_city": 50}
@@ -92,6 +105,7 @@ def test_fixture_self_check_grid_ks_values_are_exact() -> None:
     assert ks_distance(_grid(0), _grid(1)) == pytest.approx(0.01)
     assert ks_distance(_grid(0), _grid(1000)) == 1.0
     assert ks_distance(_grid(0), _grid(0)) == 0.0
+    assert ks_distance(_grid(30), _grid(40)) == pytest.approx(0.1)  # _NONDEGEN_SHIFTS T1-T2
 
 
 # --------------------------------------------------------------------------- #
@@ -161,6 +175,25 @@ def test_floors_for_multiple_held_out_cities_use_each_citys_own_pairs() -> None:
     assert entry.floor_median_context == pytest.approx(0.2)
 
 
+def test_floor_ignores_a_smaller_pair_that_excludes_d() -> None:
+    """Non-degenerate strictness pin (Task-25 spec review #2): in _STRICT_SHIFTS
+    the table's global min equals D's own min, so a global-min-over-the-table
+    implementation would pass it. Here the table's smallest KS (0.1, the T1-T2
+    pair) EXCLUDES D: floor_D must be 0.3 — D's own strict min — never 0.1."""
+    table = compute_pair_table(_features_one_stratum(_NONDEGEN_SHIFTS), min_n=50, alpha=0.05)
+    # regime check: the global table min is the D-excluding T1-T2 pair
+    global_min_pair = min(table.pairs, key=lambda p: p.ks)
+    assert (global_min_pair.city_a, global_min_pair.city_b) == ("t1_city", "t2_city")
+    assert global_min_pair.ks == pytest.approx(0.1)
+
+    floors = compute_floors(table, ["d_city"])
+    entry = floors["d_city"][(_M, _SA)]
+    assert entry.floor == pytest.approx(0.3)  # min over D's OWN pairs (0.3, 0.4)
+    assert entry.floor != pytest.approx(0.1)  # the D-excluding 0.1 is ignored
+    assert entry.floor_median_context == pytest.approx(0.35)  # median(0.3, 0.4)
+    assert entry.n_other_cities == 2
+
+
 # --------------------------------------------------------------------------- #
 # Tooth 4: collapse / explosion halts — each fires ONLY on its regime
 # --------------------------------------------------------------------------- #
@@ -225,6 +258,27 @@ def test_unsupported_zero_qualifying_pairs_is_loud() -> None:
     table = compute_pair_table(thin, min_n=50, alpha=0.05)
     with pytest.raises(ValueError, match="UNSUPPORTED"):
         build_floor_artifact_payload(table, **_payload_kwargs())
+
+
+def test_missing_held_out_city_halts_the_producer_naming_the_city() -> None:
+    """Task-25 spec review #3: a held-out city with zero qualifying pairs must
+    halt the producer BEFORE any artifact content exists — a silently absent
+    floor shrinks the worst-case max domain weeks later at Lane-S consumption
+    against a write-once artifact (the aggregate-hides-subsets class)."""
+    features = _features_one_stratum(_STRICT_SHIFTS)
+    features[("ghost_city", _SA, _M)] = _grid(0, n=10)  # thin: zero qualifying pairs
+    table = compute_pair_table(features, min_n=50, alpha=0.05)
+    # regime check: the table itself is HEALTHY (3 pairs among the other cities)
+    assert len(table.pairs) == 3
+    kwargs = _payload_kwargs()
+    kwargs["held_out_cities"] = ["d_city", "ghost_city"]
+    with pytest.raises(ValueError, match="ghost_city") as excinfo:
+        build_floor_artifact_payload(table, **kwargs)
+    assert "UNSUPPORTED" in str(excinfo.value)
+    assert "d_city" not in str(excinfo.value)  # names ONLY the missing city
+    # the healthy fixture (every held-out city floored) is unaffected
+    healthy = build_floor_artifact_payload(table, **_payload_kwargs())
+    assert {rec["city"] for rec in healthy["floors"]} == {"d_city"}
 
 
 # --------------------------------------------------------------------------- #
@@ -388,6 +442,27 @@ def test_oracle_passes_lane_m_against_every_training_city() -> None:
         assert result.verdict == "PASS"
         assert result.median_ks_gen_d == 0.0
         assert result.margin == pytest.approx(expected_ks)
+
+
+def test_lane_m_exact_tie_is_fail_with_zero_margin() -> None:
+    """Boundary pin for the discriminator's STRICT `<` (Task-25 spec review #1):
+    gen EQUIDISTANT from D and T must FAIL with margin exactly 0.0 — a `<` ->
+    `<=` mutation flips this verdict to PASS and turns the test red. The tie
+    regime is satisfiability-screened in-test through the real ks_distance:
+    gen=_grid(15) sits exactly 0.15 from both real_D=_grid(0) and
+    real_T=_grid(30), and the two KS values are asserted bit-equal."""
+    gen = _lane_features(15)
+    real_d = _lane_features(0)
+    real_t = _lane_features(30)
+    ks_d = ks_distance(gen[(_M, _SA)], real_d[(_M, _SA)])
+    ks_t = ks_distance(gen[(_M, _SA)], real_t[(_M, _SA)])
+    assert ks_d == pytest.approx(0.15)
+    assert ks_d == ks_t  # EXACT float equality: the tie regime really holds
+
+    result = lane_m_verdict(gen, real_d, real_t, [(_M, _SA)], min_n=50)
+    assert result.median_ks_gen_d == result.median_ks_gen_t  # equal medians
+    assert result.verdict == "FAIL"  # strict `<`: a tie is NOT a pass
+    assert result.margin == 0.0
 
 
 def test_oracle_lane_s_excess_is_exactly_zero(tmp_path: Path) -> None:

@@ -140,6 +140,35 @@ def test_unsupported_zero_qualifying_pairs_is_loud_and_writes_nothing(
     assert not (tmp_path / FLOOR_ARTIFACT_LOCK_NAME).exists()
 
 
+def test_missing_held_out_city_halts_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task-25 spec review #3 at the runner seam: a held-out city whose samples
+    never qualify (zero pairs -> no floor) halts BEFORE any artifact byte —
+    no artifact, no lock marker — instead of freezing a write-once artifact
+    that silently shrinks the Lane-S worst-case max domain weeks later."""
+    mod = _load_module()
+    cities = ["d_city", "t1_city", "ghost_city"]
+
+    def _extract(release: str, extract_cities) -> ExtractionResult:
+        assert release == _RELEASE
+        assert sorted(extract_cities) == sorted(cities)
+        features = {
+            ("d_city", _SA, _M): _grid(0),
+            ("t1_city", _SA, _M): _grid(20),
+            ("ghost_city", _SA, _M): _grid(0, n=10),  # thin: zero qualifying pairs
+        }
+        return ExtractionResult(features=features, tile_coverage=_coverage(cities))
+
+    monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _extract)
+    manifest = _write_manifest(tmp_path, cities)
+    out = tmp_path / "floor.yaml"
+    with pytest.raises(ValueError, match="ghost_city"):
+        mod.main(["--release", _RELEASE, "--holdout-manifest", str(manifest), "--out", str(out)])
+    assert not out.exists()
+    assert not (tmp_path / FLOOR_ARTIFACT_LOCK_NAME).exists()
+
+
 def test_collapse_halt_fires_before_any_artifact_is_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

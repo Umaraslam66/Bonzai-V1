@@ -340,9 +340,25 @@ def build_floor_artifact_payload(
 ) -> dict:
     """The YAML-safe artifact payload. Runs ``assert_floor_sanity`` FIRST so a
     collapse/explosion/UNSUPPORTED regime halts before any artifact content
-    exists. Stores KS tables, never raw samples (see module docstring)."""
+    exists. Stores KS tables, never raw samples (see module docstring).
+
+    MISSING-CITY HALT (Task-25 spec review #3): every held-out city must come
+    out of ``compute_floors`` floored, or this raises BEFORE any artifact byte.
+    Rationale: a held-out city silently absent from ``floors`` shrinks the
+    worst-case max domain weeks later at Lane-S consumption against a
+    write-once artifact — the aggregate-hides-subsets class, the same failure
+    the global zero-pairs UNSUPPORTED halt already guards."""
     assert_floor_sanity(pair_table)
     floors = compute_floors(pair_table, held_out_cities)
+    missing = sorted(set(held_out_cities) - set(floors))
+    if missing:
+        raise ValueError(
+            "conditioning-floor: UNSUPPORTED — held-out cities with ZERO "
+            f"qualifying pairs in the table (no floor derivable): {missing} "
+            f"at min_n={pair_table.min_n}. A write-once artifact missing a "
+            "held-out city silently shrinks the Lane-S worst-case max domain; "
+            "refusing to freeze."
+        )
     strata = select_discriminating_strata(pair_table, delta=delta)
 
     pair_records = [
