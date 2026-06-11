@@ -1,10 +1,12 @@
 """Tests for scripts/run_conditioning_floor.py (Task 25 step 1; spec §8).
 
 The runner is a thin driver over ``cfm.eval.conditioning_floor``: extract
-held-out (optionally + training) real features, compute the real-real pair
-table, run the integrity halts, derive floors + discriminating strata, and
-freeze the sha-stamped write-once artifact. All tests are synthetic: the
-extraction fn is monkeypatched (no real corpus locally, no Leonardo).
+held-out (optionally + training) real features, build the TWO BH families
+(family 1 = D-D held-out pairwise, the determinism anchor + halts; family 2 =
+D-T cross with its own BH; no T-T pairs — PI call 2026-06-11), derive the
+two-variant floors + cross-selected discriminating strata, and freeze the
+sha-stamped write-once artifact. All tests are synthetic: the extraction fn
+is monkeypatched (no real corpus locally, no Leonardo).
 """
 
 from __future__ import annotations
@@ -104,12 +106,16 @@ def test_e2e_artifact_lands_verifies_and_summary_prints(
     verified = load_verified_floor(out)
     floors = {(r["city"], r["metric"], tuple(r["stratum"])): r for r in verified.payload["floors"]}
     d_floor = floors[("d_city", _M, _SA)]
-    assert d_floor["floor"] == pytest.approx(0.2)  # strict min(0.2, 0.4)
-    assert d_floor["floor_median_context"] == pytest.approx(0.3)
+    assert d_floor["floor_heldout"] == pytest.approx(0.2)  # strict min(0.2, 0.4)
+    assert d_floor["floor_heldout_median_context"] == pytest.approx(0.3)
+    assert d_floor["floor_all"] == d_floor["floor_heldout"]  # no training cities
     assert verified.payload["tile_coverage"]["d_city"]["n_bref_excluded"] == 2
     assert verified.payload["train_cities"] == []
+    assert verified.payload["cross_pairs"] == []  # held-out-only run: empty cross side
+    assert verified.payload["cross_median_ks"] is None
     summary = capsys.readouterr().out
     assert "conditioning-floor" in summary
+    assert "n/a (no cross pairs)" in summary
     assert str(out) in summary
 
 
@@ -256,14 +262,18 @@ def test_write_once_second_run_refuses_overwrite(
 
 
 def test_include_train_cities_routes_through_the_union_verifier(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
     """--include-train-cities resolves training cities via verify_union_manifests
     (the Gate-2 source) and extracts held-out + training together; the artifact
-    records both city lists. The flag is OPTIONAL so the gated Leonardo run can
-    stage held-out-only first."""
+    records both city lists, the cross family is populated with its own BH (no
+    T-T pairs), floor_all tightens where a training city is closest, and the
+    summary reports the cross median + the tightened-row count. The flag is
+    OPTIONAL so the gated Leonardo run can stage held-out-only first."""
     mod = _load_module()
-    shifts = {"d_city": 0, "t1_city": 20, "t2_city": 40}
+    # held-out {d:0, h:20}; train {t1:30, t2:50}: family-1 KS(d,h)=0.2;
+    # cross KS = (d,t1) 0.3 / (d,t2) 0.5 / (h,t1) 0.1 / (h,t2) 0.3
+    shifts = {"d_city": 0, "h_city": 20, "t1_city": 30, "t2_city": 50}
     monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _fake_extraction(shifts))
 
     union_calls: list[dict] = []
@@ -275,7 +285,7 @@ def test_include_train_cities_routes_through_the_union_verifier(
         return ["t1_city", "t2_city"]
 
     monkeypatch.setattr(mod, "verify_union_manifests", _fake_union)
-    manifest = _write_manifest(tmp_path, ["d_city"])
+    manifest = _write_manifest(tmp_path, ["d_city", "h_city"])
     out = tmp_path / "floor.yaml"
     rc = mod.main(
         [
@@ -292,8 +302,23 @@ def test_include_train_cities_routes_through_the_union_verifier(
     assert len(union_calls) == 1
     assert union_calls[0]["release"] == _RELEASE
     verified = load_verified_floor(out)
-    assert verified.payload["held_out_cities"] == ["d_city"]
+    assert verified.payload["held_out_cities"] == ["d_city", "h_city"]
     assert verified.payload["train_cities"] == ["t1_city", "t2_city"]
+    # family 1 holds ONLY the held-out pair; cross holds the 4 D-T pairs
+    assert [(r["city_a"], r["city_b"]) for r in verified.payload["pairs"]] == [("d_city", "h_city")]
+    assert len(verified.payload["cross_pairs"]) == 4
+    assert verified.payload["cross_median_ks"] == pytest.approx(0.3)
+    # h's closest city is the TRAINING city t1 (KS 0.1): floor_all tightened
+    floors = {(r["city"], r["metric"], tuple(r["stratum"])): r for r in verified.payload["floors"]}
+    h_floor = floors[("h_city", _M, _SA)]
+    assert h_floor["floor_heldout"] == pytest.approx(0.2)
+    assert h_floor["floor_all"] == pytest.approx(0.1)
+    d_floor = floors[("d_city", _M, _SA)]
+    assert d_floor["floor_all"] == d_floor["floor_heldout"]  # d's closest stays held-out
+    summary = capsys.readouterr().out
+    assert "family-2 (D-T) pairs     : 4" in summary
+    assert "cross median KS          : 0.3000" in summary
+    assert "floor_all < floor_heldout: 1 rows" in summary  # h tightened, d not
 
 
 def test_default_out_is_a_dedicated_per_release_directory(

@@ -14,12 +14,19 @@ Thin DRIVER over ``cfm.eval.conditioning_floor``:
   3. Extract per-(city, full-stratum, metric) REAL feature scalars
      (``extract_features_by_city_stratum_metric``: bref exclusion + the F3
      tile-coverage halts are built in).
-  4. Compute the real-real pair table (KS + global BH), run the integrity
-     halts (FloorCollapseError < 0.049 / FloorExplosionError > 0.5, PI knob 4;
-     UNSUPPORTED zero-pairs is loud) BEFORE any artifact byte is written.
-  5. Derive per-held-out-city floors (STRICT min over other cities, PI knob 1)
-     + discriminating strata (real data only) + the δ ladder, and FREEZE the
-     sha-stamped write-once artifact (``_CONDITIONING_FLOOR_LOCKED`` beside).
+  4. Build the TWO BH families (PI call 2026-06-11) inside the payload
+     builder: family 1 (D-D held-out pairwise — the builder RESTRICTS the
+     features to held-out cities, so family 1 is the stage-1 computation and
+     bit-identity determinism anchor even with ``--include-train-cities``) and
+     family 2 (D-T cross, its OWN BH, built only when training cities are
+     present; no T-T pair ever). The integrity halts (FloorCollapseError
+     < 0.049 / FloorExplosionError > 0.5, PI knob 4; UNSUPPORTED zero-pairs is
+     loud) run on FAMILY 1 BEFORE any artifact byte is written.
+  5. Derive per-held-out-city two-variant floors (STRICT min, PI knob 1:
+     ``floor_heldout`` over family 1; ``floor_all`` over family 1 u family 2 —
+     the bar Lane S scores) + discriminating strata (CROSS family, real data
+     only) + the family-1 δ ladder, and FREEZE the sha-stamped write-once
+     artifact (``_CONDITIONING_FLOOR_LOCKED`` beside).
   6. Re-load the artifact VERIFIED (end-state verification, never a marker
      written on control flow) and print a summary.
 
@@ -60,7 +67,6 @@ from cfm.eval.conditioning_discrimination import (  # noqa: E402
 )
 from cfm.eval.conditioning_floor import (  # noqa: E402
     build_floor_artifact_payload,
-    compute_pair_table,
     freeze_floor_artifact,
     load_verified_floor,
 )
@@ -114,11 +120,17 @@ def _print_summary(payload: dict, out_path: Path) -> None:
     print(f"  train cities             : {len(payload['train_cities'])}")
     meth = payload["methodology"]
     print(f"  min_n / alpha / delta    : {meth['min_n']} / {meth['alpha']} / {meth['delta']}")
-    print(f"  qualifying pairs         : {len(payload['pair_table'])}")
-    print(f"  pair-table median KS     : {payload['pair_table_median_ks']:.4f}")
+    print(f"  family-1 (D-D) pairs     : {len(payload['pairs'])}")
+    print(f"  family-1 median KS       : {payload['pair_table_median_ks']:.4f}")
+    print(f"  family-2 (D-T) pairs     : {len(payload['cross_pairs'])}")
+    cross_median = payload["cross_median_ks"]
+    cross_median_txt = "n/a (no cross pairs)" if cross_median is None else f"{cross_median:.4f}"
+    print(f"  cross median KS          : {cross_median_txt}")
     print(f"  thin-n cells excluded    : {payload['n_excluded_thin']}")
     print(f"  strata <2 cities         : {payload['n_strata_too_few_cities']}")
     print(f"  floors (city,metric,stratum) rows: {len(payload['floors'])}")
+    n_tightened = sum(1 for rec in payload["floors"] if rec["floor_all"] < rec["floor_heldout"])
+    print(f"  floor_all < floor_heldout: {n_tightened} rows (training cities tightened the bar)")
     ladder = {row["delta"]: row["n_pairs"] for row in payload["delta_ladder"]}
     print(f"  delta ladder             : {ladder}")
     for city, cov in sorted(payload["tile_coverage"].items()):
@@ -192,14 +204,18 @@ def main(argv: list[str] | None = None) -> int:
     extraction = extract_features_by_city_stratum_metric(args.release, cities)
     logger.info("extracted %d (city, stratum, metric) cells", len(extraction.features))
 
-    pair_table = compute_pair_table(extraction.features, min_n=args.min_n, alpha=args.alpha)
-    # Integrity halts (collapse/explosion/UNSUPPORTED) fire inside the payload
-    # builder BEFORE any artifact byte exists; they RAISE — never exit-coded away.
+    # The builder constructs BOTH BH families itself: family 1 from the
+    # held-out-restricted features (so it is the stage-1 computation even with
+    # --include-train-cities), family 2 (D-T cross) only when training cities
+    # are present. Integrity halts (collapse/explosion/UNSUPPORTED) fire on
+    # family 1 BEFORE any artifact byte exists; they RAISE — never exit-coded.
     payload = build_floor_artifact_payload(
-        pair_table,
+        extraction.features,
         release=args.release,
         held_out_cities=held_out,
         train_cities=train,
+        min_n=args.min_n,
+        alpha=args.alpha,
         delta=args.delta,
         tile_coverage=extraction.tile_coverage,
     )
