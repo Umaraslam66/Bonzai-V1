@@ -140,7 +140,7 @@ class FloorPair:
     ks: float
     noise_floor: float
     p_raw: float
-    p_bh: float  # globally BH-adjusted across ALL pairs in the table
+    p_bh: float  # BH-adjusted within THIS table's family only (never joint)
 
 
 @dataclass(frozen=True)
@@ -339,6 +339,7 @@ def _ks_by_held_city_key(
 def compute_floors(
     pair_table: PairTable,
     held_out_cities: Sequence[str],
+    *,
     cross_table: PairTable | None = None,
 ) -> dict[str, dict[tuple[str, tuple], FloorEntry]]:
     """Per held-out city D, per (metric, stratum): ``floor_heldout`` from D's
@@ -507,8 +508,22 @@ def build_floor_artifact_payload(
     Rationale: a held-out city silently absent from ``floors`` shrinks the
     worst-case max domain weeks later at Lane-S consumption against a
     write-once artifact — the aggregate-hides-subsets class, the same failure
-    the global zero-pairs UNSUPPORTED halt already guards."""
+    the global zero-pairs UNSUPPORTED halt already guards.
+
+    UNKNOWN-CITY HALT (quality review, symmetric with the above): a city present
+    in ``features`` but in NEITHER ``held_out_cities`` nor ``train_cities``
+    would be silently dropped by the family filters below — unreachable via
+    today's runner, reachable the moment extraction is cached/reused (the
+    sample-regime-blind shape). Loud, naming the cities."""
     held_set = set(held_out_cities)
+    unknown = sorted({key[0] for key in features} - held_set - set(train_cities))
+    if unknown:
+        raise ValueError(
+            "conditioning-floor: cities present in features but in NEITHER "
+            f"held_out_cities nor train_cities: {unknown} — the family filters "
+            "would silently drop their samples (no pair, no floor, no trace); "
+            "refusing."
+        )
     family1_features = {key: vals for key, vals in features.items() if key[0] in held_set}
     pair_table = compute_pair_table(family1_features, min_n=min_n, alpha=alpha)
     assert_floor_sanity(pair_table)
@@ -521,7 +536,7 @@ def build_floor_artifact_payload(
         else None
     )
 
-    floors = compute_floors(pair_table, held_out_cities, cross_table)
+    floors = compute_floors(pair_table, held_out_cities, cross_table=cross_table)
     missing = sorted(set(held_out_cities) - set(floors))
     if missing:
         raise ValueError(
@@ -581,7 +596,10 @@ def build_floor_artifact_payload(
             "floor_explosion_median": FLOOR_EXPLOSION_MEDIAN,
             # PI call 2026-06-11: two separate BH families, no T-T pairs ever
             "bh_families": "family1_heldout_dd_pairwise+family2_dt_cross_no_tt",
-            "floor_rule": "strict_min_over_other_cities",  # PI knob 1
+            # PI knob 1. REVERSE-LOCK 2026-06-11: renamed from
+            # "strict_min_over_other_cities" — ambiguous across the two variants
+            # (floor_heldout mins over held-out pairs only; floor_all over both).
+            "floor_rule": "strict_min_per_variant",
             "floor_context_rule": "median_over_other_cities_context_only",
             "floor_scored": "floor_all",  # what Lane S consumes
             "floor_context": "floor_heldout",  # reported + determinism anchor

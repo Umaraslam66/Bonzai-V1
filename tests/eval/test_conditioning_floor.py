@@ -110,6 +110,21 @@ _COLLAPSE_SHIFTS = {"d_city": 0, "t1_city": 1, "t2_city": 2}
 #: Explosion fixture: disjoint supports -> every KS == 1.0 > 0.5.
 _EXPLOSION_SHIFTS = {"d_city": 0, "t1_city": 1000, "t2_city": 2000}
 
+#: Canonical two-family fixture: 2 held-out + 2 training cities, one stratum.
+#: family 1: KS(d,h)=0.2. cross: KS(d,t1)=0.3, KS(d,t2)=0.5, KS(h,t1)=0.1,
+#: KS(h,t2)=0.3 (all exact; screened — cross own-BH: (h,t1) p_bh 0.677 NOT
+#: significant, the other three are).
+_TWOFAM_SHIFTS = {"d_city": 0, "h_city": 20, "t1_city": 30, "t2_city": 50}
+_TWOFAM_HELD = ["d_city", "h_city"]
+_TWOFAM_TRAIN = ["t1_city", "t2_city"]
+
+#: Tooth-(d)/(e) fixture: the TRAINING city is D's closest real city.
+#: family 1: KS(d,dfar)=0.4; cross: KS(d,tnear)=0.1, KS(dfar,tnear)=0.3.
+#: Screened: the KS triangle inequality holds (0.4 <= 0.1 + 0.3, tight).
+_TIGHTEN_SHIFTS = {"d_city": 0, "dfar_city": 40, "tnear_city": 10}
+_TIGHTEN_HELD = ["d_city", "dfar_city"]
+_TIGHTEN_TRAIN = ["tnear_city"]
+
 
 def test_fixture_self_check_grid_ks_values_are_exact() -> None:
     """The house fixture self-check: the KS regime is asserted BEFORE any tooth
@@ -356,6 +371,21 @@ def test_missing_held_out_city_halts_the_producer_naming_the_city() -> None:
         _features_one_stratum(_STRICT_SHIFTS), **_payload_kwargs()
     )
     assert {rec["city"] for rec in healthy["floors"]} == {"d_city", "t1_city", "t2_city"}
+
+
+def test_unknown_city_in_features_halts_the_producer_naming_it() -> None:
+    """Quality-review pin: a city present in ``features`` but in NEITHER
+    held_out_cities nor train_cities would be SILENTLY DROPPED by the family
+    filters — unreachable via today's runner, reachable the moment extraction
+    is cached/reused (the sample-regime-blind shape). Loud, naming the city,
+    symmetric with the missing-held-out-city halt above."""
+    features = _features_one_stratum(_STRICT_SHIFTS)
+    features[("stray_city", _SA, _M)] = _grid(10)
+    with pytest.raises(ValueError, match="stray_city") as excinfo:
+        build_floor_artifact_payload(features, **_payload_kwargs())
+    assert "d_city" not in str(excinfo.value)  # names ONLY the unknown city
+    # the healthy fixture (every features city accounted for) is unaffected
+    build_floor_artifact_payload(_features_one_stratum(_STRICT_SHIFTS), **_payload_kwargs())
 
 
 # --------------------------------------------------------------------------- #
@@ -797,7 +827,9 @@ def test_payload_methodology_records_the_knobs_and_no_raw_samples() -> None:
     assert meth["min_n"] == 50
     assert meth["alpha"] == 0.05
     assert meth["delta"] == 0.15
-    assert meth["floor_rule"] == "strict_min_over_other_cities"
+    # reverse-lock 2026-06-11: renamed from "strict_min_over_other_cities"
+    # (ambiguous across the floor_heldout/floor_all variants)
+    assert meth["floor_rule"] == "strict_min_per_variant"
     assert payload["release"] == "2026-04-15.0"
 
     def _no_long_float_lists(node: object) -> None:
@@ -818,22 +850,10 @@ def test_payload_methodology_records_the_knobs_and_no_raw_samples() -> None:
 # Family 1 (D-D, held-out pairwise) = the stage-1 computation + determinism
 # anchor; family 2 (D-T cross) = its own BH, the Lane-M strata family; no T-T
 # pair exists anywhere; Lane S scores floor_all, floor_heldout is context.
+#
+# Fixture constants (_TWOFAM_*, _TIGHTEN_*) live in the fixtures section at the
+# top of the file beside the other shift dicts.
 # --------------------------------------------------------------------------- #
-
-#: Canonical two-family fixture: 2 held-out + 2 training cities, one stratum.
-#: family 1: KS(d,h)=0.2. cross: KS(d,t1)=0.3, KS(d,t2)=0.5, KS(h,t1)=0.1,
-#: KS(h,t2)=0.3 (all exact; screened — cross own-BH: (h,t1) p_bh 0.677 NOT
-#: significant, the other three are).
-_TWOFAM_SHIFTS = {"d_city": 0, "h_city": 20, "t1_city": 30, "t2_city": 50}
-_TWOFAM_HELD = ["d_city", "h_city"]
-_TWOFAM_TRAIN = ["t1_city", "t2_city"]
-
-#: Tooth-(d)/(e) fixture: the TRAINING city is D's closest real city.
-#: family 1: KS(d,dfar)=0.4; cross: KS(d,tnear)=0.1, KS(dfar,tnear)=0.3.
-#: Screened: the KS triangle inequality holds (0.4 <= 0.1 + 0.3, tight).
-_TIGHTEN_SHIFTS = {"d_city": 0, "dfar_city": 40, "tnear_city": 10}
-_TIGHTEN_HELD = ["d_city", "dfar_city"]
-_TIGHTEN_TRAIN = ["tnear_city"]
 
 
 def _build_payload(

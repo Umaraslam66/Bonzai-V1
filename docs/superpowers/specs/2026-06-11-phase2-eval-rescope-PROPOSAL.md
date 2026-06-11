@@ -162,3 +162,17 @@ discriminator that a memorizer cannot pass.
 - Floor-collapse/explosion halts: regime fixtures both directions.
 - No-leakage pin: discriminating-strata selection provably reads only real data (test asserts
   the selection function's inputs).
+
+---
+
+## 7. Supersession note (2026-06-11, PI-approved; recorded per the supersessions-live-in-the-spec discipline)
+
+The implemented floor instrument (`src/cfm/eval/conditioning_floor.py`) supersedes this
+proposal's single-family framing: it computes **TWO separate BH families** — held-out D-D
+pairwise (family 1, the stage-1 determinism anchor; carries the δ ladder and the
+collapse/explosion halts) and held-out-vs-training D-T cross (family 2, its own BH; the
+Lane-M strata family). **T-T pairs are never computed.** Floor rows carry two variants:
+`floor_heldout` (family-1 min; reported context + determinism anchor) and `floor_all`
+(family-1 ∪ family-2 min; **the value Lane S scores** — this IS the spec's locked knob-1
+"min over other real cities, period", now spanning both families). Artifact schema version
+is 2.0; 1.0 single-family artifacts refuse to load.
