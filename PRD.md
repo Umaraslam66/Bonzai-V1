@@ -110,7 +110,7 @@ The evaluation suite has several layers:
 
 **Topological metrics.** Road network connectivity (largest connected component as fraction of total road length). Intersection density per km². Betweenness centrality distribution.
 
-**Generalization metrics.** Train on cities from regions A, B, C; evaluate on region D. Generated cities should match D's training distribution when conditioned on D. This is the central test of whether the model has learned generalizable urban form or only memorized training cities. A model that fails this test is not a foundation model.
+**Generalization metrics.** Train on cities from regions A, B, C; evaluate on region D. Generated cities should match D's distribution when conditioned on D's character — *within the measured same-conditioning cross-city floor* (revised 2026-06-11: real cities of identical conditioning differ at measured KS ≈ 0.2; the bar is "as close to D as the closest real city of that character," never zero-difference — see the readiness-closure spec §8 and `reports/2026-06-11-residual-character-recon.md`). Memorization is failed directly by the nearest-training-city discriminator: on strata where D is measured-distinct from a training city, generated output must match D better than it matches that training city, for every training city. This is the central test of whether the model has learned generalizable urban form or only memorized training cities. A model that fails this test is not a foundation model.
 
 **Conditioning compliance.** Evaluate on combinations of conditioning the model has not seen in training. Does conditioning on "European, low-density, coastal" produce something different from "Asian, high-density, inland"? Measure the model's ability to honor each conditioning dimension.
 

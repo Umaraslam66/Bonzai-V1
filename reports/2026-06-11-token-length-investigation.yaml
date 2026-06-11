@@ -1,0 +1,244 @@
+budget: 5760
+cities:
+  almere:
+    frac_over: 0.044592223899473704
+    frac_over_anchor_ok: true
+    n_nonempty_cells: 24511
+    n_over: 1093
+    normal_cells_sampled:
+      building_token_share: 0.12798742755151074
+      median_buildings_per_cell: 0.0
+      median_features_per_cell: 10.5
+      median_len: 298.5
+      median_roads_per_cell: 10.0
+      median_tokens_per_building: 15.0
+      median_tokens_per_road: 21.379245283018868
+      n_cells: 468
+    over_cells:
+      building_token_share: 0.20960005211064126
+      median_buildings_per_cell: 90
+      median_features_per_cell: 401
+      median_len: 6805
+      median_roads_per_cell: 294
+      median_tokens_per_building: 15.235294117647058
+      median_tokens_per_road: 17.97878787878788
+      n_cells: 1093
+    vertex_analysis_over_cells:
+      median_cell_tokens_per_source_vertex: 3.031277926720286
+      median_simplified_vertices_per_building: 5.837758112094395
+      median_vertex_reduction_ratio: 0.8765603328710125
+      median_vertices_per_building: 6.686868686868687
+      n_cells_analyzed: 1093
+      projected_frac_over_after_simplify: 0.026192321814695444
+      projected_n_over_after_simplify: 642
+  amsterdam:
+    frac_over: 0.057943149293189715
+    frac_over_anchor_ok: true
+    n_nonempty_cells: 45769
+    n_over: 2652
+    normal_cells_sampled:
+      building_token_share: 0.1161330683741812
+      median_buildings_per_cell: 0.0
+      median_features_per_cell: 15.0
+      median_len: 410.0
+      median_roads_per_cell: 14.0
+      median_tokens_per_building: 15.0
+      median_tokens_per_road: 23.01219512195122
+      n_cells: 862
+    over_cells:
+      building_token_share: 0.19022790014110658
+      median_buildings_per_cell: 84.0
+      median_features_per_cell: 410.5
+      median_len: 7003.0
+      median_roads_per_cell: 302.0
+      median_tokens_per_building: 15.210526315789474
+      median_tokens_per_road: 18.239832653391424
+      n_cells: 2652
+    vertex_analysis_over_cells:
+      median_cell_tokens_per_source_vertex: 3.019533605209703
+      median_simplified_vertices_per_building: 5.898284056020524
+      median_vertex_reduction_ratio: 0.8672071953781513
+      median_vertices_per_building: 6.8534019864878495
+      n_cells_analyzed: 2652
+      projected_frac_over_after_simplify: 0.03493631060324674
+      projected_n_over_after_simplify: 1599
+  barcelona:
+    frac_over: 0.07993245144947932
+    frac_over_anchor_ok: true
+    n_nonempty_cells: 3553
+    n_over: 284
+    normal_cells_sampled:
+      building_token_share: 0.019300876914487154
+      median_buildings_per_cell: 1
+      median_features_per_cell: 49
+      median_len: 1064
+      median_roads_per_cell: 47
+      median_tokens_per_building: 15.0
+      median_tokens_per_road: 20.75
+      n_cells: 65
+    over_cells:
+      building_token_share: 0.007639887759673654
+      median_buildings_per_cell: 2.0
+      median_features_per_cell: 390.0
+      median_len: 7491.0
+      median_roads_per_cell: 258.5
+      median_tokens_per_building: 15.666666666666666
+      median_tokens_per_road: 26.092344192925516
+      n_cells: 284
+    vertex_analysis_over_cells:
+      median_cell_tokens_per_source_vertex: 3.229328437493237
+      median_simplified_vertices_per_building: 7.804052257163752
+      median_vertex_reduction_ratio: 0.5632316695103572
+      median_vertices_per_building: 14.039822784810127
+      n_cells_analyzed: 284
+      projected_frac_over_after_simplify: 0.0106951871657754
+      projected_n_over_after_simplify: 38
+  budapest:
+    frac_over: 0.0
+    frac_over_anchor_ok: true
+    n_nonempty_cells: 56012
+    n_over: 0
+    normal_cells_sampled:
+      building_token_share: 0.1944970982574936
+      median_buildings_per_cell: 0.0
+      median_features_per_cell: 5.0
+      median_len: 105.0
+      median_roads_per_cell: 5.0
+      median_tokens_per_building: 15.080515297906603
+      median_tokens_per_road: 17.666666666666668
+      n_cells: 1120
+    over_cells:
+      n_cells: 0
+    vertex_analysis_over_cells:
+      median_cell_tokens_per_source_vertex: null
+      median_simplified_vertices_per_building: null
+      median_vertex_reduction_ratio: null
+      median_vertices_per_building: null
+      n_cells_analyzed: 0
+      projected_frac_over_after_simplify: 0.0
+      projected_n_over_after_simplify: 0
+  eindhoven:
+    frac_over: 0.023095564834009753
+    frac_over_anchor_ok: true
+    n_nonempty_cells: 34249
+    n_over: 791
+    normal_cells_sampled:
+      building_token_share: 0.10819091944828255
+      median_buildings_per_cell: 0
+      median_features_per_cell: 9
+      median_len: 195
+      median_roads_per_cell: 8
+      median_tokens_per_building: 15.0
+      median_tokens_per_road: 20.0
+      n_cells: 669
+    over_cells:
+      building_token_share: 0.19421232493027424
+      median_buildings_per_cell: 80
+      median_features_per_cell: 386
+      median_len: 6760
+      median_roads_per_cell: 293
+      median_tokens_per_building: 15.375
+      median_tokens_per_road: 18.546610169491526
+      n_cells: 791
+    vertex_analysis_over_cells:
+      median_cell_tokens_per_source_vertex: 2.8644688644688645
+      median_simplified_vertices_per_building: 6.017751479289941
+      median_vertex_reduction_ratio: 0.8503253796095445
+      median_vertices_per_building: 7.121518987341772
+      n_cells_analyzed: 791
+      projected_frac_over_after_simplify: 0.011591579316184415
+      projected_n_over_after_simplify: 397
+  rotterdam:
+    frac_over: 0.06261578362356428
+    frac_over_anchor_ok: true
+    n_nonempty_cells: 32388
+    n_over: 2028
+    normal_cells_sampled:
+      building_token_share: 0.11778908816015848
+      median_buildings_per_cell: 0
+      median_features_per_cell: 15
+      median_len: 422
+      median_roads_per_cell: 15
+      median_tokens_per_building: 15.0
+      median_tokens_per_road: 23.28
+      n_cells: 607
+    over_cells:
+      building_token_share: 0.20110529846956035
+      median_buildings_per_cell: 88.0
+      median_features_per_cell: 406.0
+      median_len: 6898.5
+      median_roads_per_cell: 301.0
+      median_tokens_per_building: 15.185567010309278
+      median_tokens_per_road: 17.872462696599005
+      n_cells: 2028
+    vertex_analysis_over_cells:
+      median_cell_tokens_per_source_vertex: 3.0562623940316445
+      median_simplified_vertices_per_building: 5.828828417958853
+      median_vertex_reduction_ratio: 0.8804519295797882
+      median_vertices_per_building: 6.659382151029748
+      n_cells_analyzed: 2028
+      projected_frac_over_after_simplify: 0.03884154625169816
+      projected_n_over_after_simplify: 1258
+  tilburg:
+    frac_over: 0.024088052205816016
+    frac_over_anchor_ok: true
+    n_nonempty_cells: 33253
+    n_over: 801
+    normal_cells_sampled:
+      building_token_share: 0.11524447512249217
+      median_buildings_per_cell: 0
+      median_features_per_cell: 8
+      median_len: 168
+      median_roads_per_cell: 7
+      median_tokens_per_building: 15.0
+      median_tokens_per_road: 20.25735294117647
+      n_cells: 649
+    over_cells:
+      building_token_share: 0.18342885685998228
+      median_buildings_per_cell: 77
+      median_features_per_cell: 393
+      median_len: 6816
+      median_roads_per_cell: 298
+      median_tokens_per_building: 15.3
+      median_tokens_per_road: 18.43065693430657
+      n_cells: 801
+    vertex_analysis_over_cells:
+      median_cell_tokens_per_source_vertex: 2.943387881468377
+      median_simplified_vertices_per_building: 6.017291066282421
+      median_vertex_reduction_ratio: 0.8641655886157826
+      median_vertices_per_building: 7.0
+      n_cells_analyzed: 801
+      projected_frac_over_after_simplify: 0.013352178750789402
+      projected_n_over_after_simplify: 444
+  warsaw:
+    frac_over: 0.000352655121851625
+    frac_over_anchor_ok: true
+    n_nonempty_cells: 53877
+    n_over: 19
+    normal_cells_sampled:
+      building_token_share: 0.08932730598815249
+      median_buildings_per_cell: 1
+      median_features_per_cell: 12
+      median_len: 213
+      median_roads_per_cell: 10
+      median_tokens_per_building: 15.0
+      median_tokens_per_road: 19.193548387096776
+      n_cells: 1077
+    over_cells:
+      building_token_share: 0.012743235274847671
+      median_buildings_per_cell: 5
+      median_features_per_cell: 442
+      median_len: 6310
+      median_roads_per_cell: 309
+      median_tokens_per_building: 16.2
+      median_tokens_per_road: 18.180851063829788
+      n_cells: 19
+    vertex_analysis_over_cells:
+      median_cell_tokens_per_source_vertex: 6.191021967526265
+      median_simplified_vertices_per_building: 7.5325443786982245
+      median_vertex_reduction_ratio: 0.6580706781279847
+      median_vertices_per_building: 11.70103092783505
+      n_cells_analyzed: 19
+      projected_frac_over_after_simplify: 1.8560795886927633e-05
+      projected_n_over_after_simplify: 1
+simplify_tolerance_m: 0.5

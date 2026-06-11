@@ -7,7 +7,11 @@ from __future__ import annotations
 import torch
 
 from cfm.data.sub_f.vocab import vocab_tag_to_id
-from cfm.data.training.conditioning import CONDITIONING_PREFIX_LEN, conditioning_id_span
+from cfm.data.training.conditioning import (
+    CHARACTER_PREFIX_POSITIONS,
+    CONDITIONING_PREFIX_LEN,
+    conditioning_id_span,
+)
 from cfm.training.config import ScaffoldConfig
 from cfm.training.lit_module import ScaffoldLit
 
@@ -18,30 +22,40 @@ def _cfg(**kw) -> ScaffoldConfig:
     return ScaffoldConfig(**base)
 
 
+def _batch(ids: torch.Tensor, prefix_len: list[int], seq_len: list[int]) -> dict:
+    # Task 24b: production batches always carry char_stats (the char-built model
+    # REFUSES a batch without them — fail-loud, never silent placeholder training).
+    return {
+        "ids": ids,
+        "prefix_len": torch.tensor(prefix_len),
+        "seq_len": torch.tensor(seq_len),
+        "char_stats": torch.zeros(ids.shape[0], 7),
+    }
+
+
 def test_lit_builds_model_from_real_vocab_sizes():
     lit = ScaffoldLit(_cfg())
     assert lit.model.cfg.n_subf_vocab == max(vocab_tag_to_id().values()) + 1  # 1508
-    # n_cond = the VALUE-BEARING conditioning embedding span (Task 6/7), not the 8-field
+    # n_cond = the VALUE-BEARING conditioning embedding span (Task 6/7), not the 9-field
     # count: the embedding must cover every value-bearing id above the sub-F vocab.
-    assert lit.model.cfg.n_cond == conditioning_id_span()  # 8 fields * 64 stride = 512
-    # positional capacity covers the conditioning PREFIX (8 positions) PLUS the cell budget
-    assert lit.model.cfg.max_len == 128 + CONDITIONING_PREFIX_LEN
+    assert lit.model.cfg.n_cond == conditioning_id_span()  # 9 fields * 64 stride = 576 (Task 24a)
+    # positional capacity covers the conditioning prefix (9 id positions + the Task-24b
+    # continuous character position) PLUS the cell budget — positions, NOT embedding rows
+    assert lit.model.cfg.max_len == 128 + CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS
 
 
 def test_training_step_returns_scalar_loss():
     lit = ScaffoldLit(_cfg())
     ids = torch.randint(0, 1508, (2, 32))
-    batch = {"ids": ids, "prefix_len": torch.tensor([8, 8]), "seq_len": torch.tensor([32, 32])}
-    loss = lit.training_step(batch, 0)
+    loss = lit.training_step(_batch(ids, [10, 10], [32, 32]), 0)
     assert loss.ndim == 0 and loss.requires_grad
 
 
 def test_validation_step_runs_without_grad_error():
     lit = ScaffoldLit(_cfg())
     ids = torch.randint(0, 1508, (2, 24))
-    batch = {"ids": ids, "prefix_len": torch.tensor([8, 8]), "seq_len": torch.tensor([20, 24])}
     lit.eval()
-    out = lit.validation_step(batch, 0)  # must not raise
+    out = lit.validation_step(_batch(ids, [10, 10], [20, 24]), 0)  # must not raise
     assert out is None or out.ndim == 0
 
 
@@ -56,6 +70,15 @@ def test_init_is_seed_reproducible_across_instances():
     sa, sb, sc = a.state_dict(), b.state_dict(), c.state_dict()
     assert all(torch.equal(sa[k], sb[k]) for k in sa)  # same seed -> identical init
     assert any(not torch.equal(sa[k], sc[k]) for k in sa)  # different seed -> differs
+
+
+def test_checkpoint_hparams_record_the_scheme():
+    # F16: save_hyperparameters(cfg.model_dump()) puts the scheme tag into every
+    # checkpoint's hparams, making a scheme mismatch detectable at load.
+    # Task 24b reverse-lock (knob B): "value" -> "value-char-v1" (one bump covering
+    # 24a+24b; no checkpoint was blessed under the interim 24a layout).
+    lit = ScaffoldLit(_cfg())
+    assert lit.hparams["conditioning_scheme"] == "value-char-v1"
 
 
 def test_configure_optimizers_returns_adamw_and_step_cosine():

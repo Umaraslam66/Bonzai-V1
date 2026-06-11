@@ -77,7 +77,8 @@ class CellSubFeature:
     source_feature_id: str
     feature_class: str  # "road" | "building" | "poi" | "base"
     geometry: BaseGeometry
-    geometry_type: str  # "Point" | "LineString" | "Polygon"
+    # "Point" | "LineString" | "Polygon" | "MultiPoint" | "MultiLineString" | "MultiPolygon"
+    geometry_type: str
 
 
 @dataclass(frozen=True)

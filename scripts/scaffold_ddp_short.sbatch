@@ -33,5 +33,6 @@ srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --max-steps 500 --max-len 2048 --no-build
 
 echo "=== report ==="
-cat reports/phase-1-training-scaffold/2026-04-15.0-singapore-loop-closed.md || echo "report MISSING"
+# F17 run-keyed report name: {release}-{region}-{backbone}-{params}M-seed{seed}-loop-closed.md
+cat reports/phase-1-training-scaffold/2026-04-15.0-singapore-*-loop-closed.md 2>/dev/null || echo "report MISSING"
 echo "JOB_DONE"

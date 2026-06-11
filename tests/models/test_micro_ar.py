@@ -12,8 +12,15 @@ Two locked invariants (spec §7):
 
 from __future__ import annotations
 
+import pytest
 import torch
 
+from cfm.data.training.conditioning import (
+    CONDITIONING_ID_BASE,
+    CONDITIONING_PREFIX_LEN,
+    build_value_bearing_prefix,
+    conditioning_id_span,
+)
 from cfm.models.micro_ar import MicroAR, MicroARConfig
 
 # Real sub-F prediction range (sub-F ids span 0..1507 -> 1508). n_cond=8 conditioning
@@ -79,3 +86,100 @@ def test_model_embeds_conditioning_ids_without_predicting_them():
     ids = torch.tensor([cond + body])
     logits = m(ids)  # must not raise (embedding index in range)
     assert logits.shape[-1] == _N_SUBF
+
+
+def test_prefix_mask_invariant_holds_at_live_n_cond_576():
+    """F16 hygiene: the tests above prove the prefix-mask invariant at n_cond=8
+    fixtures, but production (backbone.build_micro_ar) builds
+    n_cond=conditioning_id_span()=576 — exercise the LIVE shape. Tiny dims keep
+    it CPU-cheap; the input prefix is a REAL value-bearing prefix (ids in
+    [CONDITIONING_ID_BASE, CONDITIONING_ID_BASE + 576)), so this also proves the
+    embedding table spans the live conditioning block. (512 -> 576: Task 24a
+    appended the city_identity field, 9 fields * 64 stride.)"""
+    n_cond = conditioning_id_span()
+    assert n_cond == 576  # the live span this test pins (Task 24a reverse-lock)
+    m = MicroAR(
+        MicroARConfig(
+            d_model=32,
+            n_layers=1,
+            n_heads=2,
+            n_subf_vocab=CONDITIONING_ID_BASE,  # 1508: conditioning ids start right above
+            n_cond=n_cond,
+            max_len=32,
+        )
+    )
+    prefix = build_value_bearing_prefix(
+        population_density_bucket=0,
+        zoning_class=1,
+        road_skeleton_class=1,
+        cell_density_bucket=2,
+        region=None,
+        coastal_inland_river=0,
+        sub_c_morphology_class="Asian-megacity",
+        seed=7,
+        city_identity="singapore",  # Task 24a: 9th field
+    )
+    assert len(prefix) == 9
+    assert all(CONDITIONING_ID_BASE <= i < CONDITIONING_ID_BASE + n_cond for i in prefix)
+    T, B = 20, 2
+    body = torch.randint(0, _N_SUBF, (B, T - len(prefix)))
+    tokens = torch.cat([torch.tensor([prefix, prefix]), body], dim=1)
+    out = m.training_loss(tokens, prefix_len=torch.tensor([9, 9]))
+    assert out.loss.requires_grad
+    # the load-bearing invariant at the live shape: prefix targets are masked
+    assert out.n_supervised_positions == (T - 9) * B  # == 22
+
+
+def test_generation_at_exact_positional_capacity_through_production_build():
+    """Pins the F15 commensurability-note arithmetic (Task 14 follow-up) on the
+    PRODUCTION build path: build_backbone sizes positions as
+    cfg.max_len + CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS (n_cond=576
+    is embedding-table ROWS on the token-id axis, NOT positions). With max_len=32
+    the capacity is 42 positions, so generate_cell_tokens(max_new=32) returns
+    (9 ids + 1 character placeholder) + 32 generated = 42 — exactly fills capacity,
+    zero headroom, by construction (the diagnostic sbatch's --max-len 2048 /
+    --eval-max-new 2048 = 2058-position case in miniature; Task 24a moved the
+    prefix from 8 to 9 id positions, Task 24b appended the continuous position).
+
+    Non-vacuity at the boundary: max_new = max_len + 1 ALSO survives because the
+    generation loop's final forward sees only prefix + max_new - 1 positions (the
+    last sampled token is appended, never fed back); max_new = max_len + 2 is the
+    first overflow and raises IndexError from the positional-embedding lookup."""
+    from cfm.data.training.conditioning import CHARACTER_PREFIX_POSITIONS
+    from cfm.data.training.datamodule import CHARACTER_PLACEHOLDER_ID
+    from cfm.inference.generate import generate_cell_tokens
+    from cfm.models.backbone import build_backbone
+    from cfm.training.config import ScaffoldConfig
+
+    cfg = ScaffoldConfig(
+        d_model=32, n_layers=1, n_heads=2, max_len=32, accelerator="cpu", devices=1
+    )
+    model = build_backbone("transformer-ar", cfg)
+    capacity = cfg.max_len + CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS
+    assert model.pos.num_embeddings == capacity == 42
+    prefix = [
+        *build_value_bearing_prefix(
+            population_density_bucket=0,
+            zoning_class=1,
+            road_skeleton_class=1,
+            cell_density_bucket=2,
+            region=None,
+            coastal_inland_river=0,
+            sub_c_morphology_class="Asian-megacity",
+            seed=7,
+            city_identity="singapore",  # Task 24a: 9th field
+        ),
+        CHARACTER_PLACEHOLDER_ID,  # Task 24b: the continuous character position
+    ]
+    assert len(prefix) == CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS == 10
+    stats = [0.9, 0.4, 0.3, 1.1, 0.7, 1.0, 1.0]
+
+    # exact fit: 10-token prefix + 32 generated == 42 == positional capacity
+    out = generate_cell_tokens(model, prefix=prefix, max_new=cfg.max_len, seed=0, char_stats=stats)
+    assert len(out) == cfg.max_len
+
+    # one past the loop's last in-capacity forward: positional lookup overflows
+    with pytest.raises(IndexError):
+        generate_cell_tokens(
+            model, prefix=prefix, max_new=cfg.max_len + 2, seed=0, char_stats=stats
+        )

@@ -46,3 +46,39 @@ def test_slice_eval_verdict_absent_when_no_emergence_inputs() -> None:
     out = slice_eval([[1]], [{"type": "LineString", "coordinates": [[0, 0], [1, 0]]}], [0])
     assert out["emergence_verdict"] is None
     assert out["building_metrics_floored"] is False
+
+
+# --- Task 13 (readiness-closure, F13/F15): floor provenance travels with the metrics ---
+
+
+def test_slice_eval_carries_floor_provenance_through() -> None:
+    prov = {
+        "region": "krakow",
+        "floor": 2.0,
+        "holdout_density": 8.0,
+        "frac": 0.25,
+        "derived_at": "abc123",
+        "derivation_regime": {"cell_length": "full", "denominator": "all_nonempty_cells"},
+    }
+    blocks = [[1, 2, 3]]
+    geoms = [{"type": "LineString", "coordinates": [[0, 0], [1, 0]]}]
+    out = slice_eval(
+        blocks,
+        geoms,
+        [0],
+        n_cells=50,
+        emergence_floor_per_cell=2.0,
+        emergence_floor_provenance=prov,
+    )
+    assert out["emergence_floor_provenance"] == prov
+    # the denominator convention is part of the recorded provenance, not folklore
+    assert out["emergence_floor_provenance"]["derivation_regime"]["denominator"] == (
+        "all_nonempty_cells"
+    )
+
+
+def test_slice_eval_provenance_key_present_but_none_when_not_given() -> None:
+    # present-but-None (report-stable): every metrics dict has the key.
+    out = slice_eval([[1]], [{"type": "LineString", "coordinates": [[0, 0], [1, 0]]}], [0])
+    assert "emergence_floor_provenance" in out
+    assert out["emergence_floor_provenance"] is None

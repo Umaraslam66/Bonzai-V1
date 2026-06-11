@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+from pathlib import Path
 
 import lightning as L
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
@@ -69,6 +70,7 @@ def build_trainer(
     default_root_dir: str | None = None,
     max_time: str | None = None,
     ckpt_every_n_steps: int | None = None,
+    ckpt_dirpath: Path | str | None = None,
 ) -> L.Trainer:
     """Construct the Trainer. ``accelerator="cpu"`` (tests / login node) downgrades
     precision to fp32 and strategy to single-process; the real run uses cfg's
@@ -78,7 +80,14 @@ def build_trainer(
     step-budget to an epoch budget — used by the bit-identical resume check, which
     resumes at an epoch boundary. ``max_time`` ("DD:HH:MM:SS") wall-clock-bounds the
     run regardless of step count — the scale-up probe uses it so it always yields a
-    per-step cost number rather than timing out mid-step."""
+    per-step cost number rather than timing out mid-step.
+
+    ``ckpt_dirpath`` (F17) routes BOTH ModelCheckpoint callbacks (the 30-min
+    time-interval one AND the optional step-interval one — step checkpoints land
+    per-run too, keeping their ``step{step}`` filename pattern) to a per-run
+    directory, so concurrent/successive bake-off runs never overwrite each other's
+    checkpoints. ``None`` (default) preserves the Lightning-default dirs (run_smoke
+    and existing callers are unaffected)."""
     L.seed_everything(cfg.seed, workers=True)
 
     on_gpu = cfg.accelerator == "gpu"
@@ -86,6 +95,7 @@ def build_trainer(
     strategy = "ddp" if cfg.devices > 1 else "auto"
 
     checkpoint = ModelCheckpoint(
+        dirpath=ckpt_dirpath,  # None -> Lightning default (unchanged behavior)
         train_time_interval=CHECKPOINT_INTERVAL,
         save_last=True,
         monitor="val_loss",  # internal val split ONLY; never the holdout
@@ -97,6 +107,7 @@ def build_trainer(
         # never runs mid-DDP-training (avoids the rank-0-only-work hazard).
         callbacks.append(
             ModelCheckpoint(
+                dirpath=ckpt_dirpath,  # per-run too; keeps the step{step} filename
                 every_n_train_steps=ckpt_every_n_steps,
                 save_top_k=-1,
                 filename="step{step}",
@@ -136,13 +147,23 @@ def effective_batch_size(cfg: ScaffoldConfig) -> int:
 
 def maybe_compile(lit: ScaffoldLit, cfg: ScaffoldConfig) -> ScaffoldLit:
     """torch.compile the model when cfg.compile (default-on, CLAUDE.md); disable on
-    error rather than fight the compiler."""
+    error rather than fight the compiler.
+
+    OUTCOME, not intent (readiness A-3 / Task 26): ``lit.compile_outcome`` records
+    what actually happened to the wrap step ("off (cfg.compile=False)" /
+    "compiled" / "disabled: <error>"), and run_short renders it into the report —
+    a run that silently fell back to eager must not publish numbers that look
+    compiled. (Backend failures can still surface lazily at first forward; the
+    training log carries those.)"""
     if not cfg.compile:
+        lit.compile_outcome = "off (cfg.compile=False)"
         return lit
     try:
         import torch
 
         lit.model = torch.compile(lit.model)
+        lit.compile_outcome = "compiled"
     except Exception as exc:
         logger.warning("torch.compile disabled (%s: %s)", type(exc).__name__, exc)
+        lit.compile_outcome = f"disabled: {type(exc).__name__}: {exc}"
     return lit

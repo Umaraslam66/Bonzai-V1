@@ -1,8 +1,9 @@
 """Pure-logic tests for the Task-9 conditioning-discrimination gate (input (i)).
 
-NO real tiles — synthetic per-(city, stratum, metric) feature lists only. The IO
-function ``extract_features_by_city_stratum_metric`` runs on Leonardo against the
-real corpus and is exercised there, not here.
+Mostly pure-logic: synthetic per-(city, stratum, metric) feature lists. Since
+readiness Task 21, the IO function ``extract_features_by_city_stratum_metric`` IS
+exercised locally too — against a synthetic monkeypatched-reader tile tree (the
+coverage-counter + CRS-guard tests below); only the real-corpus run stays Leonardo.
 
 The 6 TDD teeth (design note §"TDD teeth") plus unit tests for the pure stats
 helpers (``noise_floor``, ``ks_pvalue``, ``benjamini_hochberg``).
@@ -10,9 +11,15 @@ helpers (``noise_floor``, ``ks_pvalue``, ``benjamini_hochberg``).
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import random
+from types import SimpleNamespace
 
+import pytest
+import yaml
+
+import cfm.eval.conditioning_discrimination as CD
 from cfm.eval.conditioning_discrimination import (
     benjamini_hochberg,
     conditioning_discrimination_verdict,
@@ -35,9 +42,34 @@ def _gauss(rng: random.Random, *, mu: float, sigma: float, n: int) -> list[float
 
 
 def test_noise_floor_matches_ks_critical_value_formula() -> None:
-    # 1.36 * sqrt((n1+n2)/(n1*n2)) — the alpha=0.05 two-sample KS critical value.
-    assert noise_floor(50, 50) == 1.36 * math.sqrt(100 / 2500)
-    assert noise_floor(100, 200) == 1.36 * math.sqrt(300 / 20000)
+    # REVERSE-LOCK (Task 26 (g), deliberate): this pin was 1.36 — the ROUNDED
+    # two-sample KS alpha=0.05 coefficient. The exact value is 1.358 (one source:
+    # feature_resolution._KS_C_ALPHA_05, matching holdout/sizing.py); per the
+    # plan's Gate-2 rule the EXACT one wins, so noise_floor's default changed
+    # and this guard is re-pinned WITH it (lock and guards travel together).
+    assert noise_floor(50, 50) == 1.358 * math.sqrt(100 / 2500)
+    assert noise_floor(100, 200) == 1.358 * math.sqrt(300 / 20000)
+
+
+def test_ks_coefficient_is_one_sourced_across_modules() -> None:
+    """Task 26 (g) cross-guard: feature_resolution._KS_C_ALPHA_05 (1.358, exact)
+    IS noise_floor's default c — imported, never a second literal, so the two
+    modules cannot drift apart again.
+
+    KNOWN CONSEQUENCE (stated, not silent): noise_floor is INFORMATIONAL
+    (significance is BH-p-value-based, see PairResult.significant), so reported
+    noise_floor values in FUTURE artifacts shift by ~0.15%; the FROZEN floor
+    artifact carries c=1.36-era values and stays valid because nothing consumes
+    its noise_floor field (the sha-verified reader never recomputes it)."""
+    import inspect
+
+    from cfm.eval.feature_resolution import _KS_C_ALPHA_05
+
+    assert _KS_C_ALPHA_05 == 1.358
+    default_c = inspect.signature(noise_floor).parameters["c"].default
+    assert default_c == _KS_C_ALPHA_05
+    # one SOURCE, not one value: the module binds the imported constant itself
+    assert CD._KS_C_ALPHA_05 is _KS_C_ALPHA_05
 
 
 def test_ks_pvalue_identical_samples_is_one() -> None:
@@ -84,7 +116,7 @@ def test_tooth1_pass_same_distribution_across_cities() -> None:
     for stratum in ((1, 1, 0, 0), (2, 1, 1, 0)):
         for city in ("a", "b", "c"):
             features[(city, stratum, _BUILDING)] = _gauss(rng, mu=10.0, sigma=2.0, n=n)
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.verdict == "PASS"
     assert result.n_qualifying_comparisons > 0
     assert all(not p.significant for p in result.pairs)
@@ -99,7 +131,7 @@ def test_tooth2_fail_genuine_difference_survives_bh() -> None:
         ("a", stratum, _BUILDING): _gauss(rng, mu=0.0, sigma=1.0, n=n),
         ("b", stratum, _BUILDING): _gauss(rng, mu=100.0, sigma=1.0, n=n),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.verdict == "FAIL"
     assert result.per_metric_verdict[_BUILDING] == "FAIL"
     assert any(p.significant for p in result.pairs)
@@ -119,7 +151,7 @@ def test_tooth3_mc_guard_noise_tail_does_not_reopen_t5() -> None:
         stratum = (s, 0, 0, 0)
         for city in ("a", "b", "c"):
             features[(city, stratum, _BUILDING)] = _gauss(rng, mu=5.0, sigma=1.0, n=n)
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
 
     # The guard must hold: a noise-tail outlier does NOT reopen T5.
     assert result.verdict == "PASS"
@@ -145,12 +177,13 @@ def test_tile_features_promotes_building_rings_to_area() -> None:
     closed_ring = {"type": "LineString", "coordinates": [[0, 0], [1, 0], [1, 1], [0, 0]]}
     open_road = {"type": "LineString", "coordinates": [[0, 0], [2, 0]]}
     blocks = [[bid], [0]]  # block 0 carries a building token; block 1 does not
-    out = _tile_features(blocks, [closed_ring, open_road], [1, 1])
+    out, n_bref_excluded = _tile_features(blocks, [closed_ring, open_road], [1, 1])
 
     areas = [v for m, v, _ in out if m == "building_area_m2"]
     lengths = [v for m, v, _ in out if m == "road_length_m"]
     assert len(areas) == 1 and areas[0] > 0, "building closed-ring not promoted to area"
     assert len(lengths) == 1 and lengths[0] > 0, "open road not classified as road_length"
+    assert n_bref_excluded == 0  # no outbound-bref block in this fixture
 
 
 def test_tooth4_thin_n_excluded_and_counted() -> None:
@@ -163,7 +196,7 @@ def test_tooth4_thin_n_excluded_and_counted() -> None:
         # thin: below min_n=50, excluded from the qualified set.
         ("c", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=10),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.n_excluded_thin == 1
     # Only a<->b qualifies; c never appears in any pair.
     cities_in_pairs = {p.city_a for p in result.pairs} | {p.city_b for p in result.pairs}
@@ -179,7 +212,7 @@ def test_tooth5_unsupported_when_all_strata_thin() -> None:
         ("a", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=10),
         ("b", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=20),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.verdict == "UNSUPPORTED"
     assert result.n_qualifying_comparisons == 0
     assert result.n_excluded_thin == 2
@@ -199,7 +232,7 @@ def test_tooth6_per_metric_road_fails_building_passes() -> None:
         ("a", stratum, _ROAD): _gauss(rng, mu=0.0, sigma=1.0, n=n),
         ("b", stratum, _ROAD): _gauss(rng, mu=100.0, sigma=1.0, n=n),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.verdict == "FAIL"
     assert result.per_metric_verdict[_ROAD] == "FAIL"
     assert result.per_metric_verdict[_BUILDING] == "PASS"
@@ -215,7 +248,7 @@ def test_strata_too_few_cities_counted() -> None:
         ("a", (1, 1, 0, 0), _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
         ("b", (1, 1, 0, 0), _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.n_strata_too_few_cities == 1
     assert result.n_qualifying_comparisons == 1
 
@@ -228,7 +261,7 @@ def test_n_by_city_stratum_metric_reports_every_n() -> None:
         ("a", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=200),
         ("b", stratum, _BUILDING): _gauss(rng, mu=10.0, sigma=2.0, n=7),
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     assert result.n_by_city_stratum_metric[("a", stratum, _BUILDING)] == 200
     assert result.n_by_city_stratum_metric[("b", stratum, _BUILDING)] == 7
 
@@ -243,6 +276,376 @@ def test_ks_distance_consistency_with_realism() -> None:
         ("a", stratum, _BUILDING): a,
         ("b", stratum, _BUILDING): b,
     }
-    result = conditioning_discrimination_verdict(features, min_n=50)
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
     pair = result.pairs[0]
     assert pair.ks == ks_distance(a, b)
+
+
+# --------------------------------------------------------------------------- #
+# Gate-(i) extraction: tile-coverage counters + silent-shrinkage HALT (F3)
+# and the extraction-site CRS regression guard (F1).
+# --------------------------------------------------------------------------- #
+
+#: A non-Singapore CRS label — distinct from tile_dirname's EPSG3414 default so the
+#: CRS guard is RED if the signature default ever rides again.
+_FIXTURE_EPSG = "EPSG25832"
+
+
+def _stub_labels(tile_dir, *, tile_i, tile_j):  # signature mirrors the real reader
+    return SimpleNamespace(
+        morphology_stratum=SimpleNamespace(
+            dominant_zoning_class=1,
+            modal_road_skeleton_class=2,
+        ),
+        coastal_inland_river=0,
+    )
+
+
+def _setup_extraction_fixture(tmp_path, monkeypatch, *, city, n_tiles, missing):
+    """Synthetic per-city held-out tree driven through the REAL extraction loop.
+
+    Writes a holdout manifest with ``n_tiles`` tiles; tiles whose index is in
+    ``missing`` get NO ``cells.parquet`` on disk (the silent-shrinkage path).
+    Every per-tile reader past the existence check is stubbed so each read tile
+    yields exactly one open-road feature.
+    """
+    manifest = {"regions": {city: {"tiles": [{"tile_i": i, "tile_j": 0} for i in range(n_tiles)]}}}
+    mf = tmp_path / f"{city}_holdout.yaml"
+    mf.write_text(yaml.safe_dump(manifest))
+
+    sub_d = tmp_path / "sub_d" / city
+    sub_f = tmp_path / "sub_f" / city
+    for i in range(n_tiles):
+        if i in missing:
+            continue
+        tile_dir = sub_f / f"tile={_FIXTURE_EPSG}_i{i}_j0"
+        tile_dir.mkdir(parents=True)
+        (tile_dir / "cells.parquet").touch()
+
+    monkeypatch.setattr(CD, "holdout_manifest_for_region", lambda release, region: mf)
+    monkeypatch.setattr(CD, "epsg_label_for_region", lambda region: _FIXTURE_EPSG)
+    monkeypatch.setattr(CD, "sub_d_region_dir", lambda release, region: sub_d)
+    monkeypatch.setattr(CD, "sub_f_region_dir", lambda release, region: sub_f)
+    monkeypatch.setattr(CD, "read_tile_labels", _stub_labels)
+    monkeypatch.setattr(CD, "_cell_density_by_cell", lambda tile_dir: {})
+    monkeypatch.setattr(CD, "read_sub_f_cells", lambda path: [])
+    monkeypatch.setattr(
+        CD,
+        "decode_region_blocks",
+        lambda tokens, cdbc: (
+            [[0]],
+            [{"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0]]}],
+            [1],
+        ),
+    )
+
+
+def test_extraction_reports_tile_coverage_counters(tmp_path, monkeypatch) -> None:
+    """20-tile city, 1 missing cells.parquet (1/20 = 0.05 <= 0.1): NO halt; the
+    result carries exact per-city n_tiles_expected/read/skipped counters and the
+    read tiles still feed features."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=20, missing={3})
+    out = CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+    assert out.tile_coverage["testcity"] == CD.TileCoverage(
+        n_tiles_expected=20, n_tiles_read=19, n_tiles_skipped=1
+    )
+    # One open-road feature per read tile — extraction still accumulates features.
+    assert sum(len(v) for v in out.features.values()) == 19
+
+
+def test_extraction_halts_above_silent_shrinkage_ceiling(tmp_path, monkeypatch) -> None:
+    """3-tile city, 1 missing (1/3 > 0.1): extraction RAISES, naming the city, the
+    counts, and the ceiling — a partial city can no longer quietly thin (F3)."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=3, missing={1})
+    with pytest.raises(RuntimeError) as excinfo:
+        CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+    msg = str(excinfo.value)
+    assert "testcity" in msg
+    assert "1/3" in msg
+    assert "0.1" in msg
+
+
+def test_extraction_no_halt_at_exact_ceiling(tmp_path, monkeypatch) -> None:
+    """10 tiles, 1 missing = exactly 0.1: strict > means NO raise (boundary)."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=10, missing={0})
+    out = CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+    assert out.tile_coverage["testcity"] == CD.TileCoverage(
+        n_tiles_expected=10, n_tiles_read=9, n_tiles_skipped=1
+    )
+
+
+def test_extraction_zero_tile_city_is_loud(tmp_path, monkeypatch) -> None:
+    """A city with zero tiles in its manifest is never a valid extraction target:
+    its own loud error (not a division-by-zero, not a silent empty pass)."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=0, missing=set())
+    with pytest.raises(ValueError, match="testcity"):
+        CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+
+
+def test_extraction_uses_region_crs_label(tmp_path, monkeypatch) -> None:
+    """The extraction-site ``tile_dirname`` call (the 4th call site) must pass the
+    REGION's CRS label. RED-ON-DIVERGENCE: reverting to ``tile_dirname(ti, tj)``
+    (signature default rides) records EPSG3414 and fails. Mirrors
+    tests/data/training/test_build_shards_multiregion.py::
+    test_build_shards_in_memory_uses_region_crs_label."""
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="munichlike", n_tiles=1, missing=set())
+
+    captured: list[str] = []
+    real_tile_dirname = CD.tile_dirname
+
+    def spy(tile_i: int, tile_j: int, *args, **kwargs):
+        # EPSG3414 is the real signature's Singapore default; if the call site stops
+        # passing the region label explicitly, the default is what gets recorded.
+        label = args[0] if args else kwargs.get("epsg_label", "EPSG3414")
+        captured.append(label)
+        return real_tile_dirname(tile_i, tile_j, label)
+
+    monkeypatch.setattr(CD, "tile_dirname", spy)
+
+    out = CD.extract_features_by_city_stratum_metric("rel", ["munichlike"])
+    assert captured == [_FIXTURE_EPSG], captured
+    assert "EPSG3414" not in captured
+    # The region-labelled dir resolved on disk: the tile was actually read.
+    assert out.tile_coverage["munichlike"].n_tiles_read == 1
+
+
+def test_result_tile_coverage_defaults_empty_and_threads_via_replace() -> None:
+    """The verdict fn stays coverage-agnostic (default {}); the runner threads
+    extraction coverage in via dataclasses.replace — pin that seam."""
+    result = conditioning_discrimination_verdict({}, min_n=50, effect_size_floor=0.15)
+    assert result.tile_coverage == {}
+    cov = {"x": CD.TileCoverage(n_tiles_expected=2, n_tiles_read=2, n_tiles_skipped=0)}
+    assert dataclasses.replace(result, tile_coverage=cov).tile_coverage == cov
+
+
+# --------------------------------------------------------------------------- #
+# Task 22 recalibration: δ effect-size floor + outbound-bref exclusion-by-identity
+# --------------------------------------------------------------------------- #
+
+
+def test_recalibrated_gate_CAN_pass_at_real_n() -> None:
+    """Huge-n tiny-shift (KS≈0.03 << δ=0.15) is BH-significant but NOT a FAIL — the δ floor
+    makes PASS reachable at real sample sizes (the structural-incapacity fix)."""
+    rng = random.Random(7)
+    n = 20000
+    stratum = (1, 1, 0, 0)
+    features = {
+        ("a", stratum, _ROAD): _gauss(rng, mu=0.0, sigma=1.0, n=n),
+        ("b", stratum, _ROAD): _gauss(rng, mu=0.1, sigma=1.0, n=n),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
+
+    # Fixture regime self-check: the shift is real but tiny (0 < KS < δ), and at
+    # huge n it IS BH-significant — exactly the structurally-incapable-of-PASS trap.
+    pair = result.pairs[0]
+    assert 0.0 < pair.ks < 0.15, f"fixture out of regime: ks={pair.ks}"
+    assert pair.p_bh < result.alpha, f"fixture out of regime: p_bh={pair.p_bh}"
+
+    # The δ's effect made visible: raw-BH fires, the effect-floored rule does not.
+    assert result.n_significant_raw_bh > 0
+    assert result.n_significant_effect == 0
+    assert result.verdict == "PASS"
+    assert all(not p.significant for p in result.pairs)
+
+
+def test_recalibrated_gate_still_FAILS_on_large_effects() -> None:
+    """KS≈0.4 at modest n → FAIL survives the recalibration (glasgow-vs-krakow regime)."""
+    rng = random.Random(7)
+    n = 150
+    stratum = (1, 1, 0, 0)
+    features = {
+        ("a", stratum, _ROAD): _gauss(rng, mu=0.0, sigma=1.0, n=n),
+        ("b", stratum, _ROAD): _gauss(rng, mu=1.0, sigma=1.0, n=n),
+    }
+    result = conditioning_discrimination_verdict(features, min_n=50, effect_size_floor=0.15)
+
+    pair = result.pairs[0]
+    assert pair.ks >= 0.15, f"fixture out of regime: ks={pair.ks}"
+    assert result.verdict == "FAIL"
+    assert result.n_significant_raw_bh > 0
+    assert result.n_significant_effect > 0
+    assert any(p.significant for p in result.pairs)
+
+
+def test_bref_features_excluded_from_road_length_by_construction_identity_and_counted(
+    tmp_path, monkeypatch
+) -> None:
+    """Outbound-bref road excluded + counted (n_bref_excluded per city); a zero-length
+    geometry WITHOUT the bref identity is NOT excluded (regime-distinguishing twin —
+    symptom-keyed exclusion would pass this; identity-keyed must)."""
+    from cfm.data.sub_f.decoder import _is_bref_token
+    from cfm.eval.conditioning_discrimination import _tile_features
+    from cfm.eval.emergence import building_token_ids
+
+    _BREF = 1500  # BP7 boundary-reference token band is 1500..1507 (sub-F decoder)
+    # Authority anchor: the SAME predicate _has_outbound_bref ultimately uses
+    # (cfm.data.sub_f.decoder._is_bref_token) must recognize the fixture token —
+    # a band move becomes a loud fixture error, not a silent out-of-regime pass.
+    assert _is_bref_token(_BREF), "fixture out of regime: _BREF not in decoder bref band"
+    bid = min(building_token_ids())
+
+    bref_road = {"type": "LineString", "coordinates": [[0, 0], [3, 0]]}
+    zero_len_road = {"type": "LineString", "coordinates": [[0, 0], [0, 0]]}
+    plain_road = {"type": "LineString", "coordinates": [[0, 0], [2, 0]]}
+    building_ring = {"type": "LineString", "coordinates": [[0, 0], [1, 0], [1, 1], [0, 0]]}
+    blocks = [
+        [0, 5, _BREF, 0],  # body ends in bref -> outbound-bref road: EXCLUDED
+        [0, 5, 0],  # zero-length but NO bref identity: KEPT (symptom != identity)
+        [0, 5, 0],  # plain open road: KEPT
+        [0, bid, _BREF, 0],  # building ring (promoted to Polygon): NEVER bref-excluded
+    ]
+    out, n_bref_excluded = _tile_features(
+        blocks, [bref_road, zero_len_road, plain_road, building_ring], [1, 1, 1, 1]
+    )
+
+    assert n_bref_excluded == 1
+    lengths = [v for m, v, _ in out if m == _ROAD]
+    areas = [v for m, v, _ in out if m == _BUILDING]
+    # The bref road's length (3.0) is gone; the zero-length non-bref twin survives.
+    assert sorted(lengths) == [0.0, 2.0]
+    assert len(areas) == 1 and areas[0] > 0
+
+    # Per-city accounting: TileCoverage carries n_bref_excluded — excluded features
+    # are COUNTED, never silently dropped (structural-exclusion discipline).
+    _setup_extraction_fixture(tmp_path, monkeypatch, city="testcity", n_tiles=2, missing=set())
+    # Each tile decodes to one outbound-bref road + one plain road.
+    monkeypatch.setattr(
+        CD,
+        "decode_region_blocks",
+        lambda tokens, cdbc: (
+            [[0, 5, _BREF, 0], [0, 5, 0]],
+            [
+                {"type": "LineString", "coordinates": [[0.0, 0.0], [3.0, 0.0]]},
+                {"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0]]},
+            ],
+            [1, 1],
+        ),
+    )
+    out = CD.extract_features_by_city_stratum_metric("rel", ["testcity"])
+    assert out.tile_coverage["testcity"].n_bref_excluded == 2  # 1 per tile x 2 tiles
+    # Only the plain road per tile survives into the feature pool.
+    assert sum(len(v) for v in out.features.values()) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Training-city inventory override (stage-2 integration defect, Slurm 45835276):
+# tiles_by_city hands a city's tile inventory in directly; cities absent from the
+# map keep the EXACT holdout-manifest path (default None => byte-identical).
+# --------------------------------------------------------------------------- #
+
+
+def _train_tiles(n: int) -> list[dict]:
+    """Inventory entries shaped like the manifest tiles[] the extractor walks."""
+    return [{"tile_i": i, "tile_j": 0} for i in range(n)]
+
+
+def _make_city_tiles(tmp_path, *, city, n_tiles, missing=frozenset()):
+    """sub-F tile dirs (cells.parquet present) for a city; indices in ``missing``
+    get NO cells.parquet (the F3 shrinkage path)."""
+    for i in range(n_tiles):
+        if i in missing:
+            continue
+        tile_dir = tmp_path / "sub_f" / city / f"tile={_FIXTURE_EPSG}_i{i}_j0"
+        tile_dir.mkdir(parents=True)
+        (tile_dir / "cells.parquet").touch()
+
+
+def _patch_tile_readers(tmp_path, monkeypatch):
+    """Region-aware reader stubs (per-city sub-D/sub-F dirs). Deliberately does
+    NOT patch ``holdout_manifest_for_region`` — each test decides whether the
+    REAL fail-closed router or a recorder sits at that seam."""
+    monkeypatch.setattr(CD, "epsg_label_for_region", lambda region: _FIXTURE_EPSG)
+    monkeypatch.setattr(CD, "sub_d_region_dir", lambda release, region: tmp_path / "sub_d" / region)
+    monkeypatch.setattr(CD, "sub_f_region_dir", lambda release, region: tmp_path / "sub_f" / region)
+    monkeypatch.setattr(CD, "read_tile_labels", _stub_labels)
+    monkeypatch.setattr(CD, "_cell_density_by_cell", lambda tile_dir: {})
+    monkeypatch.setattr(CD, "read_sub_f_cells", lambda path: [])
+    monkeypatch.setattr(
+        CD,
+        "decode_region_blocks",
+        lambda tokens, cdbc: (
+            [[0]],
+            [{"type": "LineString", "coordinates": [[0.0, 0.0], [1.0, 0.0]]}],
+            [1],
+        ),
+    )
+
+
+def test_defect_repro_training_city_without_override_raises_fail_closed(
+    tmp_path, monkeypatch
+) -> None:
+    """Slurm 45835276 pin: WITHOUT an override, a non-holdout city reaches the
+    REAL ``holdout_manifest_for_region`` router and must raise LOUDLY (the
+    fail-closed boundary that killed the floor run — and rightly died loud)."""
+    _patch_tile_readers(tmp_path, monkeypatch)  # manifest router stays REAL
+    with pytest.raises(ValueError, match="unknown region"):
+        CD.extract_features_by_city_stratum_metric("rel", ["a_coruna"])
+
+
+def test_override_city_uses_provided_inventory_not_holdout_manifest(tmp_path, monkeypatch) -> None:
+    """A city present in ``tiles_by_city`` is extracted via the provided tile
+    dicts; ``holdout_manifest_for_region`` is NOT called for it (recorder proof)
+    and the coverage counters are keyed off the provided inventory."""
+    _patch_tile_readers(tmp_path, monkeypatch)
+    manifest_calls: list[str] = []
+
+    def _recording_router(release, region):
+        manifest_calls.append(region)
+        raise AssertionError(f"holdout manifest must not be read for {region!r}")
+
+    monkeypatch.setattr(CD, "holdout_manifest_for_region", _recording_router)
+    _make_city_tiles(tmp_path, city="traincity", n_tiles=5)
+    out = CD.extract_features_by_city_stratum_metric(
+        "rel", ["traincity"], tiles_by_city={"traincity": _train_tiles(5)}
+    )
+    assert manifest_calls == []
+    assert out.tile_coverage["traincity"] == CD.TileCoverage(
+        n_tiles_expected=5, n_tiles_read=5, n_tiles_skipped=0
+    )
+    assert sum(len(v) for v in out.features.values()) == 5
+
+
+def test_mixed_heldout_default_path_and_training_override_in_one_call(
+    tmp_path, monkeypatch
+) -> None:
+    """One held-out city (manifest path) + one training city (override) in a
+    single call: the manifest router is consulted EXACTLY once — for the
+    held-out city — and both cities land features + coverage."""
+    _patch_tile_readers(tmp_path, monkeypatch)
+    mf = tmp_path / "held_holdout.yaml"
+    mf.write_text(yaml.safe_dump({"regions": {"heldcity": {"tiles": _train_tiles(3)}}}))
+    manifest_calls: list[str] = []
+
+    def _router(release, region):
+        manifest_calls.append(region)
+        assert region == "heldcity", f"manifest read attempted for {region!r}"
+        return mf
+
+    monkeypatch.setattr(CD, "holdout_manifest_for_region", _router)
+    _make_city_tiles(tmp_path, city="heldcity", n_tiles=3)
+    _make_city_tiles(tmp_path, city="traincity", n_tiles=4)
+    out = CD.extract_features_by_city_stratum_metric(
+        "rel",
+        ["heldcity", "traincity"],
+        tiles_by_city={"traincity": _train_tiles(4)},
+    )
+    assert manifest_calls == ["heldcity"]
+    assert out.tile_coverage["heldcity"].n_tiles_read == 3
+    assert out.tile_coverage["traincity"].n_tiles_read == 4
+    assert {city for (city, _, _) in out.features} == {"heldcity", "traincity"}
+
+
+def test_override_city_shrinkage_halt_applies_regardless_of_inventory_source(
+    tmp_path, monkeypatch
+) -> None:
+    """F3 is source-agnostic: a TRAINING city (override inventory) missing
+    cells.parquet beyond the ceiling halts exactly like a held-out city."""
+    _patch_tile_readers(tmp_path, monkeypatch)
+    _make_city_tiles(tmp_path, city="traincity", n_tiles=3, missing={1})
+    with pytest.raises(RuntimeError) as excinfo:
+        CD.extract_features_by_city_stratum_metric(
+            "rel", ["traincity"], tiles_by_city={"traincity": _train_tiles(3)}
+        )
+    msg = str(excinfo.value)
+    assert "traincity" in msg
+    assert "1/3" in msg

@@ -74,7 +74,13 @@ def _synthetic_multiregion_holdout() -> dict:
     }
 
 
-def _cell(ci: int, cj: int, n_tokens: int, density: int = 1) -> CellPayload:
+def _cell(
+    ci: int,
+    cj: int,
+    n_tokens: int,
+    density: int = 1,
+    character_stats: tuple[float, ...] | None = None,
+) -> CellPayload:
     return CellPayload(
         cell_i=ci,
         cell_j=cj,
@@ -82,6 +88,12 @@ def _cell(ci: int, cj: int, n_tokens: int, density: int = 1) -> CellPayload:
         tokens=tuple(range(1, n_tokens + 1)),  # pure ints, 1-based (non-empty, non-PAD)
         cell_density_bucket=density,
         boundary_contracts=(),
+        # Task 24b: healthy default (flags present, varies with coords/length)
+        character_stats=(
+            (1.0 + ci, 0.5 + cj, 0.2, float(n_tokens), 0.9, 1.0, 1.0)
+            if character_stats is None
+            else character_stats
+        ),
     )
 
 
@@ -90,7 +102,17 @@ def _shard(region: str, ti: int, tj: int, cells: list[CellPayload]) -> TrainingS
         region=region,
         tile_i=ti,
         tile_j=tj,
-        tile_conditioning={"region": region},
+        # Full 6-key dict the production writer always emits (flatten indexes STRICTLY,
+        # so a partial dict KeyErrors loud). admin_region is the DIVISION (None for
+        # every EU tile), never the city — the city lives on TrainingShard.region.
+        tile_conditioning={
+            "population_density_bucket": 0,
+            "dominant_zoning_class": 0,
+            "modal_road_skeleton_class": 1,
+            "admin_region": None,
+            "coastal_inland_river": 0,
+            "sub_c_morphology_class": None,
+        },
         macro_tokens=(),
         cells=tuple(cells),
         lineage=frozenset({(region, ti, tj)}),
@@ -305,16 +327,23 @@ def _write_city_manifest(tmp, region, tiles):
 
 def _write_union_holdout(tmp):
     """A schema-2.0 holdout whose held-out cities are disjoint from the train cities
-    under test — so the union audit passes (train tiles never match holdout tiles)."""
+    under test — so the union audit passes (train tiles never match holdout tiles).
+
+    Strengthened to the F9 reader contract (Task 20): stamped manifest_sha256 (real
+    freeze grammar) + _EVAL_SET_LOCKED beside it, since setup() now verifies both."""
     import yaml
+
+    from cfm.eval.holdout.manifest import manifest_sha256
 
     holdout = {
         "manifest_schema_version": "2.0",
         "held_out_cities": ["munich"],
         "regions": {"munich": {"tiles": [{"tile_i": 9, "tile_j": 9}]}},
     }
+    holdout["manifest_sha256"] = manifest_sha256(holdout)
     p = tmp / "union_holdout.yaml"
     p.write_text(yaml.safe_dump(holdout))
+    (tmp / "_EVAL_SET_LOCKED").touch()
     return p
 
 
@@ -326,9 +355,14 @@ def test_datamodule_union_spans_both_regions(tmp_path, monkeypatch):
 
     # Stub the per-region build so the union is data-free. Each region's shards carry
     # that region as provenance (region field), so a union that spans both regions
-    # yields examples from both.
+    # yields examples from both. Stats vary BY REGION (a constant vector across the
+    # two cities would legitimately trip the Task-24b §4.5 character guard).
     def fake_in_memory(release, region, *, tile_ids=None):
-        return [_shard(region, ti, tj, [_cell(0, 0, 6)]) for (ti, tj) in (tile_ids or [])]
+        stats = (float(len(region)), 0.5, 0.2, 1.1, 0.9, 1.0, 1.0)
+        return [
+            _shard(region, ti, tj, [_cell(0, 0, 6, character_stats=stats)])
+            for (ti, tj) in (tile_ids or [])
+        ]
 
     monkeypatch.setattr(DM, "build_shards_in_memory", fake_in_memory)
 
@@ -359,15 +393,17 @@ def test_single_region_path_still_works(tmp_path, monkeypatch):
             }
         )
     )
+    # F9-strengthened (Task 20): stamped sha + lock marker, the strict reader contract.
+    from cfm.eval.holdout.manifest import manifest_sha256
+
+    holdout_d = {
+        "manifest_schema_version": "2.0",
+        "regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
+    }
+    holdout_d["manifest_sha256"] = manifest_sha256(holdout_d)
     holdout = tmp_path / "holdout.yaml"
-    holdout.write_text(
-        yaml.safe_dump(
-            {
-                "manifest_schema_version": "2.0",
-                "regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
-            }
-        )
-    )
+    holdout.write_text(yaml.safe_dump(holdout_d))
+    (tmp_path / "_EVAL_SET_LOCKED").touch()
     monkeypatch.setattr(
         DM,
         "build_shards_in_memory",
@@ -436,6 +472,7 @@ def test_cell_key_is_collision_free_across_regions_for_same_coords():
         prefix_ids=(1, 2, 3),
         tokens=(4, 5, 6),
         cell_density_bucket=1,
+        character_stats=(1.0, 0.5, 0.2, 1.1, 0.9, 1.0, 1.0),  # Task 24b required field
     )
     a = DM.CellExample(region="prague", **shared)
     b = DM.CellExample(region="barcelona", **shared)

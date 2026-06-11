@@ -6,11 +6,15 @@ Thin DRIVER over the LOCKED verdict API
 
   1. Extracts per-(city, full-stratum, metric) real feature scalars from the held-out
      EU tiles (``extract_features_by_city_stratum_metric``).
-  2. Computes the conditioning-discrimination verdict (BH multiple-comparison guard;
-     ``conditioning_discrimination_verdict``).
+  2. Computes the conditioning-discrimination verdict (BH multiple-comparison guard
+     + δ=0.15 effect-size floor, PI-call #1; ``conditioning_discrimination_verdict``).
   3. Writes a canonical-YAML report with every n reported beside its denominator:
-     the verdict, per-metric verdict, the full per-(city, stratum, metric) n map, and
-     the per-pair list (metric, stratum, cities, n, ks, floor, raw/BH p, significance).
+     the verdict, per-metric verdict, the full per-(city, stratum, metric) n map,
+     the ``effect_size_floor`` and the significance split
+     (``n_significant_raw_bh`` / ``n_significant_effect``), the per-city tile
+     coverage (n_tiles_expected/read/skipped — the F3 shrinkage counters — plus
+     ``n_bref_excluded``), and the per-pair list (metric, stratum, cities, n, ks,
+     floor, raw/BH p, significance).
 
 PASS ⇒ the worst-case bar is valid; FAIL ⇒ T5 reopens; UNSUPPORTED ⇒ the held-out
 set can't support the test at full granularity (report, do NOT coarsen).
@@ -27,6 +31,7 @@ There is no corpus locally; the verdict logic is unit-tested in
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
 import sys
 from pathlib import Path
@@ -81,14 +86,27 @@ def _result_to_report_dict(result: ConditioningDiscriminationResult) -> dict:
         }
         for p in result.pairs
     ]
+    tile_coverage = {
+        city: {
+            "n_tiles_expected": cov.n_tiles_expected,
+            "n_tiles_read": cov.n_tiles_read,
+            "n_tiles_skipped": cov.n_tiles_skipped,
+            "n_bref_excluded": cov.n_bref_excluded,
+        }
+        for city, cov in sorted(result.tile_coverage.items())
+    }
     return {
         "verdict": result.verdict,
         "per_metric_verdict": dict(result.per_metric_verdict),
         "min_n": result.min_n,
         "alpha": result.alpha,
+        "effect_size_floor": result.effect_size_floor,
+        "n_significant_raw_bh": result.n_significant_raw_bh,
+        "n_significant_effect": result.n_significant_effect,
         "n_qualifying_comparisons": result.n_qualifying_comparisons,
         "n_excluded_thin": result.n_excluded_thin,
         "n_strata_too_few_cities": result.n_strata_too_few_cities,
+        "tile_coverage": tile_coverage,
         "n_by_city_stratum_metric": n_map,
         "pairs": pairs,
     }
@@ -102,10 +120,18 @@ def _print_summary(result: ConditioningDiscriminationResult, report_path: Path) 
     print(f"  VERDICT                  : {result.verdict}")
     print(f"  per-metric verdict       : {result.per_metric_verdict}")
     print(f"  min_n / alpha            : {result.min_n} / {result.alpha}")
+    print(f"  effect-size floor (δ)    : {result.effect_size_floor}")
     print(f"  qualifying comparisons   : {result.n_qualifying_comparisons}")
     print(f"  thin-n cells excluded    : {result.n_excluded_thin}")
     print(f"  strata <2 cities         : {result.n_strata_too_few_cities}")
-    print(f"  BH-significant pairs     : {len(sig)}")
+    for city, cov in sorted(result.tile_coverage.items()):
+        print(
+            f"  tiles {city:<18}: expected={cov.n_tiles_expected} "
+            f"read={cov.n_tiles_read} skipped={cov.n_tiles_skipped} "
+            f"bref_excluded={cov.n_bref_excluded}"
+        )
+    print(f"  raw-BH significant pairs : {result.n_significant_raw_bh}")
+    print(f"  effect-significant pairs : {result.n_significant_effect} (drives verdict)")
     for p in sig:
         print(
             f"    FAIL  metric={p.metric} stratum={p.stratum} "
@@ -125,14 +151,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cities", nargs="+", default=list(DEFAULT_CITIES))
     parser.add_argument("--min-n", type=int, default=50)
     parser.add_argument("--alpha", type=float, default=0.05)
+    # δ=0.15 (PI-call #1, spec §4.3): the effect-size floor's default lives HERE,
+    # at the decision-making layer — the pure verdict takes it as a required kwarg.
+    parser.add_argument("--effect-size-floor", type=float, default=0.15)
     parser.add_argument("--report-out", default=_DEFAULT_REPORT_OUT)
     args = parser.parse_args(argv)
 
     logger.info("extracting features for cities=%s release=%s", args.cities, args.release)
-    features = extract_features_by_city_stratum_metric(args.release, args.cities)
-    logger.info("extracted %d (city, stratum, metric) cells", len(features))
+    extraction = extract_features_by_city_stratum_metric(args.release, args.cities)
+    logger.info("extracted %d (city, stratum, metric) cells", len(extraction.features))
 
-    result = conditioning_discrimination_verdict(features, min_n=args.min_n, alpha=args.alpha)
+    result = conditioning_discrimination_verdict(
+        extraction.features,
+        min_n=args.min_n,
+        alpha=args.alpha,
+        effect_size_floor=args.effect_size_floor,
+    )
+    # Thread extraction coverage into the result; the verdict fn stays pure.
+    result = dataclasses.replace(result, tile_coverage=extraction.tile_coverage)
 
     report_path = (
         (_REPO / args.report_out)

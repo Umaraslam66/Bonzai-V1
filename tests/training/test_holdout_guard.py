@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 
 from cfm.data.training.holdout_guard import manifest_to_reachable, run_holdout_audit
 from cfm.eval.holdout.lineage_audit import HoldoutLeakError
+from cfm.eval.holdout.manifest import manifest_sha256
 
 # A frozen-holdout stand-in: one held-out tile (singapore, 1, 7).
 _HOLDOUT = {
@@ -75,3 +77,84 @@ def test_schema_accepted_with_explicit_matching_version():
         "regions": {"singapore": {"tiles": [{"tile_i": 1, "tile_j": 7}]}},
     }
     run_holdout_audit(sg_like, [], expected_schema_version="1.0")
+
+
+# ----- Task 20 (F9): sha + lock-marker verification at read (manifest_path) -----
+
+
+def _stamp_and_write(tmp, holdout: dict, *, with_marker: bool = True):
+    """Stamp manifest_sha256 (the real freeze grammar) and write to disk; touch the
+    _EVAL_SET_LOCKED marker beside it. Returns (path, stamped_dict)."""
+    stamped = dict(holdout)
+    stamped["manifest_sha256"] = manifest_sha256(stamped)
+    p = tmp / "holdout_manifest.yaml"
+    p.write_text(yaml.safe_dump(stamped), encoding="utf-8")
+    if with_marker:
+        (tmp / "_EVAL_SET_LOCKED").touch()
+    return p, stamped
+
+
+_CLEAN = [{"tile_i": 2, "tile_j": 2, "lineage": [["singapore", 2, 2]]}]
+
+
+def test_f9_stamped_manifest_with_marker_passes(tmp_path):
+    p, stamped = _stamp_and_write(tmp_path, _HOLDOUT)
+    run_holdout_audit(stamped, manifest_to_reachable(_train_manifest(_CLEAN)), manifest_path=p)
+
+
+def test_f9_sha_mismatch_raises_naming_the_manifest(tmp_path):
+    """A manifest whose recomputed sha != its stored manifest_sha256 field is
+    refused at read — and the error names the manifest path."""
+    p, stamped = _stamp_and_write(tmp_path, _HOLDOUT)
+    tampered = dict(stamped)
+    tampered["regions"] = {"singapore": {"tiles": [{"tile_i": 9, "tile_j": 9}]}}  # post-stamp edit
+    with pytest.raises(HoldoutLeakError, match=r"holdout_manifest\.yaml"):
+        run_holdout_audit(tampered, [], manifest_path=p)
+
+
+def test_f9_missing_sha_field_raises_fail_closed(tmp_path):
+    """An UNSTAMPED manifest (no manifest_sha256 field) is unverifiable -> refused."""
+    p = tmp_path / "holdout_manifest.yaml"
+    p.write_text(yaml.safe_dump(_HOLDOUT), encoding="utf-8")
+    (tmp_path / "_EVAL_SET_LOCKED").touch()
+    with pytest.raises(HoldoutLeakError, match="manifest_sha256"):
+        run_holdout_audit(dict(_HOLDOUT), [], manifest_path=p)
+
+
+def test_f9_missing_lock_marker_raises(tmp_path):
+    """sha verifies, but no _EVAL_SET_LOCKED beside the manifest -> refused."""
+    p, stamped = _stamp_and_write(tmp_path, _HOLDOUT, with_marker=False)
+    with pytest.raises(HoldoutLeakError, match="_EVAL_SET_LOCKED"):
+        run_holdout_audit(stamped, [], manifest_path=p)
+
+
+def test_f9_manifest_path_none_skips_sha_and_marker_checks():
+    """Legacy/synthetic callers (manifest_path=None): the schema + leak audit still
+    run, but the sha/marker checks are SKIPPED (pinned legacy behavior)."""
+    run_holdout_audit(dict(_HOLDOUT), manifest_to_reachable(_train_manifest(_CLEAN)))
+
+
+def test_f9_leak_still_detected_after_sha_and_marker_pass(tmp_path):
+    """Order: schema -> sha/marker -> leak. A planted leak on a correctly stamped,
+    marker-locked manifest must STILL raise (leak detection stays observable)."""
+    p, stamped = _stamp_and_write(tmp_path, _HOLDOUT)
+    leak = _train_manifest([{"tile_i": 2, "tile_j": 2, "lineage": [["singapore", 1, 7]]}])
+    with pytest.raises(HoldoutLeakError, match="held-out lineage leak detected"):
+        run_holdout_audit(stamped, manifest_to_reachable(leak), manifest_path=p)
+
+
+def test_real_frozen_manifests_verify_under_current_sha_grammar():
+    """Gate-must-distinguish-regimes: the F9 tests above stamp synthetic manifests
+    with the same in-process manifest_sha256 the verifier recomputes, so a grammar
+    drift in canonicalize_yaml/manifest_sha256 keeps them green while the production
+    reader refuses the REAL manifests stamped under the old grammar. Verify both
+    git-tracked frozen manifests directly (real-artifact idiom: test_ladder.py::
+    test_train_tokens_matches_the_frozen_multiregion_marker)."""
+    from cfm.eval.holdout.paths import holdout_manifest_path, multiregion_holdout_manifest_path
+
+    for path in (
+        holdout_manifest_path("2026-04-15.0"),
+        multiregion_holdout_manifest_path("2026-04-15.0"),
+    ):
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert loaded["manifest_sha256"] == manifest_sha256(loaded), path

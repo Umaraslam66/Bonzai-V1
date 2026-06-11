@@ -8,7 +8,12 @@ sub-D's road_skeleton_class + zoning_class (io.py:51-53), which vary across
 Singapore. sub-C's field literally named ``morphology_class`` is the CONSTANT
 string "Asian-megacity" (sub_c/conditioning.py) -> UNSCORED v1. We never call
 the sub-D stratum "morphology"; it is ``morphology_stratum``. The sub-C constant
-is carried verbatim and listed in ``UNSCORED_V1_DIMENSIONS``.
+is carried verbatim on ``TileLabels``.
+
+Unscored in v1 (readiness spec §4.4): region/admin_region (None for EU until
+the deferred regen; #13), ``sub_c_morphology_class`` (the constant
+"Asian-megacity"; #22), and ``coastal_inland_river`` (near-constant). These
+fields are recorded on TileLabels but participate in no gate.
 
 DENSITY is an AGGREGATE (verified evidence.py:308-337): tile_population_density
 = p75 of the same per-cell building_footprint_ratio that cell_density_bucket
@@ -28,12 +33,6 @@ import yaml
 from cfm.data.sub_d.enums import SlotKind
 from cfm.data.sub_d.io import MacroCoreRow, read_macro_core_parquet
 from cfm.data.sub_d.macro_vocab import load_macro_vocab
-
-#: v1 conditioning dimensions with no real Singapore variation - UNSCORED-stated,
-#: never read as a met bar (spec §E + §5 unscored-not-passing).
-UNSCORED_V1_DIMENSIONS: frozenset[str] = frozenset(
-    {"region", "morphology_class", "coastal_inland_river"}
-)
 
 
 @dataclass(frozen=True)

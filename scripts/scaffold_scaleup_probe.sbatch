@@ -45,5 +45,6 @@ srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --eval-cells 8 --eval-max-new 256
 
 echo "=== report ==="
-cat reports/phase-1-training-scaffold/2026-04-15.0-singapore-loop-closed-scaleup-311M.md 2>/dev/null || echo "(report not found)"
+# F17 run-keyed report name: {release}-{region}-{backbone}-{params}M-seed{seed}-loop-closed.md
+cat reports/phase-1-training-scaffold/2026-04-15.0-singapore-*-loop-closed.md 2>/dev/null || echo "(report not found)"
 echo "JOB_DONE"

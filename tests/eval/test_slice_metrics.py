@@ -14,6 +14,7 @@ The slice eval is REPORTED-NOT-GATED (no pass/fail threshold). It:
 from __future__ import annotations
 
 from cfm.eval import slice_metrics as S
+from cfm.eval.emergence import building_token_ids
 from cfm.eval.holdout import bref_rate
 
 # A valid unit square (4 right-angle corners) and a real bref-collapse pair
@@ -87,3 +88,39 @@ def test_real_invalid_non_bref_counts_against_validity():
     r = S.slice_eval([_SQUARE_BLOCK, _SQUARE_BLOCK], [_SQUARE, bowtie], [1, 1])
     assert r["ogc_valid_rate"] == 0.5  # square valid, self-intersecting bowtie invalid
     assert r["bref_collapse_rate"] == 0.0  # neither is a bref collapse
+
+
+def test_slice_eval_promotes_building_rings_on_its_live_path():
+    """F4-C1b guard: deleting slice_eval's promote_building_rings call must turn this RED.
+
+    Decoder contract: building rings arrive as closed LineString, never Polygon. Every
+    other fixture in this file feeds pre-made Polygons, so only this test exercises the
+    live promotion call inside ``slice_eval`` (the ``is``-identity test alone would still
+    pass with the call deleted)."""
+    building = min(building_token_ids())  # a real building-class token id (one authority)
+    block = [509, building, 1, 2]  # <feature> + building token, per test_geometry_promote
+    ring = {"type": "LineString", "coordinates": [[0, 0], [0, 2], [2, 2], [2, 0], [0, 0]]}
+    r = S.slice_eval([block], [ring], [1])
+    assert r["n_polygons"] >= 1  # un-promoted, the ring stays LineString -> n_polygons == 0
+    assert r["right_angle_rate"] == 1.0  # promoted square ring: all 4 corners ~90 degrees
+
+
+def test_points_excluded_from_ogc_denominator_and_counted():
+    """Task 26 (f) Point-semantics pin: a decoded Point is trivially OGC-valid,
+    so leaving it in the denominator inflates ogc_valid_rate (here it would mask
+    the bowtie: 1/2 instead of 0/1). Points are EXCLUDED from the validity
+    denominator and reported as ``n_points`` instead — never silently scored."""
+    bowtie = {"type": "Polygon", "coordinates": [[[0, 0], [1, 1], [1, 0], [0, 1], [0, 0]]]}
+    point = {"type": "Point", "coordinates": [1.0, 2.0]}
+    r = S.slice_eval([_SQUARE_BLOCK, _SQUARE_BLOCK], [bowtie, point], [1, 1])
+    assert r["n_points"] == 1  # reported, so the exclusion is visible
+    assert r["ogc_valid_rate"] == 0.0  # denominator = the bowtie alone
+
+
+def test_points_alone_yield_zero_rate_with_explicit_count():
+    """All-Point cell: an empty validity denominator reads 0.0 — and n_points
+    disambiguates 'nothing scoreable' from 'everything invalid'."""
+    pts = [{"type": "Point", "coordinates": [float(i), 0.0]} for i in range(3)]
+    r = S.slice_eval([_SQUARE_BLOCK] * 3, pts, [1, 1, 1])
+    assert r["n_points"] == 3
+    assert r["ogc_valid_rate"] == 0.0

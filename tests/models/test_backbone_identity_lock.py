@@ -36,19 +36,27 @@ def test_transformer_ar_head_is_the_sealed_subf_range() -> None:
 def test_embedding_covers_the_value_bearing_conditioning_id_span() -> None:
     # A value-bearing prefix id must index the embedding without going out of range
     # (Task 6 integration: embedding spans n_subf_vocab + conditioning_id_span()).
+    # Task 24b: the production prefix carries the character placeholder at position 9
+    # and the char-built model REQUIRES char_stats (fail-loud, never silent).
+    from cfm.data.training.datamodule import CHARACTER_PLACEHOLDER_ID
+
     model = build_backbone("transformer-ar", _tiny_cfg())
-    prefix = build_value_bearing_prefix(
-        population_density_bucket=5,
-        zoning_class=3,
-        road_skeleton_class=2,
-        cell_density_bucket=5,
-        region="singapore",
-        coastal_inland_river=1,
-        sub_c_morphology_class="Asian-megacity",
-        seed=7,
-    )
+    prefix = [
+        *build_value_bearing_prefix(
+            population_density_bucket=5,
+            zoning_class=3,
+            road_skeleton_class=2,
+            cell_density_bucket=5,
+            region="singapore",
+            coastal_inland_river=1,
+            sub_c_morphology_class="Asian-megacity",
+            seed=7,
+            city_identity="singapore",  # Task 24a: 9th field (registry-encoded)
+        ),
+        CHARACTER_PLACEHOLDER_ID,
+    ]
     ids = torch.tensor([prefix], dtype=torch.long)  # (1, prefix_len)
-    out = model(ids)  # must not raise an index error
+    out = model(ids, char_stats=torch.zeros(1, 7))  # must not raise an index error
     assert out.shape == (1, len(prefix), subf_vocab_size())
 
 

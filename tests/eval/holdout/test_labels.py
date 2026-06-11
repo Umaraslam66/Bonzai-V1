@@ -113,7 +113,6 @@ def test_sub_c_morphology_class_is_recorded_as_unscored_constant(tmp_path: Path)
     # The collision guard: the constant sub-C field is carried verbatim and flagged,
     # never promoted into a "scored" dimension.
     assert tl.sub_c_morphology_class == "Asian-megacity"
-    assert "morphology_class" in labels.UNSCORED_V1_DIMENSIONS
 
 
 def test_GATE6_cell_density_buckets_are_valid_vocab_ids():

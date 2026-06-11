@@ -5,8 +5,11 @@ geometry serializes to canonical GeoJSON via `serialize_geojson` (sort_keys,
 no indent, ASCII) per spec §5.3 for byte-identity comparisons.
 
 The decoder reconstructs vertices from the encoder's hierarchical anchor +
-(direction, magnitude) pair stream and detects geometry type from coord
-closure (Polygon if coords[0] == coords[-1] else LineString). Multi-part
+(direction, magnitude) pair stream and returns Point or LineString ONLY,
+never Polygon: building closed-rings come back as a closed LineString
+(coords[0] == coords[-1]) by contract, and consumers apply
+`cfm.eval.geometry.promote_building_rings` for construction-identity
+promotion to Polygon. Multi-part
 geometries are split into separate features at encode_cell (T8.6); each
 encode_feature call corresponds to one decode_feature call.
 
@@ -76,15 +79,18 @@ def _is_bref_token(token_id: int) -> bool:
 def decode_feature(tokens: list[int]) -> dict[str, Any]:
     """Decode a per-feature token sequence to a GeoJSON-shape dict.
 
-    Returns one of:
-      - {"type": "Polygon", "coordinates": [[[x, y], ...]]}  (closed: coords[0]==coords[-1])
-      - {"type": "LineString", "coordinates": [[x, y], ...]}  (open or closed roundabout)
+    Returns one of (Point or LineString ONLY — this function never returns
+    Polygon):
+      - {"type": "LineString", "coordinates": [[x, y], ...]}  (open or closed)
       - {"type": "Point", "coordinates": [x, y]}              (single vertex)
 
-    Closure detection: if the decoded coord sequence has coords[0] ==
-    coords[-1] AND the feature had no bref tokens (uncrossed Case A), the
-    decoder returns Polygon shape. If the feature carried bref tokens
-    (Case B/C/D), the decoder always returns LineString (roads).
+    Closure: building closed-rings come back as a closed LineString
+    (coords[0] == coords[-1]) by contract — the token stream cannot
+    distinguish a Polygon ring from a closed-LineString roundabout.
+    Consumers that need Polygon geometry must apply
+    `cfm.eval.geometry.promote_building_rings` (construction-identity
+    promotion). Features carrying bref tokens (Case B/C/D) are always
+    LineString (roads).
 
     For Cases B/C/D: the inbound bref token signals "first vertex is on
     the entry edge" (position class-only per §1.4 deferral; decoder uses

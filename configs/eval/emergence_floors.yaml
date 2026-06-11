@@ -1,0 +1,49 @@
+# Per-region emergence floors (readiness-closure Task 13, F13/F15).
+# `floor` is the AUTHORITATIVE gate value; writer-emitted entries satisfy
+# floor == frac * holdout_density (polygons per active cell, REAL holdout)
+# exactly by construction. Hand-seeded entries may hand-carry a historical
+# floor for diagnostic comparability (see their derived_at).
+# Written by scripts/measure_emergence_floor.py (derived_at = git sha);
+# resolved by scripts/train_scaffold.py run_short via cfg.region (fail-closed).
+regions:
+  eisenhuttenstadt:
+    derivation_regime:
+      cell_length: full
+      denominator: all_nonempty_cells
+    derived_at: 8f9fc453fdfa41e44ba35e1912f8f064abc80563
+    floor: 0.37500972686950435
+    frac: 0.25
+    holdout_density: 1.5000389074780174
+  glasgow:
+    derivation_regime:
+      cell_length: full
+      denominator: all_nonempty_cells
+    derived_at: 8f9fc453fdfa41e44ba35e1912f8f064abc80563
+    floor: 1.7085471239535512
+    frac: 0.25
+    holdout_density: 6.834188495814205
+  krakow:
+    derivation_regime:
+      cell_length: full
+      denominator: all_nonempty_cells
+    derived_at: 8f9fc453fdfa41e44ba35e1912f8f064abc80563
+    floor: 1.062209732288123
+    frac: 0.25
+    holdout_density: 4.248838929152492
+  munich:
+    derivation_regime:
+      cell_length: full
+      denominator: all_nonempty_cells
+    derived_at: 8f9fc453fdfa41e44ba35e1912f8f064abc80563
+    floor: 2.406428728552574
+    frac: 0.25
+    holdout_density: 9.625714914210295
+  singapore:
+    derivation_regime:
+      cell_length: full
+      denominator: all_nonempty_cells
+    derived_at: hand-carried from 2026-06 scaffold; re-derive on next SG run
+    floor: 1.96
+    frac: 0.25
+    holdout_density: 7.85
+schema_version: '1.0'

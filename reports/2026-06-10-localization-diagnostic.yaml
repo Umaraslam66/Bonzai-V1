@@ -1,0 +1,272 @@
+methodology:
+  alpha: 0.05
+  bref_exclusion: outbound-bref line features excluded by construction identity (_has_outbound_bref on the ORIGINAL token block), counted per city, applied ONCE so every variant sees the SAME feature pool
+  cities:
+  - eisenhuttenstadt
+  - glasgow
+  - krakow
+  - munich
+  effect_size_floor: 0.15
+  min_n: 50
+  rate_criterion: variants are judged by rate = n_significant_effect / n_pairs (null when n_pairs == 0), NOT by raw count — the count criterion is confounded by changing pair denominators (PI-locked at this gate)
+  release: 2026-04-15.0
+  v1c_note: 'the PI-requested ''V1c = per-cell-density-only swap'' is IDENTICAL to V0 by construction and is therefore not run: the gate''s density slot is already per-cell (each feature''s own cell_density_bucket via _cell_density_by_cell / macro_core cell_density_bucket), so swapping it tile->cell changes nothing. The correct decomposition of V1 is the 2x2 over {tile vs cell zoning} x {dims kept vs dropped}: V0 (tile zoning, dims kept), V1b (cell zoning, dims kept), V1d (tile zoning, dims dropped), V1 (cell zoning, dims dropped).'
+  variants:
+    V0:
+      description: 'baseline: the exact gate-(i) stratum'
+      stratum:
+      - dominant_zoning_class
+      - modal_road_skeleton_class
+      - cell_density_bucket
+      - coastal_inland_river
+    V1:
+      description: 'un-collapse: per-cell zoning REPLACES the tile-dominant zoning and the skeleton+coastal tile dims are DROPPED; the density slot is unchanged (already per-cell)'
+      stratum:
+      - per_cell_zoning_class
+      - cell_density_bucket
+    V1b:
+      description: 'attribution (zoning swap, dims KEPT): V0 with only the zoning slot un-collapsed to the cell''s own zoning_class — isolates V1''s tile->cell zoning change'
+      stratum:
+      - per_cell_zoning_class
+      - modal_road_skeleton_class
+      - cell_density_bucket
+      - coastal_inland_river
+    V1d:
+      description: 'attribution (dims DROPPED, zoning kept): V0 with the skeleton+coastal dims pooled away, tile-dominant zoning retained — isolates V1''s dim-drop change'
+      stratum:
+      - dominant_zoning_class
+      - cell_density_bucket
+    V2_16:
+      density_bucket_scheme:
+        n_buckets: 16
+        overflow: ratios > 1 (pathological) clip into the last bucket
+        range:
+        - 0.0
+        - 1.0
+        scheme: equal_width
+        top_edge: inclusive
+      description: 'un-quantize: V0 with the 4-bucket density slot replaced by a 16-bucket index over raw building_footprint_ratio'
+    V2_8:
+      density_bucket_scheme:
+        n_buckets: 8
+        overflow: ratios > 1 (pathological) clip into the last bucket
+        range:
+        - 0.0
+        - 1.0
+        scheme: equal_width
+        top_edge: inclusive
+      description: 'un-quantize: V0 with the 4-bucket density slot replaced by an 8-bucket index over raw building_footprint_ratio'
+    V3:
+      description: 'candidate dim: V0 PLUS an appended per-cell sea_water_fraction bucket (sub-C cells.parquet)'
+      sea_bucket_scheme:
+        bucket_0: sea_water_fraction <= EPS_RATIO (1e-09)
+        bucket_1: (EPS_RATIO, 0.5]
+        bucket_2: '> 0.5'
+    V4:
+      building_size_bucket_scheme:
+        bucket_0: no buildings in the cell (median is null)
+        bucket_1: median <= 10 m² (floor-bucketed)
+        bucket_10: median > 2560 m² (ceiling-bucketed)
+        buckets_2_to_9: '1 + number of area doublings above 10 m²: equal-log-width (factor-2) edges 10, 20, 40, 80, 160, 320, 640, 1280, 2560 m² (top edge of each interval inclusive)'
+        n_buckets: 11
+        n_buckets_note: '11 distinct values: bucket 0 (no buildings) + 10 size buckets (1..10)'
+        statistic: median building footprint area (m²) per cell
+      description: 'candidate dim: V0 PLUS an appended per-cell building-size bucket — MEDIAN building footprint area (m²) over the cell''s building polygons (sub-C features.parquet); tests the spec §4.1 evidence anchor (building geometry as the missing character) directly'
+tile_coverage:
+  eisenhuttenstadt:
+    n_bref_excluded: 43326
+    n_tiles_expected: 616
+    n_tiles_read: 616
+    n_tiles_skipped: 0
+  glasgow:
+    n_bref_excluded: 77735
+    n_tiles_expected: 549
+    n_tiles_read: 549
+    n_tiles_skipped: 0
+  krakow:
+    n_bref_excluded: 102104
+    n_tiles_expected: 616
+    n_tiles_read: 616
+    n_tiles_skipped: 0
+  munich:
+    n_bref_excluded: 60965
+    n_tiles_expected: 171
+    n_tiles_read: 171
+    n_tiles_skipped: 0
+variants:
+  V0:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 321
+    n_significant_effect: 141
+    n_significant_raw_bh: 303
+    per_metric:
+      building_area_m2:
+        median_ks: 0.185359477124183
+        n_pairs: 141
+        n_significant_effect: 82
+        rate: 0.5815602836879432
+      road_length_m:
+        median_ks: 0.11855788277766288
+        n_pairs: 180
+        n_significant_effect: 59
+        rate: 0.3277777777777778
+    rate: 0.4392523364485981
+    verdict: FAIL
+  V1:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 122
+    n_significant_effect: 42
+    n_significant_raw_bh: 112
+    per_metric:
+      building_area_m2:
+        median_ks: 0.1445235264647814
+        n_pairs: 49
+        n_significant_effect: 23
+        rate: 0.46938775510204084
+      road_length_m:
+        median_ks: 0.10554202553326719
+        n_pairs: 73
+        n_significant_effect: 19
+        rate: 0.2602739726027397
+    rate: 0.3442622950819672
+    verdict: FAIL
+  V1b:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 391
+    n_significant_effect: 160
+    n_significant_raw_bh: 336
+    per_metric:
+      building_area_m2:
+        median_ks: 0.16503800217155262
+        n_pairs: 149
+        n_significant_effect: 85
+        rate: 0.5704697986577181
+      road_length_m:
+        median_ks: 0.11936362244398124
+        n_pairs: 242
+        n_significant_effect: 75
+        rate: 0.30991735537190085
+    rate: 0.4092071611253197
+    verdict: FAIL
+  V1d:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 97
+    n_significant_effect: 36
+    n_significant_raw_bh: 95
+    per_metric:
+      building_area_m2:
+        median_ks: 0.14824176919572796
+        n_pairs: 44
+        n_significant_effect: 20
+        rate: 0.45454545454545453
+      road_length_m:
+        median_ks: 0.1124360847286725
+        n_pairs: 53
+        n_significant_effect: 16
+        rate: 0.3018867924528302
+    rate: 0.3711340206185567
+    verdict: FAIL
+  V2_16:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 463
+    n_significant_effect: 210
+    n_significant_raw_bh: 423
+    per_metric:
+      building_area_m2:
+        median_ks: 0.19627417529847122
+        n_pairs: 198
+        n_significant_effect: 122
+        rate: 0.6161616161616161
+      road_length_m:
+        median_ks: 0.12151711334834497
+        n_pairs: 265
+        n_significant_effect: 88
+        rate: 0.3320754716981132
+    rate: 0.4535637149028078
+    verdict: FAIL
+  V2_8:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 277
+    n_significant_effect: 117
+    n_significant_raw_bh: 258
+    per_metric:
+      building_area_m2:
+        median_ks: 0.17472540132386682
+        n_pairs: 123
+        n_significant_effect: 71
+        rate: 0.5772357723577236
+      road_length_m:
+        median_ks: 0.1221781553579443
+        n_pairs: 154
+        n_significant_effect: 46
+        rate: 0.2987012987012987
+    rate: 0.4223826714801444
+    verdict: FAIL
+  V3:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 321
+    n_significant_effect: 141
+    n_significant_raw_bh: 303
+    per_metric:
+      building_area_m2:
+        median_ks: 0.185359477124183
+        n_pairs: 141
+        n_significant_effect: 82
+        rate: 0.5815602836879432
+      road_length_m:
+        median_ks: 0.11855788277766288
+        n_pairs: 180
+        n_significant_effect: 59
+        rate: 0.3277777777777778
+    rate: 0.4392523364485981
+    verdict: FAIL
+  V4:
+    n_features_by_city:
+      eisenhuttenstadt: 202202
+      glasgow: 737295
+      krakow: 827805
+      munich: 494909
+    n_qualifying_comparisons: 1056
+    n_significant_effect: 392
+    n_significant_raw_bh: 755
+    per_metric:
+      building_area_m2:
+        median_ks: 0.17109924292577128
+        n_pairs: 336
+        n_significant_effect: 176
+        rate: 0.5238095238095238
+      road_length_m:
+        median_ks: 0.1234189482796455
+        n_pairs: 720
+        n_significant_effect: 216
+        rate: 0.3
+    rate: 0.3712121212121212
+    verdict: FAIL

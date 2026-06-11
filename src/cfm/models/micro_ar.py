@@ -12,9 +12,19 @@ Two locked invariants:
     GIVEN. Supervised targets are every cell-token next-token target, which includes
     the first-cell-token-from-conditioning prediction (target index ``prefix_len-1``).
 
+Task 24b adds ONE continuous prefix position (``n_char_stats``/``char_position``):
+its input embedding is ``Linear(n_char_stats -> d_model)`` of the per-cell
+``char_stats`` vector, overwriting the placeholder id's token embedding at that
+position. POSITION axis only -- the token-id span (``n_cond``) is unchanged.
+
 DECISION (slice v1, tier-2 / model-side encoding): the conditioning prefix is the
-8 field-SLOT tokens ``[CONDITIONING_ID_BASE .. +8)`` -- value-agnostic. The locked
-id-block is one id per FIELD (``n_cond=8``) and the model takes a single id sequence
+9 field-SLOT tokens ``[CONDITIONING_ID_BASE .. +9)`` -- value-agnostic (slot scheme
+superseded by the 24a value-bearing path for production; retained for the legacy
+builder). The locked
+id-block is ``n_cond=conditioning_id_span()`` (= 576 embedding rows reserved above
+the sub-F vocab; 9 fields x 64-id stride since Task 24a, wired in ``backbone.py``)
+and the model
+takes a single id sequence
 with no value channel, so value-bearing conditioning is out of scope for the slice;
 its informative encoding is a bake-off concern. The tier-1 conditioning VALUES
 (``conditioning.conditioning_prefix_ids``) remain the schema artifact consumed by
@@ -41,6 +51,25 @@ class MicroARConfig:
     n_cond: int  # conditioning id-block size (input-only embedding rows)
     max_len: int
     dropout: float = 0.0
+    #: Task 24b: width of the continuous character-stats vector (0 = no carrier; the
+    #: hand-built fixture default). Production (backbone.build_backbone) passes
+    #: CHARACTER_STAT_CHANNELS == 7. CHANNEL axis — not positions, not embedding rows.
+    n_char_stats: int = 0
+    #: Task 24b: the sequence POSITION whose token embedding is overwritten by
+    #: Linear(n_char_stats -> d_model)(char_stats). Production passes
+    #: CONDITIONING_PREFIX_LEN (9: the 10th position, after the 9 id positions).
+    #: Required when n_char_stats > 0.
+    char_position: int | None = None
+
+    def __post_init__(self) -> None:
+        # Cross-check both directions: char_position without a carrier would be
+        # silently ignored (the carrier never builds) — loud, never silent.
+        if self.n_char_stats == 0 and self.char_position is not None:
+            raise ValueError(
+                f"MicroARConfig: char_position={self.char_position} set while "
+                f"n_char_stats=0 — the carrier never builds, so the position would "
+                f"be silently ignored (mismatched wiring, refusing)"
+            )
 
 
 @dataclass
@@ -58,6 +87,18 @@ class MicroAR(nn.Module):
         self.cfg = cfg
         self.embed = nn.Embedding(cfg.n_subf_vocab + cfg.n_cond, cfg.d_model)
         self.pos = nn.Embedding(cfg.max_len, cfg.d_model)
+        # Task 24b: the continuous character carrier — ONE prefix position whose input
+        # embedding is a Linear projection of char_stats, never a table lookup (the
+        # token-id axis is untouched: no new vocabulary ids).
+        if cfg.n_char_stats > 0:
+            if cfg.char_position is None:
+                raise ValueError(
+                    "MicroARConfig: n_char_stats > 0 requires char_position (the prefix "
+                    "position the projection overwrites)"
+                )
+            self.char_proj: nn.Linear | None = nn.Linear(cfg.n_char_stats, cfg.d_model)
+        else:
+            self.char_proj = None
         layer = nn.TransformerEncoderLayer(
             d_model=cfg.d_model,
             nhead=cfg.n_heads,
@@ -72,10 +113,38 @@ class MicroAR(nn.Module):
         )
         self.head = nn.Linear(cfg.d_model, cfg.n_subf_vocab)  # sub-F range only
 
-    def forward(self, ids: torch.Tensor) -> torch.Tensor:
+    def forward(self, ids: torch.Tensor, char_stats: torch.Tensor | None = None) -> torch.Tensor:
+        """``char_stats`` (Task 24b): float ``[B, n_char_stats]``. When the model
+        carries the character channel (``n_char_stats > 0``) it is REQUIRED — a
+        char-built model must never silently train on the placeholder id's token
+        embedding; the mismatch is loud in BOTH directions. The projection
+        OVERWRITES the token embedding at ``char_position`` (the placeholder id
+        there is inert); the positional embedding stays additive."""
         t = ids.shape[1]
+        emb = self.embed(ids)
+        if self.char_proj is None:
+            if char_stats is not None:
+                raise ValueError(
+                    "char_stats given but this model has no character carrier "
+                    "(n_char_stats=0) — mismatched wiring, refusing"
+                )
+        else:
+            if char_stats is None:
+                raise ValueError(
+                    f"this model carries a continuous character position "
+                    f"(n_char_stats={self.cfg.n_char_stats}) but forward() got "
+                    f"char_stats=None — refusing the silent placeholder-embedding regime"
+                )
+            p = self.cfg.char_position
+            assert p is not None  # constructor invariant: n_char_stats > 0 => set
+            if t <= p:
+                raise ValueError(
+                    f"sequence length {t} does not reach the character position {p} — "
+                    f"the prefix must include the placeholder slot"
+                )
+            emb[:, p, :] = self.char_proj(char_stats.to(emb.dtype))
         positions = torch.arange(t, device=ids.device)
-        x = self.embed(ids) + self.pos(positions)
+        x = emb + self.pos(positions)
         causal = nn.Transformer.generate_square_subsequent_mask(t, device=ids.device)
         h = self.blocks(x, mask=causal, is_causal=True)
         return self.head(h)
@@ -86,18 +155,21 @@ class MicroAR(nn.Module):
         *,
         prefix_len: torch.Tensor,
         seq_len: torch.Tensor | None = None,
+        char_stats: torch.Tensor | None = None,
     ) -> LossOut:
         """Next-token CE over the cell-token positions; conditioning prefix masked.
 
         ``ids`` is ``[conditioning prefix | cell tokens | (right-padding)]``.
-        ``prefix_len[b]`` is the number of conditioning tokens for example ``b``;
+        ``prefix_len[b]`` is the number of conditioning tokens for example ``b``
+        (10 since Task 24b: 9 id positions + the continuous character position);
         targets ``< prefix_len-1`` (the conditioning tokens themselves) are masked,
         while target ``prefix_len-1`` (first cell token, predicted FROM conditioning)
         onward is supervised. ``seq_len[b]`` (optional) is the real length incl. the
         prefix; targets at index ``>= seq_len-1`` are right-padding and also masked.
         When ``seq_len`` is None, every example is assumed full-length (no padding).
+        ``char_stats`` threads to ``forward`` (required iff the model carries it).
         """
-        logits = self(ids)[:, :-1]  # logits[:, i] predicts token at position i+1
+        logits = self(ids, char_stats=char_stats)[:, :-1]  # logits[:, i] predicts pos i+1
         target = ids[:, 1:].clone()
         lens = seq_len.tolist() if seq_len is not None else [None] * ids.shape[0]
         for b, pl in enumerate(prefix_len.tolist()):

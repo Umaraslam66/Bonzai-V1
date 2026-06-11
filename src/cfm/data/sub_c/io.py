@@ -170,7 +170,8 @@ class FeatureRow:
     geometry_type and bbox_* must be PRE-COMPUTED by the caller and supplied on
     the dataclass; the writer reads them directly without re-deriving from geometry.
     feature_class must be the int8 enum code (0=road, 1=building, 2=poi, 3=base).
-    geometry_type must be the int8 enum code (0=Point, 1=LineString, 2=Polygon).
+    geometry_type must be the int8 enum code (0=Point, 1=LineString, 2=Polygon,
+    3=MultiPoint, 4=MultiLineString, 5=MultiPolygon).
     """
 
     cell_i: int
@@ -178,7 +179,9 @@ class FeatureRow:
     feature_class: int  # int8 enum: 0=road, 1=building, 2=poi, 3=base
     source_feature_id: str
     geometry: BaseGeometry  # shapely; serialised to WKB by writer
-    geometry_type: int  # int8 enum: 0=Point, 1=LineString, 2=Polygon
+    # int8 enum: 0=Point, 1=LineString, 2=Polygon, 3=MultiPoint,
+    # 4=MultiLineString, 5=MultiPolygon
+    geometry_type: int
     bbox_min_x: float
     bbox_min_y: float
     bbox_max_x: float

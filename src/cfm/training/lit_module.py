@@ -31,6 +31,11 @@ class ScaffoldLit(L.LightningModule):
         L.seed_everything(cfg.seed, workers=True)
         self.save_hyperparameters(cfg.model_dump())
         self.cfg = cfg
+        # OUTCOME of the torch.compile wrap step (readiness A-3 / Task 26): written
+        # by train.maybe_compile ("off (...)" / "compiled" / "disabled: <error>");
+        # declared here with the informative never-ran default so report writers
+        # read a real attribute, never a getattr fallback.
+        self.compile_outcome: str = "unknown (maybe_compile not run)"
         # Swappable backbone (§9). transformer-ar today; mamba-hybrid / discrete-diffusion
         # are gated behind Task 5's mamba-ssm verify-before-lock. The shared embedding spans
         # the value-bearing conditioning id span; the head is the sealed sub-F range.
@@ -38,7 +43,12 @@ class ScaffoldLit(L.LightningModule):
 
     def _loss(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         out = self.model.training_loss(
-            batch["ids"], prefix_len=batch["prefix_len"], seq_len=batch.get("seq_len")
+            batch["ids"],
+            prefix_len=batch["prefix_len"],
+            seq_len=batch.get("seq_len"),
+            # Task 24b: the continuous character carrier; the char-built model's
+            # forward REFUSES None, so a batch missing the key fails loud here.
+            char_stats=batch.get("char_stats"),
         )
         return out.loss
 
