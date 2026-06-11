@@ -60,7 +60,8 @@ _CONDITIONING_FIELDS: tuple[str, ...] = (
 # Lock grammar mirrors the Task-20 holdout-manifest discipline: ``registry_sha256``
 # over the canonical YAML EXCLUDING itself + a ``_CITY_REGISTRY_LOCKED`` marker
 # beside the file. The reader REFUSES on sha mismatch / missing sha / missing
-# marker / unknown city — fail-loud, never silent bucket-0.
+# marker / malformed YAML / schema-version skew / stride overflow / unknown city —
+# fail-loud, never silent bucket-0.
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 CITY_REGISTRY_PATH: Path = _REPO_ROOT / "configs" / "training" / "city_identity_registry.yaml"
@@ -108,6 +109,11 @@ def _read_verified_registry(path: Path) -> tuple[str, ...]:
             f"(expected {marker}); refusing to read an unsealed registry."
         )
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or "cities" not in data:
+        raise CityRegistryError(
+            f"malformed registry at {path}: expected a YAML mapping with a 'cities' "
+            f"key (got {type(data).__name__}); refusing (fail-closed)."
+        )
     stored = data.get("registry_sha256")
     if stored is None:
         raise CityRegistryError(
@@ -120,6 +126,13 @@ def _read_verified_registry(path: Path) -> tuple[str, ...]:
             f"city-identity registry sha mismatch at {path}: stored "
             f"registry_sha256={stored!r} but recomputed {recomputed!r} — the content "
             f"was edited after the freeze; refusing (ids must never move)."
+        )
+    version = data.get("registry_schema_version")
+    if version != CITY_REGISTRY_SCHEMA_VERSION:
+        raise CityRegistryError(
+            f"city-identity registry {path} declares "
+            f"registry_schema_version={version!r} but this reader requires "
+            f"{CITY_REGISTRY_SCHEMA_VERSION!r}; refusing a version-skewed registry."
         )
     cities = tuple(data["cities"])
     if len(set(cities)) != len(cities):

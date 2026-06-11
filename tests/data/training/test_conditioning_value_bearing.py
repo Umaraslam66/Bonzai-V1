@@ -29,7 +29,7 @@ def _prefix(**overrides: object) -> list[int]:
 
 
 #: index of the city_identity slot (the appended 9th field) and its block base.
-_CITY_SLOT = 8
+_CITY_SLOT = conditioning._CONDITIONING_FIELDS.index("city_identity")
 
 
 def _city_block_base() -> int:

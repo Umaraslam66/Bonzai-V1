@@ -194,7 +194,7 @@ def test_collate_right_pads_and_reports_lengths():
 
 def test_collated_batch_carries_value_prefixes_not_a_constant_block():
     """F6 collate-layer guard: batches must carry VALUE prefixes. Two shards with
-    DIFFERENT tile_conditioning -> the two collated rows' first-8 ids must differ
+    DIFFERENT tile_conditioning -> the two collated rows' 9 conditioning-prefix ids must differ
     (a regression to the constant slot block would make them equal, and would only
     fail the flatten tests, not any batch-level check — this closes that gap)."""
     import torch
@@ -453,10 +453,15 @@ def test_union_check_runs_on_the_union_not_per_manifest(tmp_path, monkeypatch):
 
 
 def _city_slot_ids(examples):
-    from cfm.data.training.conditioning import _VALUE_STRIDE, CONDITIONING_VALUE_BASE
+    from cfm.data.training.conditioning import (
+        _CONDITIONING_FIELDS,
+        _VALUE_STRIDE,
+        CONDITIONING_VALUE_BASE,
+    )
 
-    city_block_base = CONDITIONING_VALUE_BASE + 8 * _VALUE_STRIDE
-    return city_block_base, [e.prefix_ids[8] for e in examples]
+    city_slot = _CONDITIONING_FIELDS.index("city_identity")
+    city_block_base = CONDITIONING_VALUE_BASE + city_slot * _VALUE_STRIDE
+    return city_block_base, [e.prefix_ids[city_slot] for e in examples]
 
 
 def test_flatten_no_city_ablation_zeroes_only_the_city_slot():
