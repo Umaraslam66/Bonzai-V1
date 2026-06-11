@@ -60,8 +60,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 #: (metric, stratum) -> feature samples, the one feature-dict grammar shared
-#: with the conditioning-floor lanes.
-GenFeatures = dict[tuple[str, tuple], list[float]]
+#: with the conditioning-floor lanes. A stratum is the mixed string/int tuple
+#: the floor artifact freezes (e.g. ("R", "S1", 1, "inland")).
+GenFeatures = dict[tuple[str, tuple[str | int, ...]], list[float]]
 
 #: What the per-city scalar IS (stamped into every decision record so a reader
 #: can never mistake it for a bare KS). DECISION: the BINDING scalar is the
@@ -100,7 +101,14 @@ def read_held_out_cities(manifest: dict | str | Path) -> frozenset[str]:
             "the held-out city set from a default (a .get fallback would make "
             "the completeness check vacuously pass on zero cities)."
         )
-    return frozenset(data["held_out_cities"])
+    value = data["held_out_cities"]
+    if not isinstance(value, list):
+        raise ValueError(
+            f"holdout manifest 'held_out_cities' must be a list, got "
+            f"{type(value).__name__} ({value!r}) — a YAML scalar would frozenset "
+            "into its CHARACTERS, a silently wrong city set."
+        )
+    return frozenset(value)
 
 
 def read_persisted_basis(basis: dict | str | Path) -> DecisionBasis:
@@ -165,6 +173,11 @@ def memorization_check(
         sweep silently; an extra city has no frozen strata to score);
       * zero (D, T) pairs with discriminating strata anywhere — an all-PASS
         over nothing is vacuous and guards nothing.
+
+    PRECONDITION (enforced by ``decide`` step 2 on the orchestrated path):
+    ``gen_by_city`` and ``real_by_city`` cover the artifact's
+    ``held_out_cities`` — they are bare-indexed per held-out D below, so a
+    direct caller handing a shrunk dict gets a KeyError, not a named refusal.
     """
     if not isinstance(artifact, VerifiedFloorArtifact):
         raise FloorArtifactError(
@@ -482,6 +495,9 @@ def decide(
         floored_strata_by_city.setdefault(rec["city"], set()).add(
             (rec["metric"], tuple(rec["stratum"]))
         )
+    # PRECONDITION for the bare floored_strata_by_city[city] index: step 4's
+    # lane_s_excess already REFUSED any held-out city the artifact never floored
+    # ("holds no floors for city"), so every city in `held` has floor rows here.
     n_reference_by_city = {
         city: sum(
             len(samples)

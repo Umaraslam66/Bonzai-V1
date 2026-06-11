@@ -494,6 +494,15 @@ def test_manifest_read_is_strict_no_get_fallback() -> None:
     assert read_held_out_cities({"held_out_cities": ["a", "b"]}) == frozenset({"a", "b"})
 
 
+def test_manifest_read_refuses_a_scalar_held_out_cities() -> None:
+    """Task-26 quality review #3: a YAML scalar ('held_out_cities: d_city')
+    frozensets into the string's CHARACTERS — a silently wrong city set that
+    fails every completeness check confusingly (or none vacuously). The shape
+    must be a list, refused by name otherwise."""
+    with pytest.raises(ValueError, match="list"):
+        read_held_out_cities({"held_out_cities": "d_city"})
+
+
 def test_decide_refuses_artifact_manifest_city_incoherence(tmp_path: Path) -> None:
     """Task-26 spec review #4: the floor artifact's frozen ``held_out_cities``
     must equal the manifest set — a NAMED refusal, never a downstream silent

@@ -161,6 +161,34 @@ def test_bakeoff_run_sbatch_has_buildability_dry_run_before_srun() -> None:
     )
 
 
+def test_bakeoff_run_sbatch_dry_run_vets_the_trained_backbone() -> None:
+    """REVERSE-LOCK (Task-26 quality review #1): srun passes --backbone
+    "$BACKBONE", an explicit CLI flag that OVERRIDES the YAML value — so the
+    dry-run must apply the SAME override ({**yaml, 'backbone': '${BACKBONE}'}).
+    A bare ScaffoldConfig(**yaml) dry-run on a YAML that OMITS `backbone`
+    builds the default transformer while the job trains mamba — the exact
+    missing-kernels regime the gate's comment claims to catch. And a YAML
+    naming a DIFFERENT backbone than $BACKBONE is a config/submission
+    mismatch: a loud refusal, never a silent stomp."""
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    override = "'backbone': '${BACKBONE}'"
+    assert override in text, (
+        "the dry-run does not apply the srun --backbone override — a YAML omitting "
+        "`backbone` gates the DEFAULT backbone, not the one the job will train"
+    )
+    assert text.index(override) < text.index("\nsrun "), (
+        "the backbone-overridden dry-run must run in the preamble, before srun"
+    )
+    assert "CONFIG_BACKBONE_MISMATCH" in text, (
+        "no loud refusal for a YAML backbone that contradicts $BACKBONE — a "
+        "config/submission mismatch must refuse, never silently stomp the YAML"
+    )
+    assert "ScaffoldConfig(**_load_config_yaml" not in text, (
+        "the un-overridden ScaffoldConfig(**yaml) dry-run is back — it builds the "
+        "YAML/default backbone, not the trained ($BACKBONE-overridden) one"
+    )
+
+
 # --- Task 10 (readiness-closure): --region/--release CLI + sbatch de-Singaporization ---
 
 _SBATCH_NAMES = ["bakeoff_diagnostic.sbatch", "bakeoff_run.sbatch"]

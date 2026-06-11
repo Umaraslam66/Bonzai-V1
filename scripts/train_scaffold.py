@@ -527,8 +527,9 @@ def run_short(
         trained_steps=int(trainer.global_step),
         cost=cost,
         scale_label=scale_label,
-        # OUTCOME of the torch.compile wrap (set by maybe_compile), never the intent
-        compile_outcome=getattr(lit, "compile_outcome", "unknown (maybe_compile not run)"),
+        # OUTCOME of the torch.compile wrap (set by maybe_compile; ScaffoldLit
+        # declares the informative never-ran default), never the intent
+        compile_outcome=lit.compile_outcome,
     )
     logger.info("wrote %s", report)
     return {

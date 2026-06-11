@@ -152,7 +152,11 @@ def test_run_short_passes_work_checkpoint_dir_to_build_trainer(tmp_path, monkeyp
     monkeypatch.setenv("WORK", str(tmp_path))
     monkeypatch.setattr(ts, "build_trainer", fake_build_trainer)
     monkeypatch.setattr(ts, "_datamodule", lambda *a, **k: SimpleNamespace())
-    monkeypatch.setattr(ts, "ScaffoldLit", lambda cfg: SimpleNamespace())
+    # the stub models ScaffoldLit's declared interface: compile_outcome is a real
+    # attribute (Task-26 quality review #6), no longer a getattr-with-default read
+    monkeypatch.setattr(
+        ts, "ScaffoldLit", lambda cfg: SimpleNamespace(compile_outcome="unknown (stub)")
+    )
     monkeypatch.setattr(ts, "maybe_compile", lambda lit, cfg: lit)
     monkeypatch.setattr(ts, "_param_count", lambda cfg: 89_700_000)
 
@@ -199,7 +203,10 @@ def test_run_short_report_label_matches_ckpt_dir_label(tmp_path, monkeypatch) ->
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(ts, "build_trainer", fake_build_trainer)
     monkeypatch.setattr(ts, "_datamodule", lambda *a, **k: SimpleNamespace())
-    monkeypatch.setattr(ts, "ScaffoldLit", lambda cfg: SimpleNamespace())
+    # stub models ScaffoldLit's declared interface (compile_outcome, review #6)
+    monkeypatch.setattr(
+        ts, "ScaffoldLit", lambda cfg: SimpleNamespace(compile_outcome="unknown (stub)")
+    )
     monkeypatch.setattr(ts, "maybe_compile", lambda lit, cfg: lit)
     monkeypatch.setattr(ts, "_param_count", lambda cfg: 89_450_000)
     monkeypatch.setattr(ts, "_generate_and_score", lambda *a, **k: {})

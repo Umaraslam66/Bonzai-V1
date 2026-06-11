@@ -114,19 +114,37 @@ fi
 # stability comes from the label being deterministic from cfg, not from matching $SCALE.
 RUN_CONFIG="configs/experiments/bakeoff-${BACKBONE}-${SCALE}.yaml"
 
-# Pre-submit buildability gate (readiness A-3 / Task 26): prove the per-run YAML parses
-# AND the backbone BUILDS, on CPU, in this login preamble — an unbuildable config
-# (typo'd field, missing mamba-ssm kernels, bad shape) fails HERE, never minutes into
-# a 4-GPU allocation. The YAML goes through the CLI's OWN fail-closed loader,
+# Buildability gate (readiness A-3 / Task 26): prove the per-run YAML parses AND the
+# backbone BUILDS, on CPU, in this compute-node preamble (it runs INSIDE the
+# allocation, before srun — what it saves is the srun/DDP spin-up and a doomed
+# multi-rank launch, not the allocation itself). An unbuildable config (typo'd field,
+# missing mamba-ssm kernels, bad shape) fails HERE, never minutes into a 4-rank
+# launch. The YAML goes through the CLI's OWN fail-closed loader,
 # _load_config_yaml (Task-26 spec review #2): bare ScaffoldConfig(**yaml) silently
 # IGNORES unknown kwargs, so a typo'd recipe key would survive the preamble and train
 # the wrong experiment; the loader refuses unknown AND topology-owned keys — the
 # preamble enforces literally the SAME rules the srun's --config path will.
+#
+# The dry-run builds the TRAINED backbone (Task-26 quality review #1): the srun below
+# passes --backbone "$BACKBONE", an explicit CLI flag that OVERRIDES the YAML — so the
+# gate applies the SAME override. Without it, a YAML omitting `backbone` would gate
+# the DEFAULT transformer while the job trains mamba: the exact missing-kernels regime
+# this gate exists to catch. And a YAML naming a DIFFERENT backbone than $BACKBONE is
+# a config/submission mismatch — CONFIG_BACKBONE_MISMATCH refuses loudly; the override
+# is for the omitted case only, never a silent stomp of a contradicting YAML.
 python -c "
 from scripts.train_scaffold import _load_config_yaml
 from cfm.models.backbone import build_backbone
 from cfm.training.config import ScaffoldConfig
-cfg = ScaffoldConfig(**_load_config_yaml('${RUN_CONFIG}'))
+loaded = _load_config_yaml('${RUN_CONFIG}')
+declared = loaded.get('backbone')
+if declared is not None and declared != '${BACKBONE}':
+    raise SystemExit(
+        'CONFIG_BACKBONE_MISMATCH: ${RUN_CONFIG} names backbone ' + repr(declared)
+        + ' but the job was submitted with BACKBONE=${BACKBONE} — a config/submission'
+        + ' mismatch is a refusal, never a silent stomp; fix the YAML or the submit env.'
+    )
+cfg = ScaffoldConfig(**{**loaded, 'backbone': '${BACKBONE}'})
 build_backbone(cfg.backbone, cfg)
 print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={cfg.n_layers}')
 "
