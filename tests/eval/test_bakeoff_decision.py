@@ -197,6 +197,32 @@ def test_inverted_pairing_mutation_would_crown_the_memorizer(tmp_path: Path) -> 
     assert decision.binding.binding_city == "d_city"
 
 
+def test_losing_memorizer_still_refused_by_name(tmp_path: Path) -> None:
+    """LOSER-MEMORIZER TOOTH (Task-26 spec review #1): the Lane-M gate sweeps
+    ALL candidates, never just the would-be winner. Pool = [oracle (excess 0.0
+    everywhere, all checks ok), memorizer (WORSE fidelity, Lane-M FAIL)] — the
+    memorizer LOSES on excess, yet pick_winner refuses by the NAMED
+    MemorizationRefusal naming the memorizer. A 'gate only the winner'
+    refactor crowns the oracle here; this is the test that goes red."""
+    verified = load_verified_floor(_frozen_floor(tmp_path))
+    oracle = _candidate("oracle", _GEN_ORACLE, verified)
+    memorizer = _candidate("memorizer", _GEN_MEMORIZER, verified)
+
+    # regime check: the memorizer LOSES on fidelity (oracle is best-by-excess
+    # at every city), and the oracle passes BOTH checks — fidelity alone would
+    # crown the oracle without ever consulting the memorizer's Lane-M verdict.
+    assert oracle.lane_s_by_city["d_city"].median_excess == pytest.approx(0.0)
+    assert oracle.lane_s_by_city["h_city"].median_excess == pytest.approx(0.0)
+    assert memorizer.lane_s_by_city["d_city"].median_excess == pytest.approx(0.1)
+    assert oracle.memorization.ok is True
+    assert oracle.structural_check_ok is True
+    assert memorizer.memorization.ok is False
+
+    with pytest.raises(MemorizationRefusal, match="memoriz") as exc:
+        pick_winner([oracle, memorizer], n_reference_by_city=_N_REF)
+    assert "memorizer" in str(exc.value)  # names the LOSING memorizer, not the winner
+
+
 def test_oracle_is_crowned_normally(tmp_path: Path) -> None:
     """The must-fire pair's other half: gen := D's own held-out samples passes
     BOTH lanes and is crowned (excess 0 everywhere; Lane M PASS on every pair)."""
@@ -466,6 +492,81 @@ def test_manifest_read_is_strict_no_get_fallback() -> None:
     with pytest.raises(ValueError, match="held_out_cities"):
         read_held_out_cities({"tiles": []})
     assert read_held_out_cities({"held_out_cities": ["a", "b"]}) == frozenset({"a", "b"})
+
+
+def test_decide_refuses_artifact_manifest_city_incoherence(tmp_path: Path) -> None:
+    """Task-26 spec review #4: the floor artifact's frozen ``held_out_cities``
+    must equal the manifest set — a NAMED refusal, never a downstream silent
+    pass (an artifact-extra city's floors are simply never consumed today) or
+    a bare KeyError. Floors frozen for a DIFFERENT city set are lineage skew."""
+    features = {(c, _SA, _M): _grid(s) for c, s in _SHIFTS.items()}
+    features[("x_city", _SA, _M)] = _grid(40)  # the artifact-extra held-out city
+    payload = build_floor_artifact_payload(
+        features, release="test", held_out_cities=[*_HELD, "x_city"], train_cities=_TRAIN_CITIES
+    )
+    path = tmp_path / "floor-extra-city.yaml"
+    freeze_floor_artifact(payload, path)
+    with pytest.raises(ValueError, match="x_city") as exc:
+        decide(
+            _evals(),
+            _REAL,
+            _TRAIN,
+            artifact=path,
+            holdout_manifest=_manifest(tmp_path),
+            persisted_basis=_basis(tmp_path),
+        )
+    assert "floor artifact" in str(exc.value)  # the named coherence refusal, not a KeyError
+
+
+# --------------------------------------------------------------------------- #
+# #21 power gate: n_reference counts ONLY the city's floored strata
+# --------------------------------------------------------------------------- #
+
+
+def test_n_reference_counts_only_the_floored_strata(tmp_path: Path) -> None:
+    """Task-26 spec review #3 (permissive-direction drift): the docstring says
+    'the city's floored strata'; summing ALL of real_by_city[city] would count
+    UNFLOORED strata too, inflating n and SHRINKING the power floor — a more
+    permissive #21 gate. d carries one floored stratum (S1, 100 samples) plus
+    one stratum only d has (S2: no pair, no floor row): n_reference must be
+    100, not 200, and the gate must get HARDER, not softer."""
+    stratum_b = ("R", "S2", 1, "inland")
+    features = {(c, _SA, _M): _grid(s) for c, s in _SHIFTS.items()}
+    features[("d_city", stratum_b, _M)] = _grid(0)  # d-only -> zero pairs -> UNFLOORED
+    payload = build_floor_artifact_payload(
+        features, release="test", held_out_cities=_HELD, train_cities=_TRAIN_CITIES
+    )
+    path = tmp_path / "floor-unfloored-stratum.yaml"
+    freeze_floor_artifact(payload, path)
+    verified = load_verified_floor(path)
+    floored_d = {
+        (r["metric"], tuple(r["stratum"]))
+        for r in verified.payload["floors"]
+        if r["city"] == "d_city"
+    }
+    assert floored_d == {(_M, _SA)}  # S2 really is unfloored for d
+
+    real = {"d_city": {(_M, _SA): _grid(0), (_M, stratum_b): _grid(0)}, "h_city": _feat(20)}
+    gen_oracle = {"d_city": dict(real["d_city"]), "h_city": _feat(20)}
+    gen_honest = {"d_city": {(_M, _SA): _grid(-60), (_M, stratum_b): _grid(0)}, "h_city": _feat(10)}
+    evals = [
+        BackboneEval("oracle", structural_check_ok=True, gen_by_city_by_scale={_SCALE: gen_oracle}),
+        BackboneEval("honest", structural_check_ok=True, gen_by_city_by_scale={_SCALE: gen_honest}),
+    ]
+    decision = decide(
+        evals,
+        real,
+        _TRAIN,
+        artifact=path,
+        holdout_manifest=_manifest(tmp_path),
+        persisted_basis=_basis(tmp_path),
+    )
+    # the floored count, NOT the all-strata sum (200) — and the DIRECTIONAL
+    # effect: smaller n -> LARGER power floor -> a HARDER #21 gate.
+    assert decision.n_reference_by_city == {"d_city": 100, "h_city": 100}
+    assert single_region_floor_gap(n_reference_features=100) > single_region_floor_gap(
+        n_reference_features=200
+    )
 
 
 # --------------------------------------------------------------------------- #

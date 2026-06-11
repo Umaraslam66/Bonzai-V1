@@ -361,7 +361,11 @@ def decide(
       2. STRICT held-out completeness: ``set(real_by_city)`` must equal the
          manifest's ``held_out_cities`` (correction #12), and every backbone's
          generated city set at every scale must too — loud, naming the
-         offender, never a silently-shrunk worst-case domain.
+         offender, never a silently-shrunk worst-case domain. The ARTIFACT's
+         frozen ``held_out_cities`` must equal the manifest set too (Task-26
+         spec review #4): floors frozen for a different city set are lineage
+         skew — a NAMED refusal here, never a downstream silent pass (an
+         artifact-extra city's floors are simply never consumed) or KeyError.
       3. Rule-2 basis assertion: the basis implied by the number of feasible
          scale points actually evaluated is compared (as enums) against the
          persisted basis record. All backbones must share ONE scale set.
@@ -372,9 +376,12 @@ def decide(
       5. ``pick_winner`` (memorization -> structural -> power-gated worst-case).
 
     DECISION: ``n_reference_by_city`` for the #21 power gate is the TOTAL real
-    feature count over the city's floored strata — the city's reference
-    population, backbone-independent. Revisit if per-stratum thinness ever
-    diverges materially between candidates.
+    feature count over the city's FLOORED strata ONLY (the artifact's floor
+    rows for that city) — the city's reference population, backbone-independent.
+    Unfloored strata are excluded (Task-26 spec review #3): counting them
+    would inflate n and SHRINK the power floor — a silently more permissive
+    gate. Revisit if per-stratum thinness ever diverges materially between
+    candidates.
     """
     # 1. verified floor BEFORE any scoring
     if isinstance(artifact, (str, Path)):
@@ -390,6 +397,16 @@ def decide(
 
     # 2. STRICT completeness against the manifest
     held = read_held_out_cities(holdout_manifest)
+    artifact_held = set(verified.payload["held_out_cities"])
+    if artifact_held != held:
+        a_missing = sorted(held - artifact_held)
+        a_extra = sorted(artifact_held - held)
+        raise ValueError(
+            "decide: floor artifact held_out_cities do not match the manifest's "
+            f"(artifact-extra: {a_extra}, artifact-missing: {a_missing}) — the "
+            "floors were frozen for a DIFFERENT held-out city set; scoring "
+            "against them is silent lineage skew, refusing."
+        )
     if set(real_by_city) != held:
         missing = sorted(held - set(real_by_city))
         extra = sorted(set(real_by_city) - held)
@@ -460,8 +477,18 @@ def decide(
         )
         for ev in evals
     )
+    floored_strata_by_city: dict[str, set[tuple[str, tuple]]] = {}
+    for rec in verified.payload["floors"]:
+        floored_strata_by_city.setdefault(rec["city"], set()).add(
+            (rec["metric"], tuple(rec["stratum"]))
+        )
     n_reference_by_city = {
-        city: sum(len(v) for v in real_by_city[city].values()) for city in sorted(held)
+        city: sum(
+            len(samples)
+            for key, samples in real_by_city[city].items()
+            if key in floored_strata_by_city[city]
+        )
+        for city in sorted(held)
     }
 
     # 5. crown (or refuse by name)

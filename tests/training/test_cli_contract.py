@@ -139,11 +139,26 @@ def test_config_refuses_topology_owned_keys(tmp_path) -> None:
 def test_bakeoff_run_sbatch_has_buildability_dry_run_before_srun() -> None:
     """Task 26 / readiness A-3: the preamble must prove the per-run config
     BUILDS (CPU build_backbone dry-run) before any GPU rank launches — an
-    unbuildable config fails in the preamble, never after queueing 4 GPUs."""
+    unbuildable config fails in the preamble, never after queueing 4 GPUs.
+
+    REVERSE-LOCK (Task-26 spec review #2): the dry-run must route the YAML
+    through the CLI's OWN fail-closed loader, ``_load_config_yaml`` — bare
+    ``ScaffoldConfig(**yaml)`` silently ignores unknown kwargs, so a typo'd
+    recipe key would survive the preamble and fail nowhere (it would train the
+    WRONG experiment); a revert to the bare-pydantic dry-run goes red here."""
     text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
     assert "build_backbone" in text, "no build_backbone buildability dry-run in the preamble"
     # "\nsrun " = the actual launch command at line start (comments mention srun earlier)
     assert text.index("build_backbone") < text.index("\nsrun "), "dry-run must precede srun"
+    assert "_load_config_yaml" in text, (
+        "the preamble dry-run does not use the CLI's fail-closed _load_config_yaml loader"
+    )
+    assert text.index("_load_config_yaml('${RUN_CONFIG}')") < text.index("\nsrun "), (
+        "the fail-closed loader call must run on RUN_CONFIG in the preamble, before srun"
+    )
+    assert "ScaffoldConfig(**(yaml.safe_load" not in text, (
+        "the bare ScaffoldConfig(**yaml) dry-run is back — it silently ignores unknown keys"
+    )
 
 
 # --- Task 10 (readiness-closure): --region/--release CLI + sbatch de-Singaporization ---

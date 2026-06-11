@@ -115,15 +115,18 @@ fi
 RUN_CONFIG="configs/experiments/bakeoff-${BACKBONE}-${SCALE}.yaml"
 
 # Pre-submit buildability gate (readiness A-3 / Task 26): prove the per-run YAML parses
-# into a ScaffoldConfig AND the backbone BUILDS, on CPU, in this login preamble — an
-# unbuildable config (typo'd field, missing mamba-ssm kernels, bad shape) fails HERE,
-# never minutes into a 4-GPU allocation. Same fail-closed key rules as the CLI loader:
-# pydantic validates; the model is built then discarded.
+# AND the backbone BUILDS, on CPU, in this login preamble — an unbuildable config
+# (typo'd field, missing mamba-ssm kernels, bad shape) fails HERE, never minutes into
+# a 4-GPU allocation. The YAML goes through the CLI's OWN fail-closed loader,
+# _load_config_yaml (Task-26 spec review #2): bare ScaffoldConfig(**yaml) silently
+# IGNORES unknown kwargs, so a typo'd recipe key would survive the preamble and train
+# the wrong experiment; the loader refuses unknown AND topology-owned keys — the
+# preamble enforces literally the SAME rules the srun's --config path will.
 python -c "
-import yaml
+from scripts.train_scaffold import _load_config_yaml
 from cfm.models.backbone import build_backbone
 from cfm.training.config import ScaffoldConfig
-cfg = ScaffoldConfig(**(yaml.safe_load(open('${RUN_CONFIG}')) or {}))
+cfg = ScaffoldConfig(**_load_config_yaml('${RUN_CONFIG}'))
 build_backbone(cfg.backbone, cfg)
 print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={cfg.n_layers}')
 "
