@@ -18,6 +18,10 @@ from enum import Enum
 
 from shapely.geometry import shape
 
+# the ONE building-ring promotion authority + its closed-ring predicate (imported
+# by reference, protocol v2 §9 — same pattern as slice_metrics)
+from cfm.eval.geometry import _is_closed_ring, promote_building_rings
+
 _POLYGON_TYPES = ("Polygon", "MultiPolygon")
 _LINE_TYPES = ("LineString", "MultiLineString")
 
@@ -27,14 +31,41 @@ class FeatureMetric(Enum):
     ROAD_LENGTH = "road_length_m"
 
 
-def feature_samples(geoms: list[dict], *, metric: FeatureMetric) -> list[float]:
+def feature_samples(
+    geoms: list[dict], *, metric: FeatureMetric, blocks: list[list[int]] | None = None
+) -> list[float]:
     """Extract the per-feature scalar for ``metric`` from decoded GeoJSON geoms.
 
     Building areas come from (Multi)Polygon geoms; road lengths from
     (Multi)LineString geoms. Geoms of the other kind are skipped.
+
+    PROMOTION IS INTERNAL (readiness Task 26 (d), resolving the F4-C1d fork
+    structurally): the sealed sub-F decoder emits building closed rings as
+    ``LineString`` BY CONTRACT, so a bare type-switch silently reads ZERO
+    building areas on real decoded data. When ``blocks`` (the decoded token
+    blocks aligned with ``geoms``) are given, building closed rings are
+    promoted to Polygon FIRST via the one construction-identity authority
+    (``cfm.eval.geometry.promote_building_rings``) — so the helper is safe for
+    every future caller, not just callers that remembered to promote upstream.
+
+    WITHOUT ``blocks`` a closed-ring LineString is AMBIGUOUS (unpromoted
+    building ring vs closed-road roundabout): under BUILDING_AREA it would be
+    silently skipped, under ROAD_LENGTH a building would be silently COUNTED
+    as a road. Both are scoring corruption, so the regime is LOUD — pass the
+    blocks (every decode path has them) to disambiguate by construction
+    identity. Open lines and Polygons never need blocks.
     """
+    if blocks is not None:
+        geoms = promote_building_rings(blocks, geoms)
     out: list[float] = []
     for g in geoms:
+        if blocks is None and g.get("type") == "LineString" and _is_closed_ring(g):
+            raise ValueError(
+                "feature_samples: closed-ring LineString with no `blocks` to "
+                "disambiguate it (building ring vs road roundabout) — pass the "
+                "decoded token blocks so promotion can key on construction "
+                "identity; refusing a silent mis-sample."
+            )
         geom = shape(g)
         if metric is FeatureMetric.BUILDING_AREA and geom.geom_type in _POLYGON_TYPES:
             out.append(float(geom.area))

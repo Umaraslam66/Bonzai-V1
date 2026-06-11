@@ -147,13 +147,23 @@ def effective_batch_size(cfg: ScaffoldConfig) -> int:
 
 def maybe_compile(lit: ScaffoldLit, cfg: ScaffoldConfig) -> ScaffoldLit:
     """torch.compile the model when cfg.compile (default-on, CLAUDE.md); disable on
-    error rather than fight the compiler."""
+    error rather than fight the compiler.
+
+    OUTCOME, not intent (readiness A-3 / Task 26): ``lit.compile_outcome`` records
+    what actually happened to the wrap step ("off (cfg.compile=False)" /
+    "compiled" / "disabled: <error>"), and run_short renders it into the report —
+    a run that silently fell back to eager must not publish numbers that look
+    compiled. (Backend failures can still surface lazily at first forward; the
+    training log carries those.)"""
     if not cfg.compile:
+        lit.compile_outcome = "off (cfg.compile=False)"
         return lit
     try:
         import torch
 
         lit.model = torch.compile(lit.model)
+        lit.compile_outcome = "compiled"
     except Exception as exc:
         logger.warning("torch.compile disabled (%s: %s)", type(exc).__name__, exc)
+        lit.compile_outcome = f"disabled: {type(exc).__name__}: {exc}"
     return lit

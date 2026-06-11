@@ -42,9 +42,34 @@ def _gauss(rng: random.Random, *, mu: float, sigma: float, n: int) -> list[float
 
 
 def test_noise_floor_matches_ks_critical_value_formula() -> None:
-    # 1.36 * sqrt((n1+n2)/(n1*n2)) — the alpha=0.05 two-sample KS critical value.
-    assert noise_floor(50, 50) == 1.36 * math.sqrt(100 / 2500)
-    assert noise_floor(100, 200) == 1.36 * math.sqrt(300 / 20000)
+    # REVERSE-LOCK (Task 26 (g), deliberate): this pin was 1.36 — the ROUNDED
+    # two-sample KS alpha=0.05 coefficient. The exact value is 1.358 (one source:
+    # feature_resolution._KS_C_ALPHA_05, matching holdout/sizing.py); per the
+    # plan's Gate-2 rule the EXACT one wins, so noise_floor's default changed
+    # and this guard is re-pinned WITH it (lock and guards travel together).
+    assert noise_floor(50, 50) == 1.358 * math.sqrt(100 / 2500)
+    assert noise_floor(100, 200) == 1.358 * math.sqrt(300 / 20000)
+
+
+def test_ks_coefficient_is_one_sourced_across_modules() -> None:
+    """Task 26 (g) cross-guard: feature_resolution._KS_C_ALPHA_05 (1.358, exact)
+    IS noise_floor's default c — imported, never a second literal, so the two
+    modules cannot drift apart again.
+
+    KNOWN CONSEQUENCE (stated, not silent): noise_floor is INFORMATIONAL
+    (significance is BH-p-value-based, see PairResult.significant), so reported
+    noise_floor values in FUTURE artifacts shift by ~0.15%; the FROZEN floor
+    artifact carries c=1.36-era values and stays valid because nothing consumes
+    its noise_floor field (the sha-verified reader never recomputes it)."""
+    import inspect
+
+    from cfm.eval.feature_resolution import _KS_C_ALPHA_05
+
+    assert _KS_C_ALPHA_05 == 1.358
+    default_c = inspect.signature(noise_floor).parameters["c"].default
+    assert default_c == _KS_C_ALPHA_05
+    # one SOURCE, not one value: the module binds the imported constant itself
+    assert CD._KS_C_ALPHA_05 is _KS_C_ALPHA_05
 
 
 def test_ks_pvalue_identical_samples_is_one() -> None:

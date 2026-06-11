@@ -58,14 +58,92 @@ def test_backbone_flag_parses_and_overrides() -> None:
     assert args.backbone == "mamba-hybrid"
 
 
-@pytest.mark.xfail(
-    reason="Task-12 TODO: bakeoff_run.sbatch's --config yaml loader is not wired yet"
-)
-def test_bakeoff_run_sbatch_config_flag_is_a_known_task12_gap() -> None:
-    # Records (does not mask) that bakeoff_run.sbatch passes --config, which the CLI does
-    # not yet support. When the Task-12 per-run config loader lands, this xpasses -> remove.
+# REVERSE-LOCK (Task 26 (e), deliberate): this was the NAMED xfail
+# ``test_bakeoff_run_sbatch_config_flag_is_a_known_task12_gap`` — the --config
+# yaml loader is now wired into build_config_from_args, so the gap-record flips
+# into the positive contract guard it was always holding a seat for.
+def test_bakeoff_run_sbatch_flags_are_all_recognized() -> None:
     used = _sbatch_flags(_REPO / "scripts" / "bakeoff_run.sbatch")
+    assert used, "expected the bake-off run sbatch to pass some flags"
     assert not (used - _parser_long_flags())
+
+
+# --- Task 26 (e): --config per-run YAML loader -> ScaffoldConfig round-trip ---
+
+
+def _write_yaml(tmp_path, payload: dict):
+    p = tmp_path / "bakeoff-run.yaml"
+    import yaml
+
+    p.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    return p
+
+
+def test_config_yaml_round_trips_into_scaffold_config(tmp_path) -> None:
+    """The per-run YAML (configs/experiments/bakeoff-*.yaml) carries the locked
+    recipe; every field must land in ScaffoldConfig unchanged."""
+    mod = _load_module()
+    p = _write_yaml(
+        tmp_path,
+        {
+            "backbone": "mamba-hybrid",
+            "d_model": 384,
+            "n_layers": 10,
+            "n_heads": 12,
+            "max_steps": 1234,
+            "grad_accum": 4,
+            "lr": 1e-4,
+            "seed": 11,
+        },
+    )
+    cfg = mod.build_config_from_args(mod._build_parser().parse_args(["--config", str(p)]))
+    assert cfg.backbone == "mamba-hybrid"
+    assert cfg.d_model == 384
+    assert cfg.n_layers == 10
+    assert cfg.n_heads == 12
+    assert cfg.max_steps == 1234
+    assert cfg.grad_accum == 4
+    assert cfg.lr == pytest.approx(1e-4)
+    assert cfg.seed == 11
+
+
+def test_explicit_cli_flag_overrides_the_config_value(tmp_path) -> None:
+    mod = _load_module()
+    p = _write_yaml(tmp_path, {"d_model": 384, "max_steps": 1234})
+    args = mod._build_parser().parse_args(["--config", str(p), "--d-model", "512"])
+    cfg = mod.build_config_from_args(args)
+    assert cfg.d_model == 512  # explicit flag wins
+    assert cfg.max_steps == 1234  # untouched config value still lands
+
+
+def test_config_unknown_key_is_loud_not_ignored(tmp_path) -> None:
+    """pydantic ignores extra kwargs-by-default regimes elsewhere; a typo'd
+    recipe field silently dropped would train the WRONG experiment — loud."""
+    mod = _load_module()
+    p = _write_yaml(tmp_path, {"d_modle": 384})  # typo
+    args = mod._build_parser().parse_args(["--config", str(p)])
+    with pytest.raises(ValueError, match="d_modle"):
+        mod.build_config_from_args(args)
+
+
+def test_config_refuses_topology_owned_keys(tmp_path) -> None:
+    """devices/accelerator are owned by the sbatch topology (CLI defaults are
+    ALWAYS applied, so a config value would be silently stomped) — refuse."""
+    mod = _load_module()
+    p = _write_yaml(tmp_path, {"devices": 2})
+    args = mod._build_parser().parse_args(["--config", str(p)])
+    with pytest.raises(ValueError, match="devices"):
+        mod.build_config_from_args(args)
+
+
+def test_bakeoff_run_sbatch_has_buildability_dry_run_before_srun() -> None:
+    """Task 26 / readiness A-3: the preamble must prove the per-run config
+    BUILDS (CPU build_backbone dry-run) before any GPU rank launches — an
+    unbuildable config fails in the preamble, never after queueing 4 GPUs."""
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    assert "build_backbone" in text, "no build_backbone buildability dry-run in the preamble"
+    # "\nsrun " = the actual launch command at line start (comments mention srun earlier)
+    assert text.index("build_backbone") < text.index("\nsrun "), "dry-run must precede srun"
 
 
 # --- Task 10 (readiness-closure): --region/--release CLI + sbatch de-Singaporization ---

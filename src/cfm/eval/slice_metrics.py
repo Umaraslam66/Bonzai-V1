@@ -162,11 +162,20 @@ def slice_eval(
     # OGC validity over the NON-bref-collapse decoded geoms (structural exclusion):
     # bref-collapse is a known v1 limitation, removed from the denominator and
     # reported separately. A non-bref invalid geom IS counted as invalid.
+    # POINT SEMANTICS PINNED (Task 26 (f)): a decoded (Multi)Point is trivially
+    # OGC-valid, so leaving it in the denominator inflates ogc_valid_rate over
+    # geometry that has no validity question to answer. Points are EXCLUDED
+    # from the denominator and reported as ``n_points`` — visible, never
+    # silently scored.
     gated_valid = 0
     gated_total = 0
+    n_points = 0
     for block, geom in zip(blocks, geoms, strict=True):
         if _is_bref_collapse(block, geom):
             continue  # known v1 outbound-bref placeholder collapse -> not gated
+        if geom.get("type") in ("Point", "MultiPoint"):
+            n_points += 1
+            continue  # trivially valid; excluded from the denominator, counted
         gated_total += 1
         if _is_ogc_valid(geom):
             gated_valid += 1
@@ -205,6 +214,7 @@ def slice_eval(
         "n_attempted": attempted,
         "n_polygons": n_polygons,  # disambiguates right_angle_rate==0.0
         "n_corners": n_corners,
+        "n_points": n_points,  # (f) pin: Points excluded from the OGC denominator
         "emergence_verdict": verdict.value if verdict is not None else None,
         "building_metrics_floored": floored,
         "emergence_floor_provenance": emergence_floor_provenance,

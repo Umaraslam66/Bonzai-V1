@@ -323,6 +323,7 @@ def _write_report(
     trained_steps: int,
     cost: dict | None = None,
     scale_label: str | None = None,
+    compile_outcome: str | None = None,
 ) -> Path:
     out_dir = Path("reports/phase-1-training-scaffold")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -350,6 +351,9 @@ def _write_report(
         f"- **commit:** `{_git_commit()}`",
         f"- **data snapshot:** release `{cfg.release}`, holdout marker `{marker}`",
         f"- **trained steps:** {trained_steps}",
+        # Compile OUTCOME, not intent (readiness A-3): cfg.compile in the Config
+        # dump is what was ASKED for; this line is what actually happened.
+        *([f"- **compile outcome:** {compile_outcome}"] if compile_outcome is not None else []),
         "",
         "## Config",
         "```json",
@@ -518,7 +522,13 @@ def run_short(
     cost["eval_node_h"] = round(eval_seconds / 3600.0, 4)
     cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, cfg.eval_cells), 6)
     report = _write_report(
-        cfg, metrics, trained_steps=int(trainer.global_step), cost=cost, scale_label=scale_label
+        cfg,
+        metrics,
+        trained_steps=int(trainer.global_step),
+        cost=cost,
+        scale_label=scale_label,
+        # OUTCOME of the torch.compile wrap (set by maybe_compile), never the intent
+        compile_outcome=getattr(lit, "compile_outcome", "unknown (maybe_compile not run)"),
     )
     logger.info("wrote %s", report)
     return {
@@ -603,12 +613,53 @@ def _build_parser() -> argparse.ArgumentParser:
         help="training corpus: single (per-region manifest, default) | eu-train-union "
         "(the Task-8 per-city manifest union; never rebuilds)",
     )
+    # Task 26 (e): the per-run YAML loader bakeoff_run.sbatch was already passing
+    # (the former named xfail in tests/training/test_cli_contract.py).
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="per-run ScaffoldConfig YAML (configs/experiments/bakeoff-*.yaml); "
+        "explicit CLI flags override its values; unknown keys are refused",
+    )
     return parser
 
 
+def _load_config_yaml(path: str) -> dict:
+    """The --config YAML -> ScaffoldConfig-field dict, fail-closed.
+
+    - Unknown keys are LOUD (pydantic would silently ignore them; a typo'd
+      recipe field silently dropped trains the WRONG experiment).
+    - ``devices``/``accelerator`` are refused: they are owned by the sbatch
+      topology (the CLI applies them unconditionally below, so a config value
+      would be silently stomped — refuse rather than mislead).
+    """
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"--config {path}: expected a YAML mapping, got {type(raw).__name__}")
+    unknown = sorted(set(raw) - set(ScaffoldConfig.model_fields))
+    if unknown:
+        raise ValueError(
+            f"--config {path} carries keys that are not ScaffoldConfig fields: "
+            f"{unknown} — refusing (a silently-ignored key trains the wrong experiment)."
+        )
+    topology = sorted(set(raw) & {"devices", "accelerator"})
+    if topology:
+        raise ValueError(
+            f"--config {path} sets topology-owned keys {topology}: devices/accelerator "
+            "belong to the sbatch/CLI (--devices), not the per-run recipe; refusing."
+        )
+    return raw
+
+
 def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
-    """Pure args->config mapping (no side effects beyond accelerator probing)."""
-    overrides: dict = {"devices": args.devices, "accelerator": _accelerator_for(args.devices)}
+    """Pure args->config mapping (no side effects beyond accelerator probing).
+
+    Precedence: ScaffoldConfig defaults < --config YAML < explicit CLI flags
+    (a flag left at its None default never stomps a config value)."""
+    overrides: dict = {}
+    if getattr(args, "config", None):
+        overrides.update(_load_config_yaml(args.config))
+    overrides.update({"devices": args.devices, "accelerator": _accelerator_for(args.devices)})
     for flag, key in [
         ("backbone", "backbone"),
         ("max_steps", "max_steps"),

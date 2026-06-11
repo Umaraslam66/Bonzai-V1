@@ -47,6 +47,15 @@ from cfm.data.sub_g.readers import read_sub_f_cells
 # construction-identity AUTHORITY for the v1 outbound-bref artifact (token-structure
 # fact, never an error-magnitude or zero-length test) — one source, not a copy.
 from cfm.data.sub_g.seam_decodability import _has_outbound_bref
+
+# ONE source for the two-sample KS alpha=0.05 coefficient (Task 26 (g)): the
+# EXACT 1.358 (~1.3581) from feature_resolution wins over this module's old
+# rounded 1.36 literal; imported by reference so the modules cannot drift —
+# the cross-guard test pins them equal. noise_floor is INFORMATIONAL here
+# (significance is BH-based), so the only effect is reported floors shifting
+# ~0.15%; the frozen floor artifact's 1.36-era values stay valid (nothing
+# consumes that field on the verified-read path).
+from cfm.eval.feature_resolution import _KS_C_ALPHA_05
 from cfm.eval.geometry import promote_building_rings
 from cfm.eval.holdout.labels import read_tile_labels
 from cfm.eval.holdout.paths import (
@@ -74,11 +83,13 @@ DEFAULT_CITIES: tuple[str, ...] = ("eisenhuttenstadt", "glasgow", "krakow", "mun
 # --------------------------------------------------------------------------- #
 
 
-def noise_floor(n1: int, n2: int, *, c: float = 1.36) -> float:
+def noise_floor(n1: int, n2: int, *, c: float = _KS_C_ALPHA_05) -> float:
     """alpha=0.05 two-sample KS critical value: ``c * sqrt((n1+n2)/(n1*n2))``.
 
     The per-comparison threshold PAIRED to the exact n that produced the KS
     distance: a smaller sample tolerates a larger KS before it counts as signal.
+    ``c`` defaults to the ONE-SOURCED exact coefficient 1.358 (see the import
+    note above); INFORMATIONAL — significance decisions are BH-p-value-based.
     """
     return c * math.sqrt((n1 + n2) / (n1 * n2))
 

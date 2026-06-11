@@ -104,19 +104,34 @@ else
   python -c "from cfm.data.training.build_shards import DEFAULT_G4_ROLLUP, verify_union_manifests; from cfm.eval.holdout.paths import multiregion_holdout_manifest_path; cities = verify_union_manifests('${RELEASE}', g4_rollup=DEFAULT_G4_ROLLUP, holdout_manifest=multiregion_holdout_manifest_path('${RELEASE}')); print(f'eu-train-union preamble: {len(cities)} per-city manifests verified on disk')"
 fi
 
-# TODO(Task 12): --config is NOT wired yet (no per-run yaml loader on the CLI; see the
-# xfail in tests/training/test_cli_contract.py). Task 12 either adds a --config loader OR
-# expands this to individual --d-model/--n-layers/... flags like bakeoff_diagnostic.sbatch.
-# The per-run config (configs/experiments/bakeoff-$BACKBONE-$SCALE.yaml) carries r-derived
-# max_steps, the locked recipe, grad_accum, and the $WORK checkpoint dir; run_short resumes
-# from resume_ckpt_path() and checkpoints to work_checkpoint_dir(backbone, param-derived
-# scale label, region, seed). NOTE: the scale label is derived from the param count, NOT
-# from the nominal $SCALE env (e.g. "311M" vs nominal "300M") — resume stability comes
-# from the label being deterministic from cfg, not from matching $SCALE.
+# --config IS wired (readiness Task 26; the former Task-12 xfail in
+# tests/training/test_cli_contract.py flipped to a positive guard). The per-run config
+# (configs/experiments/bakeoff-$BACKBONE-$SCALE.yaml) carries r-derived max_steps, the
+# locked recipe and grad_accum; explicit CLI flags below override its values; run_short
+# resumes from resume_ckpt_path() and checkpoints to work_checkpoint_dir(backbone,
+# param-derived scale label, region, seed). NOTE: the scale label is derived from the
+# param count, NOT from the nominal $SCALE env (e.g. "311M" vs nominal "300M") — resume
+# stability comes from the label being deterministic from cfg, not from matching $SCALE.
+RUN_CONFIG="configs/experiments/bakeoff-${BACKBONE}-${SCALE}.yaml"
+
+# Pre-submit buildability gate (readiness A-3 / Task 26): prove the per-run YAML parses
+# into a ScaffoldConfig AND the backbone BUILDS, on CPU, in this login preamble — an
+# unbuildable config (typo'd field, missing mamba-ssm kernels, bad shape) fails HERE,
+# never minutes into a 4-GPU allocation. Same fail-closed key rules as the CLI loader:
+# pydantic validates; the model is built then discarded.
+python -c "
+import yaml
+from cfm.models.backbone import build_backbone
+from cfm.training.config import ScaffoldConfig
+cfg = ScaffoldConfig(**(yaml.safe_load(open('${RUN_CONFIG}')) or {}))
+build_backbone(cfg.backbone, cfg)
+print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={cfg.n_layers}')
+"
+
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --backbone "$BACKBONE" \
   --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" \
-  --config "configs/experiments/bakeoff-${BACKBONE}-${SCALE}.yaml" &
+  --config "$RUN_CONFIG" &
 SRUN_PID=$!
 wait "$SRUN_PID"
 
