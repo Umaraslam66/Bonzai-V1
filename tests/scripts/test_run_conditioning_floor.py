@@ -21,6 +21,8 @@ from cfm.eval.conditioning_floor import (
     FloorCollapseError,
     load_verified_floor,
 )
+from cfm.eval.holdout.lineage_audit import HoldoutLeakError
+from cfm.eval.holdout.manifest import manifest_sha256
 
 _REPO = Path(__file__).resolve().parents[2]
 _RELEASE = "2026-04-15.0"
@@ -62,11 +64,16 @@ def _fake_extraction(shifts: dict[str, int], n: int = 100):
 
 
 def _write_manifest(tmp_path: Path, held_out: list[str] | None) -> Path:
+    """A properly FROZEN synthetic manifest: ``manifest_sha256`` stamped with the
+    real freeze grammar + ``_EVAL_SET_LOCKED`` beside it — the runner now refuses
+    anything less (Task-25 quality review #2: the F9 verified read)."""
     path = tmp_path / "holdout_manifest.yaml"
     data: dict = {"manifest_schema_version": "2.0"}
     if held_out is not None:
         data["held_out_cities"] = held_out
+    data["manifest_sha256"] = manifest_sha256(data)
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    (tmp_path / "_EVAL_SET_LOCKED").touch()
     return path
 
 
@@ -112,6 +119,56 @@ def test_held_out_cities_read_is_strict_never_get(tmp_path: Path) -> None:
     mod = _load_module()
     manifest = _write_manifest(tmp_path, held_out=None)
     with pytest.raises(ValueError, match="held_out_cities"):
+        mod.main(
+            [
+                "--release",
+                _RELEASE,
+                "--holdout-manifest",
+                str(manifest),
+                "--out",
+                str(tmp_path / "floor.yaml"),
+            ]
+        )
+
+
+def test_tampered_manifest_is_refused_before_any_extraction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task-25 quality review #2 RED tooth: a post-freeze edit of
+    held_out_cities (sha left stale) must be refused LOUDLY — via the holdout
+    guard's F9 verifier — BEFORE any extraction runs, so a tampered manifest
+    can never define the D-vs-T boundary the floor artifact freezes."""
+    mod = _load_module()
+
+    def _never_extract(release: str, cities) -> ExtractionResult:
+        raise AssertionError("extraction must never run against a tampered manifest")
+
+    monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _never_extract)
+    manifest = _write_manifest(tmp_path, ["d_city"])
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    data["held_out_cities"] = ["d_city", "attacker_city"]  # post-freeze edit; sha stale
+    manifest.write_text(yaml.safe_dump(data), encoding="utf-8")
+    out = tmp_path / "floor.yaml"
+    with pytest.raises(HoldoutLeakError, match="sha mismatch"):
+        mod.main(["--release", _RELEASE, "--holdout-manifest", str(manifest), "--out", str(out)])
+    assert not out.exists()
+    assert not (tmp_path / FLOOR_ARTIFACT_LOCK_NAME).exists()
+
+
+def test_unsealed_manifest_missing_lock_marker_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The freeze seal travels with the file: sha intact but no _EVAL_SET_LOCKED
+    beside the manifest -> refused before any extraction."""
+    mod = _load_module()
+
+    def _never_extract(release: str, cities) -> ExtractionResult:
+        raise AssertionError("extraction must never run against an unsealed manifest")
+
+    monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _never_extract)
+    manifest = _write_manifest(tmp_path, ["d_city"])
+    (tmp_path / "_EVAL_SET_LOCKED").unlink()
+    with pytest.raises(HoldoutLeakError, match="_EVAL_SET_LOCKED"):
         mod.main(
             [
                 "--release",
@@ -237,6 +294,27 @@ def test_include_train_cities_routes_through_the_union_verifier(
     verified = load_verified_floor(out)
     assert verified.payload["held_out_cities"] == ["d_city"]
     assert verified.payload["train_cities"] == ["t1_city", "t2_city"]
+
+
+def test_default_out_is_a_dedicated_per_release_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task-25 quality review #4: the default artifact path is
+    reports/conditioning_floor/<release>/conditioning-floor.yaml — a DEDICATED
+    per-release directory, so the per-directory _CONDITIONING_FLOOR_LOCKED
+    marker can never be a stale seal left beside unrelated reports/ artifacts."""
+    mod = _load_module()
+    shifts = {"d_city": 0, "t1_city": 20, "t2_city": 40}
+    monkeypatch.setattr(mod, "extract_features_by_city_stratum_metric", _fake_extraction(shifts))
+    monkeypatch.setattr(mod, "_REPO", tmp_path)  # the relative default resolves here
+    manifest = _write_manifest(tmp_path, ["d_city", "t1_city", "t2_city"])
+
+    rc = mod.main(["--release", _RELEASE, "--holdout-manifest", str(manifest)])  # no --out
+    assert rc == 0
+    expected = tmp_path / "reports" / "conditioning_floor" / _RELEASE / "conditioning-floor.yaml"
+    assert expected.exists()
+    assert (expected.parent / FLOOR_ARTIFACT_LOCK_NAME).exists()
+    assert load_verified_floor(expected).payload["release"] == _RELEASE
 
 
 def test_default_g4_rollup_is_the_one_source_constant() -> None:

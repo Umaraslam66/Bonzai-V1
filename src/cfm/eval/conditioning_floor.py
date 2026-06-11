@@ -42,8 +42,10 @@ under one ``FloorArtifactError`` taxonomy.
 
 from __future__ import annotations
 
+import copy
+import logging
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -62,6 +64,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from cfm.eval.conditioning_discrimination import TileCoverage
+
+logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
 # Constants (PI knob 4 thresholds are user thresholds: STRICT comparisons)
@@ -139,6 +143,12 @@ def _stratum_sort_key(stratum: tuple) -> tuple[str, ...]:
     return tuple(str(x) for x in stratum)
 
 
+def _metric_stratum_key(ms: tuple[str, tuple]) -> tuple[str, tuple[str, ...]]:
+    """The (metric, stratum) sort key shared by the table, the strata selection,
+    the payload builder, and Lane S — named ONCE so the orders cannot drift."""
+    return (ms[0], _stratum_sort_key(ms[1]))
+
+
 def compute_pair_table(
     features: dict[tuple[str, tuple, str], list[float]],
     *,
@@ -150,7 +160,9 @@ def compute_pair_table(
     ``conditioning_discrimination_verdict``. BH-adjusted p-values are computed
     JOINTLY across all pairs (both metrics, all strata). Iteration order is
     sorted, so the table — and the artifact sha downstream — is insertion-order
-    independent (PYTHONHASHSEED-proof)."""
+    independent (PYTHONHASHSEED-proof). Parity with the verdict fn's qualify ->
+    group -> pair -> global-BH steps is PINNED by
+    ``test_pair_table_parity_with_the_verdict_fn`` (external source of truth)."""
     qualified = {key: vals for key, vals in features.items() if len(vals) >= min_n}
     n_excluded_thin = len(features) - len(qualified)
 
@@ -160,7 +172,7 @@ def compute_pair_table(
 
     raw: list[FloorPair] = []
     n_strata_too_few_cities = 0
-    for metric, stratum in sorted(by_metric_stratum, key=lambda k: (k[0], _stratum_sort_key(k[1]))):
+    for metric, stratum in sorted(by_metric_stratum, key=_metric_stratum_key):
         city_samples = by_metric_stratum[(metric, stratum)]
         cities = sorted(city_samples)
         if len(cities) < 2:
@@ -306,10 +318,7 @@ def select_discriminating_strata(
         out.setdefault(key, [])
         if p.ks >= delta and p.p_bh < pair_table.alpha:
             out[key].append((p.metric, p.stratum))
-    return {
-        key: tuple(sorted(strata, key=lambda ms: (ms[0], _stratum_sort_key(ms[1]))))
-        for key, strata in out.items()
-    }
+    return {key: tuple(sorted(strata, key=_metric_stratum_key)) for key, strata in out.items()}
 
 
 # --------------------------------------------------------------------------- #
@@ -387,7 +396,7 @@ def build_floor_artifact_payload(
         }
         for city in sorted(floors)
         for (metric, stratum), entry in sorted(
-            floors[city].items(), key=lambda kv: (kv[0][0], _stratum_sort_key(kv[0][1]))
+            floors[city].items(), key=lambda kv: _metric_stratum_key(kv[0])
         )
     ]
     strata_records = [
@@ -472,7 +481,15 @@ def freeze_floor_artifact(payload: dict, path: Path) -> None:
     """Stamp the sha, write ONCE, seal with the lock marker beside the file.
 
     Refuses to overwrite: re-measuring floors means deliberately deleting the
-    old artifact first (the eval-set write-once discipline)."""
+    old artifact first (the eval-set write-once discipline).
+
+    DEDICATED-DIRECTORY rationale (Task-25 quality review #4): the
+    ``_CONDITIONING_FLOOR_LOCKED`` marker is PER-DIRECTORY, so the artifact must
+    live in a directory of its own (the runner defaults to
+    ``reports/conditioning_floor/<release>/``). In a busy shared directory like
+    ``reports/`` a marker left by an earlier freeze would sit beside any LATER
+    hand-dropped artifact and make it look sealed — the stale-marker-seals-
+    new-artifact hazard."""
     if "floor_schema_version" not in payload:
         raise FloorArtifactError(
             "refusing to freeze a floor payload without floor_schema_version — "
@@ -491,13 +508,39 @@ def freeze_floor_artifact(payload: dict, path: Path) -> None:
     (path.parent / FLOOR_ARTIFACT_LOCK_NAME).touch()
 
 
+#: Module-private construction proof (Task-25 quality review #3): only
+#: ``load_verified_floor`` holds a reference to this exact object, so only a
+#: verified read can mint a VerifiedFloorArtifact. NOT exported; never pass it.
+_CONSTRUCTION_TOKEN: object = object()
+
+
 @dataclass(frozen=True)
 class VerifiedFloorArtifact:
     """The PROOF-CARRYING load result: only ``load_verified_floor`` constructs
-    one on a verified read; Lane S / strata accessors refuse anything else."""
+    one on a verified read; Lane S / strata accessors refuse anything else.
+
+    ENFORCED: direct construction is refused — ``__post_init__`` checks the
+    keyword-only ``_token`` against a module-private sentinel that only
+    ``load_verified_floor`` passes, so ``VerifiedFloorArtifact(path, payload)``
+    cannot forge the proof. The ``payload`` is DEEP-COPIED at construction, so
+    no alias held by the constructor's caller can mutate it after the verify.
+
+    NOT ENFORCED: in-place mutation of ``.payload`` itself (Python dicts cannot
+    be frozen). A mutated copy never propagates anywhere: a re-load re-reads
+    and re-verifies the sealed file from disk."""
 
     path: Path
     payload: dict
+    _token: object = field(kw_only=True, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._token is not _CONSTRUCTION_TOKEN:
+            raise FloorArtifactError(
+                "VerifiedFloorArtifact cannot be constructed directly — the proof "
+                "token is module-private and only load_verified_floor (a verified "
+                "read) mints one; refusing a forged artifact."
+            )
+        object.__setattr__(self, "payload", copy.deepcopy(self.payload))
 
 
 def load_verified_floor(path: Path) -> VerifiedFloorArtifact:
@@ -547,7 +590,7 @@ def load_verified_floor(path: Path) -> VerifiedFloorArtifact:
             f"but this reader requires {FLOOR_ARTIFACT_SCHEMA_VERSION!r}; "
             "refusing a version-skewed artifact."
         )
-    return VerifiedFloorArtifact(path=path, payload=data)
+    return VerifiedFloorArtifact(path=path, payload=data, _token=_CONSTRUCTION_TOKEN)
 
 
 def discriminating_strata_from_artifact(
@@ -581,6 +624,32 @@ def discriminating_strata_from_artifact(
 # --------------------------------------------------------------------------- #
 
 
+def _resolve_min_n(
+    explicit: int | None, verified: VerifiedFloorArtifact | None, *, lane: str
+) -> int:
+    """Lane S/M ``min_n`` resolution (Task-25 quality review #6): default is the
+    verified artifact's frozen ``methodology.min_n`` (ONE qualify rule end-to-end);
+    an explicit value that disagrees is honored but warned LOUDLY — never a
+    silent rescore at a different min_n. Without an artifact in scope (Lane M
+    called bare) the legacy default 50 applies."""
+    if verified is None:
+        return 50 if explicit is None else explicit
+    artifact_min_n = int(verified.payload["methodology"]["min_n"])
+    if explicit is None:
+        return artifact_min_n
+    if explicit != artifact_min_n:
+        logger.warning(
+            "%s: scoring at explicit min_n=%d but the floor artifact %s was derived "
+            "at min_n=%d — a DIFFERENT qualify rule than the frozen floors "
+            "(explicit override, never silent).",
+            lane,
+            explicit,
+            verified.path,
+            artifact_min_n,
+        )
+    return explicit
+
+
 def _p90(values: list[float]) -> float:
     """p90 with linear interpolation between order statistics (matches the
     median convention: exact at the 0.9*(n-1) fractional rank)."""
@@ -610,18 +679,20 @@ class LaneSResult:
 def lane_s_excess(
     gen_features: dict[tuple[str, tuple], list[float]],
     real_features: dict[tuple[str, tuple], list[float]],
-    artifact: Path | VerifiedFloorArtifact,
+    artifact: str | Path | VerifiedFloorArtifact,
     *,
     city: str,
-    min_n: int = 50,
+    min_n: int | None = None,
 ) -> LaneSResult:
     """``excess = max(0, KS(gen, real_D) - floor_D)`` per qualifying (metric,
     stratum); aggregate = median + p90 over strata (PI knob 3).
 
     REFUSAL TOOTH (Task-20 discipline): the artifact must load VERIFIED before
-    any KS is computed — a Path is verified here; only the proof-carrying
+    any KS is computed — a str/Path is verified here; only the proof-carrying
     ``VerifiedFloorArtifact`` is accepted otherwise. Feature dicts are keyed
-    ``(metric, stratum)`` for the single city ``city``."""
+    ``(metric, stratum)`` for the single city ``city``. ``min_n`` defaults from
+    the artifact's frozen ``methodology.min_n``; an explicit mismatch is warned,
+    never silent (see ``_resolve_min_n``)."""
     if isinstance(artifact, (str, Path)):
         verified = load_verified_floor(Path(artifact))
     elif isinstance(artifact, VerifiedFloorArtifact):
@@ -632,6 +703,7 @@ def lane_s_excess(
             f"(the load_verified_floor result); refusing an unverified "
             f"{type(artifact).__name__}."
         )
+    min_n = _resolve_min_n(min_n, verified, lane="Lane S")
 
     floor_by_key = {
         (rec["metric"], tuple(rec["stratum"])): float(rec["floor"])
@@ -646,7 +718,7 @@ def lane_s_excess(
 
     per_stratum: dict[tuple[str, tuple], float] = {}
     n_skipped_thin = 0
-    for key in sorted(floor_by_key, key=lambda ms: (ms[0], _stratum_sort_key(ms[1]))):
+    for key in sorted(floor_by_key, key=_metric_stratum_key):
         gen = gen_features.get(key, [])
         real = real_features.get(key, [])
         if len(gen) < min_n or len(real) < min_n:
@@ -696,13 +768,26 @@ def lane_m_verdict(
     real_t_features: dict[tuple[str, tuple], list[float]],
     discriminating_strata: Sequence[tuple[str, tuple]],
     *,
-    min_n: int = 50,
+    min_n: int | None = None,
+    artifact: VerifiedFloorArtifact | None = None,
 ) -> LaneMResult:
     """Over the REAL-data-selected discriminating strata for one (D, T): PASS
     iff ``median KS(gen, real_D) < median KS(gen, real_T)`` STRICTLY — a
     regurgitator of T's data sits at KS(gen, T) == 0 and cannot pass. Zero
     scoreable strata is loud (the verdict would be vacuous). The all-38
-    training-city sweep (PI knob 2) is the Task-26 decision layer."""
+    training-city sweep (PI knob 2) is the Task-26 decision layer.
+
+    ``artifact`` (optional, the ``load_verified_floor`` result the strata came
+    from) sources the ``min_n`` default from the frozen ``methodology.min_n``;
+    an explicit mismatch is warned, never silent. Bare calls (no artifact, no
+    min_n) keep the legacy default 50."""
+    if artifact is not None and not isinstance(artifact, VerifiedFloorArtifact):
+        raise FloorArtifactError(
+            "Lane M's artifact keyword takes a VerifiedFloorArtifact (the "
+            f"load_verified_floor result); refusing an unverified "
+            f"{type(artifact).__name__}."
+        )
+    min_n = _resolve_min_n(min_n, artifact, lane="Lane M")
     per_stratum: list[tuple[str, tuple, float, float]] = []
     n_skipped = 0
     for metric, stratum in discriminating_strata:

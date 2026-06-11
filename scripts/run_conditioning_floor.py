@@ -4,9 +4,10 @@
 
 Thin DRIVER over ``cfm.eval.conditioning_floor``:
 
-  1. Resolve the held-out cities: a STRICT read of ``held_out_cities`` from the
-     multiregion holdout manifest (never ``.get`` — correction #12), unless
-     ``--held-out-cities`` overrides.
+  1. Resolve the held-out cities: a VERIFIED, STRICT read of ``held_out_cities``
+     from the multiregion holdout manifest — the holdout guard's F9 verifier
+     (sha + ``_EVAL_SET_LOCKED``) runs first, then the strict key read (never
+     ``.get`` — correction #12) — unless ``--held-out-cities`` overrides.
   2. Optionally (``--include-train-cities``) resolve the training cities via
      ``verify_union_manifests`` (the Gate-2 / G4-roll-up source the codebase
      already uses) so the gated Leonardo run can stage held-out-only first.
@@ -24,9 +25,8 @@ Thin DRIVER over ``cfm.eval.conditioning_floor``:
 
 Exit 0 on success; every halt RAISES (no exit-code masking).
 
-    uv run python scripts/run_conditioning_floor.py \
-        --release 2026-04-15.0 \
-        --out reports/2026-06-11-conditioning-floor.yaml
+    uv run python scripts/run_conditioning_floor.py --release 2026-04-15.0
+    # default --out: reports/conditioning_floor/<release>/conditioning-floor.yaml
 """
 
 from __future__ import annotations
@@ -48,6 +48,13 @@ from cfm.data.training.build_shards import (  # noqa: E402
     DEFAULT_G4_ROLLUP,
     verify_union_manifests,
 )
+
+# Private import SANCTIONED (Task-25 quality review #2; the _has_outbound_bref
+# precedent): _verify_manifest_integrity is the ONE F9 authority for "this
+# holdout manifest is sealed and untampered" (sha + _EVAL_SET_LOCKED) — reusing
+# it here means the D-vs-T boundary the floor artifact freezes is defined by
+# the same verifier training uses, never a second hand-rolled copy.
+from cfm.data.training.holdout_guard import _verify_manifest_integrity  # noqa: E402
 from cfm.eval.conditioning_discrimination import (  # noqa: E402
     extract_features_by_city_stratum_metric,
 )
@@ -62,18 +69,35 @@ from cfm.eval.holdout.paths import multiregion_holdout_manifest_path  # noqa: E4
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RELEASE = "2026-04-15.0"
-_DEFAULT_OUT = "reports/2026-06-11-conditioning-floor.yaml"
+# DEDICATED per-release directory (Task-25 quality review #4): the freeze's
+# _CONDITIONING_FLOOR_LOCKED marker is per-DIRECTORY, so the artifact must own
+# its directory — in a busy reports/ root a stale marker from an earlier freeze
+# would seal a later hand-dropped artifact (rationale in freeze_floor_artifact).
+_DEFAULT_OUT_TEMPLATE = "reports/conditioning_floor/{release}/conditioning-floor.yaml"
 # One-sourced (correction #12): the G4 roll-up path is build_shards' constant,
 # never a hand-copied literal that could drift from what training consumes.
 _DEFAULT_G4_ROLLUP = DEFAULT_G4_ROLLUP
 
 
 def _held_out_cities_from_manifest(manifest_path: Path) -> list[str]:
-    """STRICT read of ``held_out_cities`` (correction #12): a manifest without
-    the key is refused loudly — ``.get(..., [])`` would silently scope zero
-    cities and freeze a floor artifact that floors nothing."""
+    """VERIFIED, STRICT read of ``held_out_cities``.
+
+    VERIFIED (Task-25 quality review #2): the holdout guard's F9 verifier runs
+    FIRST — recomputed sha == stored ``manifest_sha256`` AND ``_EVAL_SET_LOCKED``
+    beside the file — so a tampered/unsealed manifest can never define the
+    D-vs-T boundary the floor artifact freezes (raises HoldoutLeakError).
+
+    STRICT (correction #12): a manifest without the key is refused loudly —
+    ``.get(..., [])`` would silently scope zero cities and freeze a floor
+    artifact that floors nothing."""
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or "held_out_cities" not in data:
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"holdout manifest {manifest_path} is not a YAML mapping "
+            f"(got {type(data).__name__}); refusing to derive a conditioning floor."
+        )
+    _verify_manifest_integrity(data, manifest_path)
+    if "held_out_cities" not in data:
         raise ValueError(
             f"holdout manifest {manifest_path} has no 'held_out_cities' key; "
             "refusing to derive a conditioning floor from an empty held-out set."
@@ -134,7 +158,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-n", type=int, default=50)
     parser.add_argument("--alpha", type=float, default=0.05)
     parser.add_argument("--delta", type=float, default=0.15)
-    parser.add_argument("--out", default=_DEFAULT_OUT)
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="artifact path (default: reports/conditioning_floor/<release>/"
+        "conditioning-floor.yaml — a DEDICATED dir so the per-directory "
+        "_CONDITIONING_FLOOR_LOCKED marker can never be a stale seal from an "
+        "unrelated reports/ artifact)",
+    )
     args = parser.parse_args(argv)
 
     manifest_path = (
@@ -155,7 +186,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         logger.info("union verifier resolved %d training cities", len(train))
 
-    cities = held_out + [c for c in train if c not in set(held_out)]
+    held_out_set = set(held_out)
+    cities = held_out + [c for c in train if c not in held_out_set]
     logger.info("extracting features for %d cities, release=%s", len(cities), args.release)
     extraction = extract_features_by_city_stratum_metric(args.release, cities)
     logger.info("extracted %d (city, stratum, metric) cells", len(extraction.features))
@@ -172,7 +204,10 @@ def main(argv: list[str] | None = None) -> int:
         tile_coverage=extraction.tile_coverage,
     )
 
-    out_path = Path(args.out) if Path(args.out).is_absolute() else _REPO / args.out
+    out_arg = (
+        args.out if args.out is not None else _DEFAULT_OUT_TEMPLATE.format(release=args.release)
+    )
+    out_path = Path(out_arg) if Path(out_arg).is_absolute() else _REPO / out_arg
     freeze_floor_artifact(payload, out_path)
     # End-state verification: the artifact must load VERIFIED (sha + marker +
     # version) before this runner reports success — no marker-on-control-flow.

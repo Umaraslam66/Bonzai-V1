@@ -22,17 +22,25 @@ Task-25 spec-review pins (on top of the dispatch list):
   R1. Lane-M exact tie => FAIL with margin 0.0 (kills a `<` -> `<=` mutation)
   R2. non-degenerate floor fixture: the table's global-min pair EXCLUDES D
   R3. producer halts when a held-out city has zero qualifying pairs (no floor)
+
+Task-25 quality-review pins:
+  Q1. pair-table parity vs conditioning_discrimination_verdict (external truth)
+  Q3. VerifiedFloorArtifact proof token unforgeable + payload deep-copy isolation
+  Q6. Lane S/M min_n defaults from the artifact's frozen methodology (warn on
+      explicit mismatch, never silent)
 """
 
 from __future__ import annotations
 
 import inspect
+import logging
 from pathlib import Path
 
 import pytest
 import yaml
 
 import cfm.eval.conditioning_floor as cf
+from cfm.eval.conditioning_discrimination import conditioning_discrimination_verdict
 from cfm.eval.conditioning_floor import (
     FLOOR_ARTIFACT_LOCK_NAME,
     FloorArtifactError,
@@ -142,6 +150,43 @@ def test_pair_table_qualify_rule_is_min_n_same_as_verdict_fn() -> None:
     assert "thin_city" not in cities
     assert table.n_excluded_thin == 1
     assert len(table.pairs) == 3
+
+
+def test_pair_table_parity_with_the_verdict_fn() -> None:
+    """External-source-of-truth pin (Task-25 quality review #1):
+    ``compute_pair_table`` re-implements the qualify -> group -> pair ->
+    global-BH steps of ``conditioning_discrimination_verdict``; run BOTH on one
+    fixture and assert the (metric, stratum, city_a, city_b, ks, p_raw, p_bh)
+    multisets match EXACTLY (same fns on same data => bit-equal; no tolerance).
+    The fixture exercises every step: two strata (group), a thin city below
+    the qualify boundary AND a city exactly AT it (a `>=` -> `>` drift on
+    either side flips the at-boundary city and breaks parity; n=49-only would
+    be regime-blind to it), a single-city stratum (pairing skip), and >1 pair
+    per BH input (the global correction). ``effect_size_floor`` only sets the
+    verdict fn's ``significant`` flag, which is not a compared pair field."""
+    features = _features_one_stratum(_LANE_SHIFTS, stratum=_SA)
+    features.update(_features_one_stratum({"d_city": 0, "t1_city": 40, "t2_city": 80}, stratum=_SB))
+    features[("thin_city", _SA, _M)] = _grid(0, n=49)  # qualify: strictly below min_n
+    features[("edge_city", _SB, _M)] = _grid(120, n=50)  # qualify: EXACTLY min_n
+    features[("d_city", ("R", "S9", 9, "inland"), _M)] = _grid(0)  # lone-city stratum
+
+    table = compute_pair_table(features, min_n=50, alpha=0.05)
+    verdict = conditioning_discrimination_verdict(
+        features, min_n=50, alpha=0.05, effect_size_floor=0.15
+    )
+
+    def _pair_multiset(pairs) -> list[tuple]:
+        return sorted(
+            (p.metric, p.stratum, p.city_a, p.city_b, p.ks, p.p_raw, p.p_bh) for p in pairs
+        )
+
+    # regime check: both strata paired AND the at-boundary city is IN the table
+    assert len(table.pairs) == 9  # 3 in _SA + C(4,2)=6 in _SB
+    assert any("edge_city" in (p.city_a, p.city_b) for p in table.pairs)
+    assert _pair_multiset(table.pairs) == _pair_multiset(verdict.pairs)
+    # the qualify/group bookkeeping agrees too
+    assert table.n_excluded_thin == verdict.n_excluded_thin
+    assert table.n_strata_too_few_cities == verdict.n_strata_too_few_cities
 
 
 def test_pair_table_counts_strata_with_too_few_cities() -> None:
@@ -352,6 +397,31 @@ def test_malformed_yaml_is_refused_inside_the_taxonomy(tmp_path: Path) -> None:
         load_verified_floor(path)
 
 
+def test_verified_floor_artifact_cannot_be_forged_by_direct_construction(tmp_path: Path) -> None:
+    """Task-25 quality review #3: the proof is a module-private sentinel only
+    load_verified_floor passes — VerifiedFloorArtifact(path, payload) (no token)
+    and a guessed token both refuse; the dataclass is no longer forgeable."""
+    path = _frozen_artifact(tmp_path)
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    with pytest.raises(TypeError):  # _token is keyword-only and REQUIRED
+        VerifiedFloorArtifact(path, payload)
+    with pytest.raises(FloorArtifactError, match="token"):
+        VerifiedFloorArtifact(path=path, payload=payload, _token=object())  # guessed token
+
+
+def test_mutating_a_loaded_payload_never_reaches_a_reload(tmp_path: Path) -> None:
+    """Task-25 quality review #3: a load's payload is an isolated deep copy —
+    mutating it post-verify cannot poison any other consumer; a re-load
+    re-reads and re-verifies the sealed file from disk."""
+    path = _frozen_artifact(tmp_path)
+    first = load_verified_floor(path)
+    pristine = first.payload["floors"][0]["floor"]
+    first.payload["floors"][0]["floor"] = -1.0  # in-place mutation of ONE load's copy
+    second = load_verified_floor(path)
+    assert second.payload["floors"][0]["floor"] == pristine
+    assert second.payload["floors"][0]["floor"] != -1.0
+
+
 # --------------------------------------------------------------------------- #
 # Tooth 2: Lane-S refusal BEFORE any KS is computed
 # --------------------------------------------------------------------------- #
@@ -503,6 +573,68 @@ def test_lane_m_with_zero_scoreable_strata_is_loud() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Task-25 quality review #6: min_n defaults from the artifact's frozen methodology
+# --------------------------------------------------------------------------- #
+
+
+def _frozen_at_min_n_60(tmp_path: Path, shifts: dict[str, int]) -> Path:
+    table = compute_pair_table(_features_one_stratum(shifts), min_n=60, alpha=0.05)
+    payload = build_floor_artifact_payload(table, **_payload_kwargs())
+    path = tmp_path / "floor.yaml"
+    freeze_floor_artifact(payload, path)
+    return path
+
+
+def test_lane_s_min_n_defaults_from_the_artifact_methodology(tmp_path: Path) -> None:
+    """Artifact frozen at min_n=60; gen/real carry 55 samples. Without an
+    explicit min_n, Lane S must score at the ARTIFACT's qualify rule (55 < 60
+    -> thin -> loud UNSUPPORTED) — under the old hardcoded 50 it would have
+    silently scored at a different rule than the frozen floors."""
+    path = _frozen_at_min_n_60(tmp_path, _STRICT_SHIFTS)
+    gen = {(_M, _SA): _grid(30, n=55)}
+    real = {(_M, _SA): _grid(0, n=55)}
+    with pytest.raises(ValueError, match="min_n=60"):
+        lane_s_excess(gen, real, path, city="d_city")  # no explicit min_n
+
+
+def test_lane_s_explicit_min_n_mismatch_warns_never_silent(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An explicit min_n that disagrees with the artifact's methodology is
+    honored but WARNED (never a silent rescore); a matching explicit value
+    stays quiet."""
+    path = _frozen_at_min_n_60(tmp_path, _STRICT_SHIFTS)
+    gen = {(_M, _SA): _grid(30, n=55)}
+    real = {(_M, _SA): _grid(0, n=55)}
+    with caplog.at_level(logging.WARNING, logger="cfm.eval.conditioning_floor"):
+        result = lane_s_excess(gen, real, path, city="d_city", min_n=50)
+    assert result.n_qualifying == 1  # honored: scored at the explicit 50
+    assert any(
+        "min_n=50" in r.getMessage() and "min_n=60" in r.getMessage() for r in caplog.records
+    )
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="cfm.eval.conditioning_floor"):
+        lane_s_excess({(_M, _SA): _grid(30)}, {(_M, _SA): _grid(0)}, path, city="d_city", min_n=60)
+    assert not caplog.records  # explicit == frozen: no warning
+
+
+def test_lane_m_min_n_defaults_from_the_artifact_when_given(tmp_path: Path) -> None:
+    """Lane M with the optional artifact keyword sources min_n from the frozen
+    methodology (55 < 60 -> loud); a bare call keeps the legacy default 50; a
+    raw payload dict cannot impersonate the artifact keyword."""
+    path = _frozen_at_min_n_60(tmp_path, _LANE_SHIFTS)
+    verified = load_verified_floor(path)
+    strata = discriminating_strata_from_artifact(verified, "d_city", "t1_city")
+    feats55 = {(_M, _SA): _grid(0, n=55)}
+    with pytest.raises(ValueError, match="min_n=60"):
+        lane_m_verdict(feats55, feats55, feats55, strata, artifact=verified)
+    result = lane_m_verdict(feats55, feats55, feats55, strata)  # bare: legacy 50
+    assert result.n_strata_scored == 1
+    with pytest.raises(FloorArtifactError, match="VerifiedFloorArtifact"):
+        lane_m_verdict(feats55, feats55, feats55, strata, artifact=verified.payload)
+
+
+# --------------------------------------------------------------------------- #
 # Tooth 5: no-leakage pin — strata selection reads ONLY the real-real pair table
 # --------------------------------------------------------------------------- #
 
@@ -515,25 +647,23 @@ def test_no_leakage_select_discriminating_strata_signature_pin() -> None:
     assert sig.parameters["delta"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
-def test_no_leakage_strata_are_bit_equal_with_and_without_gen_data(tmp_path: Path) -> None:
-    """Behavioral pin: the strata derived from a frozen artifact's pair table are
-    bit-equal whether or not generated data exists anywhere in the process."""
+def test_no_leakage_frozen_strata_equal_recomputation_from_real_table(tmp_path: Path) -> None:
+    """Behavioral pin: the artifact's FROZEN strata selection equals a fresh
+    recomputation from its own real-real pair table — together with the
+    signature pin above, this is the whole no-leakage tooth. (The former
+    with/without-gen-data re-derive was trimmed, Task-25 quality review #7: a
+    pure function of the table trivially repeats itself, proving nothing.)"""
     path = _frozen_artifact(tmp_path)
     verified = load_verified_floor(path)
     table = pair_table_from_payload(verified.payload)
-    before = select_discriminating_strata(table, delta=0.15)
-    _gen_data_exists_now = {(_M, _SA): _grid(7), (_M, _SB): _grid(13)}
-    assert _gen_data_exists_now  # gen data is alive in the process during the re-derive
-    after = select_discriminating_strata(table, delta=0.15)
-    assert before == after
-    # and the artifact's own frozen selection equals the recomputation
+    recomputed = select_discriminating_strata(table, delta=0.15)
     frozen = {
         (rec["city_a"], rec["city_b"]): tuple(
             (s["metric"], tuple(s["stratum"])) for s in rec["strata"]
         )
         for rec in verified.payload["discriminating_strata"]
     }
-    assert frozen == before
+    assert frozen == recomputed
 
 
 def test_discriminating_strata_from_artifact_requires_the_verified_type(
