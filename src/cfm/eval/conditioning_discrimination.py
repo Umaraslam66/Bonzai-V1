@@ -382,7 +382,9 @@ def _tile_features(
 
 
 #: Silent-shrinkage ceiling (readiness F3): the max tolerated fraction of a city's
-#: held-out tiles missing ``cells.parquet`` before extraction HALTs (strict >).
+#: manifest tiles missing ``cells.parquet`` before extraction HALTs (strict >).
+#: "manifest", not "held-out": this extraction is SHARED — the conditioning-floor
+#: runner walks TRAINING cities through the same loop (W6 wording fix).
 _SHRINKAGE_CEILING: float = 0.1
 
 
@@ -483,7 +485,7 @@ def extract_features_by_city_stratum_metric(
         if frac > _SHRINKAGE_CEILING:
             raise RuntimeError(
                 f"gate-(i) extraction: city '{city}' skipped "
-                f"{cov.n_tiles_skipped}/{cov.n_tiles_expected} held-out tiles "
+                f"{cov.n_tiles_skipped}/{cov.n_tiles_expected} manifest tiles "
                 f"(missing cells.parquet; fraction {frac:.3f} > silent-shrinkage "
                 f"ceiling {_SHRINKAGE_CEILING}). A partial city must be re-extracted "
                 "or explicitly excluded, never quietly thinned (readiness F3)."

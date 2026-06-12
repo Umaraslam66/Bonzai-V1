@@ -363,6 +363,10 @@ def test_extraction_halts_above_silent_shrinkage_ceiling(tmp_path, monkeypatch) 
     assert "testcity" in msg
     assert "1/3" in msg
     assert "0.1" in msg
+    # W6: the extraction is SHARED (training cities too, since the floor runs) —
+    # the halt must speak of manifest tiles, never "held-out" tiles
+    assert "manifest tiles" in msg
+    assert "held-out tiles" not in msg
 
 
 def test_extraction_no_halt_at_exact_ceiling(tmp_path, monkeypatch) -> None:
