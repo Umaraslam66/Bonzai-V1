@@ -83,17 +83,17 @@ ANALYSIS_VERSION: str = "1.0"
 # so the marginal-cost-of-cut sequence shows a non-trivial elbow.
 _DENSITY_CANDIDATE_BUCKETS: list[list[float]] = [
     [0.0, 0.1, 0.3, 0.5, 1.0],  # 4 buckets
-    [0.0, 0.1, 0.3, 1.0],        # 3 buckets
-    [0.0, 0.3, 1.0],             # 2 buckets
-    [0.0, 1.0],                  # 1 bucket
+    [0.0, 0.1, 0.3, 1.0],  # 3 buckets
+    [0.0, 0.3, 1.0],  # 2 buckets
+    [0.0, 1.0],  # 1 bucket
 ]
 
 # Road skeleton candidate bucketings on road_crossing_count.
 _ROAD_CANDIDATE_BUCKETS: list[list[int]] = [
     [0, 1, 3, 6],  # 4 open-ended buckets: [0], [1,2], [3,5], [6,inf)
-    [0, 1, 3],     # 3 buckets
-    [0, 1],        # 2 buckets
-    [0],           # 1 bucket
+    [0, 1, 3],  # 3 buckets
+    [0, 1],  # 2 buckets
+    [0],  # 1 bucket
 ]
 
 
@@ -174,9 +174,7 @@ def build_frequency_analysis(inputs: list[SubCTileInputs]) -> dict:
     zoning_proposal = _zoning_proposal_section(zoning_counts)
     density_proposal = _density_proposal_section(density_values)
     road_proposal = _road_proposal_section(road_counts_active, edge_scope_counts)
-    tile_pop_density_proposal = _tile_population_density_proposal_section(
-        tile_pop_density_by_proxy
-    )
+    tile_pop_density_proposal = _tile_population_density_proposal_section(tile_pop_density_by_proxy)
     orthogonality = _orthogonality_section(ortho_building_counts, ortho_density_ratios)
     per_tile = _per_tile_evidence_summary(inputs)
 
@@ -286,9 +284,7 @@ def write_proposal_artifacts(
     return index
 
 
-def _build_namespace_file_content(
-    section_key: str, section: dict, analysis: dict
-) -> dict:
+def _build_namespace_file_content(section_key: str, section: dict, analysis: dict) -> dict:
     """Strip reviewer-editable fields from a namespace section.
 
     Namespace files are content-pinned; the reviewer must not edit them
@@ -377,9 +373,7 @@ def validate_proposal_index(index: dict) -> None:
     }
     missing = required - index.keys()
     if missing:
-        raise SubDValidationError(
-            f"proposal index missing required keys: {sorted(missing)}"
-        )
+        raise SubDValidationError(f"proposal index missing required keys: {sorted(missing)}")
     if index["status"] not in {"proposal", "locked"}:
         raise SubDValidationError(
             f"proposal index status must be 'proposal' or 'locked'; got {index['status']!r}"
@@ -440,8 +434,7 @@ def validate_frequency_analysis(analysis: dict) -> None:
             )
         if not section.get("candidate_strategies"):
             raise SubDValidationError(
-                f"frequency analysis section {section_name!r} has empty "
-                "candidate_strategies series"
+                f"frequency analysis section {section_name!r} has empty candidate_strategies series"
             )
     # tile_population_density carries one candidate_strategies list PER PROXY
     # (under candidate_proxies[]), plus a locked_proxy + locked_buckets. There
@@ -449,9 +442,7 @@ def validate_frequency_analysis(analysis: dict) -> None:
     # proxy in candidate_proxies[] to get its strategies.
     tpd = analysis["tile_population_density_proposal"]
     if not tpd.get("locked_buckets"):
-        raise SubDValidationError(
-            "tile_population_density_proposal has empty locked_buckets"
-        )
+        raise SubDValidationError("tile_population_density_proposal has empty locked_buckets")
     if not tpd.get("locked_proxy"):
         raise SubDValidationError(
             "tile_population_density_proposal has empty locked_proxy; "
@@ -499,9 +490,7 @@ def _density_proposal_section(values: list[float]) -> dict:
     candidate_strategies: list[dict] = []
     for buckets in _DENSITY_CANDIDATE_BUCKETS:
         counts_per_bucket = _bucket_count_floats(values, buckets)
-        coverage = (
-            sum(counts_per_bucket) / len(values) if values else 1.0
-        )
+        coverage = sum(counts_per_bucket) / len(values) if values else 1.0
         candidate_strategies.append(
             {
                 "strategy": f"{len(counts_per_bucket)}_buckets",
@@ -522,7 +511,9 @@ def _density_proposal_section(values: list[float]) -> dict:
             "upper_exclusive": hi,
         }
         for idx, (lo, hi) in enumerate(
-            zip(_DENSITY_CANDIDATE_BUCKETS[0], _DENSITY_CANDIDATE_BUCKETS[0][1:])
+            # pairwise idiom: xs vs xs[1:] differ by ONE element by design — the
+            # truncation IS the semantics (n edges -> n-1 buckets); never strict
+            zip(_DENSITY_CANDIDATE_BUCKETS[0], _DENSITY_CANDIDATE_BUCKETS[0][1:], strict=False)
         )
     ]
     return {
@@ -581,7 +572,9 @@ def _tile_population_density_proposal_section(by_proxy: dict[str, list[float]]) 
                 "upper_exclusive": hi,
             }
             for idx, (lo, hi) in enumerate(
-                zip(_DENSITY_CANDIDATE_BUCKETS[0], _DENSITY_CANDIDATE_BUCKETS[0][1:])
+                # pairwise idiom: xs vs xs[1:] differ by ONE element by design — the
+                # truncation IS the semantics (n edges -> n-1 buckets); never strict
+                zip(_DENSITY_CANDIDATE_BUCKETS[0], _DENSITY_CANDIDATE_BUCKETS[0][1:], strict=False)
             )
         ]
     # NOTE: no top-level ``candidate_strategies`` mirror. Consumers read
@@ -604,9 +597,7 @@ def _road_proposal_section(
     candidate_strategies: list[dict] = []
     for lower_bounds in _ROAD_CANDIDATE_BUCKETS:
         counts_per_bucket = _bucket_count_ints(active_counts, lower_bounds)
-        coverage = (
-            sum(counts_per_bucket) / len(active_counts) if active_counts else 1.0
-        )
+        coverage = sum(counts_per_bucket) / len(active_counts) if active_counts else 1.0
         candidate_strategies.append(
             {
                 "strategy": f"{len(counts_per_bucket)}_buckets",
@@ -636,9 +627,7 @@ def _road_proposal_section(
     }
 
 
-def _orthogonality_section(
-    building_counts: list[float], density_ratios: list[float]
-) -> dict:
+def _orthogonality_section(building_counts: list[float], density_ratios: list[float]) -> dict:
     correlation = _pearson(building_counts, density_ratios)
     return {
         "building_count_vs_density_ratio": {
@@ -660,9 +649,7 @@ def _orthogonality_section(
 # ---------------------------------------------------------------------------
 
 
-def _zoning_candidate_strategies(
-    sorted_counts: list[int], sorted_names: list[str]
-) -> list[dict]:
+def _zoning_candidate_strategies(sorted_counts: list[int], sorted_names: list[str]) -> list[dict]:
     """Zoning strategies dropping one category at a time from rarest to most common.
 
     Returns a list ordered from most-categories (least-aggressive cut) to
@@ -696,9 +683,7 @@ def _fill_marginal_cost(entries: list[dict]) -> None:
         curr = entries[i]
         delta_cov = prev["coverage"] - curr["coverage"]
         delta_cat = prev["categories"] - curr["categories"]
-        curr["marginal_cost"] = (
-            float(delta_cov / delta_cat) if delta_cat > 0 else 0.0
-        )
+        curr["marginal_cost"] = float(delta_cov / delta_cat) if delta_cat > 0 else 0.0
 
 
 def _summarise_distribution(values: list[float]) -> dict:
@@ -718,7 +703,7 @@ def _summarise_distribution(values: list[float]) -> dict:
 def _percentile(ordered: list[float], q: float) -> float:
     if not ordered:
         return 0.0
-    idx = int(round(q * (len(ordered) - 1)))
+    idx = round(q * (len(ordered) - 1))
     idx = max(0, min(idx, len(ordered) - 1))
     return ordered[idx]
 
@@ -797,11 +782,7 @@ def _per_tile_evidence_summary(inputs: list[SubCTileInputs]) -> list[dict]:
         density_signal = {
             "cell_count": len(density_values),
             "max": float(max(density_values)) if density_values else 0.0,
-            "mean": (
-                float(sum(density_values) / len(density_values))
-                if density_values
-                else 0.0
-            ),
+            "mean": (float(sum(density_values) / len(density_values)) if density_values else 0.0),
         }
 
         active_road_counts: list[int] = []
@@ -846,7 +827,7 @@ def _per_tile_evidence_summary(inputs: list[SubCTileInputs]) -> list[dict]:
 # already selected for a prior dimension accumulates additional rationale
 # strings if it remains the maximiser, so the reviewer sees every dimension
 # the tile covers.
-_SUBSET_DIMENSIONS: list[tuple[str, "callable[[dict], float]"]] = [
+_SUBSET_DIMENSIONS: list[tuple[str, callable[[dict], float]]] = [
     ("zoning_road_dominant", lambda e: e["zoning_signal"]["road"]),
     ("zoning_building_dominant", lambda e: e["zoning_signal"]["building"]),
     ("zoning_poi_dominant", lambda e: e["zoning_signal"]["poi"]),
@@ -956,7 +937,7 @@ def _pearson(xs: list[float], ys: list[float]) -> float:
         return 0.0
     mx = sum(xs) / len(xs)
     my = sum(ys) / len(ys)
-    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True))
     dx = math.sqrt(sum((x - mx) ** 2 for x in xs))
     dy = math.sqrt(sum((y - my) ** 2 for y in ys))
     if dx == 0.0 or dy == 0.0:

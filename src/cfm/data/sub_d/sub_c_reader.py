@@ -77,14 +77,10 @@ def read_sub_c_manifest(region_dir: Path) -> dict:
     ran) is refused without parsing.
     """
     if not (region_dir / "_SUCCESS").exists():
-        raise SubCReaderError(
-            f"sub-C region {region_dir} has no _SUCCESS marker; refusing to read"
-        )
+        raise SubCReaderError(f"sub-C region {region_dir} has no _SUCCESS marker; refusing to read")
     manifest_path = region_dir / "manifest.yaml"
     if not manifest_path.is_file():
-        raise SubCReaderError(
-            f"sub-C region {region_dir} has no manifest.yaml"
-        )
+        raise SubCReaderError(f"sub-C region {region_dir} has no manifest.yaml")
     return yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
 
 

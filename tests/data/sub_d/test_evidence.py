@@ -262,26 +262,17 @@ def test_per_namespace_derivation_versions_are_stamped_independently():
     roads = derive_road_skeleton_evidence(crossings, features)
     tile_pop = derive_tile_population_density_evidence(cells, features)
 
-    assert zoning and all(
-        m.derivation_version == ZONING_DERIVATION_VERSION for m in zoning
-    )
-    assert density and all(
-        m.derivation_version == CELL_DENSITY_DERIVATION_VERSION for m in density
-    )
-    assert roads and all(
-        m.derivation_version == ROAD_SKELETON_DERIVATION_VERSION for m in roads
-    )
+    assert zoning and all(m.derivation_version == ZONING_DERIVATION_VERSION for m in zoning)
+    assert density and all(m.derivation_version == CELL_DENSITY_DERIVATION_VERSION for m in density)
+    assert roads and all(m.derivation_version == ROAD_SKELETON_DERIVATION_VERSION for m in roads)
     assert tile_pop and all(
-        m.derivation_version == TILE_POPULATION_DENSITY_DERIVATION_VERSION
-        for m in tile_pop
+        m.derivation_version == TILE_POPULATION_DENSITY_DERIVATION_VERSION for m in tile_pop
     )
 
     # All four namespaces' tile_pop metrics live at slot_kind=TILE, slot_index=0.
     assert all(m.slot_kind == SlotKind.TILE for m in tile_pop)
     assert all(m.slot_index == 0 for m in tile_pop)
-    assert all(
-        m.metric_namespace == MetricNamespace.TILE_POPULATION_DENSITY for m in tile_pop
-    )
+    assert all(m.metric_namespace == MetricNamespace.TILE_POPULATION_DENSITY for m in tile_pop)
     # Multiple candidate proxies emitted as distinct metric_names so the
     # reviewer picks one at Gate 2. Layer 1 does not pre-commit to a formula.
     proxy_names = {m.metric_name for m in tile_pop}
@@ -325,7 +316,7 @@ def test_tile_population_density_emits_exactly_four_proxies_with_documented_shap
     )
     # Two buildings of different sizes in two active cells, so mean/median/
     # area-weighted differ enough to be distinguishable.
-    big = Polygon([(0.0, 0.0), (8.0, 0.0), (8.0, 8.0), (0.0, 8.0)])   # 64 m^2
+    big = Polygon([(0.0, 0.0), (8.0, 0.0), (8.0, 8.0), (0.0, 8.0)])  # 64 m^2
     small = Polygon([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)])  # 4 m^2
     features = pa.table(
         {
@@ -426,9 +417,7 @@ def test_tile_population_density_empty_tile_returns_zero_for_all_four_proxies():
 
     for m in metrics:
         value = float(m.value)
-        assert value == 0.0, (
-            f"empty-tile convention requires {m.metric_name}=0.0, got {value}"
-        )
+        assert value == 0.0, f"empty-tile convention requires {m.metric_name}=0.0, got {value}"
         assert not math.isnan(value), (
             f"empty-tile convention forbids NaN; {m.metric_name} returned NaN"
         )

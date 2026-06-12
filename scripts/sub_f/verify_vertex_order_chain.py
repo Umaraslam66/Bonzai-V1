@@ -28,7 +28,7 @@ def sample_features(sub_c_region: Path, n: int = 20) -> list[tuple[str, list]]:
     tile_paths = sorted(sub_c_region.glob("tile=*/features.parquet"))
     for path in tile_paths[:5]:
         table = pq.ParquetFile(path).read()
-        for r in table.to_pylist()[:n // 5]:
+        for r in table.to_pylist()[: n // 5]:
             geom = wkb_loads(r["geometry"])
             if geom.geom_type == "Polygon":
                 coords = list(geom.exterior.coords)
@@ -53,7 +53,7 @@ def main() -> int:
     samples_a = sample_features(args.sub_c_region_dir, n=20)
     samples_b = sample_features(args.sub_c_region_dir, n=20)
 
-    matches = sum(1 for (a, b) in zip(samples_a, samples_b) if a == b)
+    matches = sum(1 for (a, b) in zip(samples_a, samples_b, strict=True) if a == b)
     outcome = "a" if matches == len(samples_a) else "c"  # default defend on partial
 
     report = {
@@ -61,7 +61,8 @@ def main() -> int:
         "exact_match_count": matches,
         "outcome_branch": outcome,
         "recommendation": (
-            "INHERIT (no canonicalization)" if outcome == "a"
+            "INHERIT (no canonicalization)"
+            if outcome == "a"
             else "CANONICALIZE via lex-min polygon-ring rotation (defend by default)"
         ),
         "_status": "PROPOSED — pending Halt 5 reviewer approval per spec §10.3.",

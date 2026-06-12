@@ -13,12 +13,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = ROOT / "configs" / "sub_f"
 REPORTS_ROOT = ROOT / "reports"
-SUB_C_SG_ROOT = (
-    ROOT / "data" / "processed" / "sub_c" / "2026-04-15.0" / "singapore"
-)
-RAW_CACHE_ROOT = (
-    ROOT / "data" / "cache" / "overture" / "2026-04-15.0" / "singapore"
-)
+SUB_C_SG_ROOT = ROOT / "data" / "processed" / "sub_c" / "2026-04-15.0" / "singapore"
+RAW_CACHE_ROOT = ROOT / "data" / "cache" / "overture" / "2026-04-15.0" / "singapore"
 
 UNKNOWN_FAMILY_PATH = CONFIG_ROOT / "unknown_family.yaml"
 SENTINEL_INVENTORY_PATH = CONFIG_ROOT / "sentinel_inventory.yaml"
@@ -134,9 +130,7 @@ def build_sentinel_decomposition() -> dict:
             "class_raw": "B__UNK__",
             "raw_dataset": "buildings.parquet",
             "raw_lookup": raw_buildings,
-            "classification": (
-                "root_cause_b_real_osm_long_tail_source_under_typed_no_cascade_8"
-            ),
+            "classification": ("root_cause_b_real_osm_long_tail_source_under_typed_no_cascade_8"),
             "cascade_8_assessment": (
                 "Raw Overture buildings.class is NULL for the sentinel rows, so "
                 "there are no recoverable wiki/semantic building values hidden "
@@ -205,12 +199,8 @@ def build_sentinel_decomposition() -> dict:
             "source_id_join_missing_count": int(state["source_id_join_missing_count"]),
             "raw_class_top20": _top_counter_items(class_counter, total),
             "raw_subtype_top20": _top_counter_items(subtype_counter, total),
-            "raw_class_top20_coverage_fraction": _top20_coverage(
-                class_counter, total
-            ),
-            "raw_subtype_top20_coverage_fraction": _top20_coverage(
-                subtype_counter, total
-            ),
+            "raw_class_top20_coverage_fraction": _top20_coverage(class_counter, total),
+            "raw_subtype_top20_coverage_fraction": _top20_coverage(subtype_counter, total),
             "root_cause_classification": spec["classification"],
             "cascade_8_assessment": spec["cascade_8_assessment"],
         }
@@ -283,9 +273,7 @@ def build_unknown_family(semantic_vocab: dict) -> dict:
             "source": "locked semantic_vocab.yaml L1 slots",
             "ordering": "Preserve semantic_vocab L1 order; do not sort empirically.",
             "wiki_revision_id": (
-                semantic_vocab["source_references"]["wiki_map_features_snapshot"][
-                    "revision_id"
-                ]
+                semantic_vocab["source_references"]["wiki_map_features_snapshot"]["revision_id"]
             ),
             "singapore_scope": (
                 "Sub-C feature_class mapping only covers highway/building; all other "
@@ -371,7 +359,8 @@ def build_sentinel_inventory(semantic_vocab: dict, unknown_family: dict) -> dict
             "end_id": BP2_PLACEHOLDER_BLOCK[1],
             "placeholder": True,
             "status": "PLACEHOLDER; final size locks at Task 2 halt",
-            "slide_condition": "If Task 2 encoding-primitive count lands above 1200, this block slides.",
+            "slide_condition": "If Task 2 encoding-primitive count lands above 1200, this block "
+            "slides.",
         },
         "bp7_boundary_ref_placeholder": {
             "start_id": BP7_PLACEHOLDER_BLOCK[0],
@@ -402,14 +391,10 @@ def _append_decomposition_table(lines: list[str], rows: list[dict]) -> None:
         ]
     )
     for row in rows:
-        lines.append(
-            f"| `{row['value']}` | {row['count']} | {_percent_text(row['fraction'])} |"
-        )
+        lines.append(f"| `{row['value']}` | {row['count']} | {_percent_text(row['fraction'])} |")
 
 
-def build_report(
-    semantic_vocab: dict, unknown_family: dict, sentinel_inventory: dict
-) -> str:
+def build_report(semantic_vocab: dict, unknown_family: dict, sentinel_inventory: dict) -> str:
     generated_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     slots = unknown_family["slots"]
 
@@ -421,16 +406,15 @@ def build_report(
         "**Enumerated `<unknown_*>` slots:**",
     ]
     for i, slot in enumerate(slots, start=1):
-        lines.append(
-            f"{i}. `{slot['token']}` - key `{slot['key']}` - locked ID `{slot['id']}`"
-        )
+        lines.append(f"{i}. `{slot['token']}` - key `{slot['key']}` - locked ID `{slot['id']}`")
 
     lines.extend(
         [
             "",
             "**Singapore occurrence table:**",
             "",
-            "| token | key | locked semantic-pair coverage | real OSM below F | sub-C sentinels | total |",
+            "| token | key | locked semantic-pair coverage | real OSM below F | sub-C sentinels "
+            "| total |",
             "|---|---:|---:|---:|---:|---:|",
         ]
     )
@@ -475,7 +459,8 @@ def build_report(
             "- `building=B__UNK__`: raw-cache join missing count "
             f"`{building['source_id_join_missing_count']}` across "
             f"`{building['total_count']}` rows; "
-            f"raw-class top-20 coverage `{_percent_text(building['raw_class_top20_coverage_fraction'])}`.",
+            "raw-class top-20 coverage "
+            f"`{_percent_text(building['raw_class_top20_coverage_fraction'])}`.",
             "- Classification: root cause (b), real OSM long-tail / upstream "
             "under-typed source data; no BP1 cascade #8 and no sub-C-v2 "
             f"candidate from this decomposition. "
@@ -495,7 +480,8 @@ def build_report(
             "- `highway=unknown`: raw-cache join missing count "
             f"`{highway['source_id_join_missing_count']}` across "
             f"`{highway['total_count']}` rows; "
-            f"raw-class top-20 coverage `{_percent_text(highway['raw_class_top20_coverage_fraction'])}`.",
+            "raw-class top-20 coverage "
+            f"`{_percent_text(highway['raw_class_top20_coverage_fraction'])}`.",
             "- Classification: root cause (b), real OSM long-tail / literal "
             "upstream `unknown`; no BP1 cascade #8 and no sub-C-v2 candidate "
             f"from this decomposition. {highway['cascade_8_assessment']}",
@@ -513,11 +499,17 @@ def build_report(
             "",
             "**Halt 3 ID namespace anchor:**",
             "",
-            f"- BP1 semantic family: `0..199` (`{len(semantic_vocab['slots'])}` used, `72` reserved for v2 semantic growth) - LOCKED.",
-            f"- BP4 unknown family: `200..255` (`{len(slots)}` used at `200..227`, `28` reserved at `228..255`) - LOCKED.",
-            "- Dataloader-side sentinels: `256..299` with `<pad>=256`, `<eos>=257`, `<bos>=258`, `<cell_start>=259`, `<cell_end>=260`; these are not on-disk sub-F vocab tokens - LOCKED.",
-            "- BP2 encoding primitives: placeholder block `300..1499`; values lock at Task 2 halt - PLACEHOLDER.",
-            "- BP7 boundary-ref: placeholder block `1500..1599`; values lock at Task 7 halt, `8` expected used and `92` reserved - PLACEHOLDER.",
+            f"- BP1 semantic family: `0..199` (`{len(semantic_vocab['slots'])}` used, `72` "
+            "reserved for v2 semantic growth) - LOCKED.",
+            f"- BP4 unknown family: `200..255` (`{len(slots)}` used at `200..227`, `28` reserved "
+            "at `228..255`) - LOCKED.",
+            "- Dataloader-side sentinels: `256..299` with `<pad>=256`, `<eos>=257`, `<bos>=258`, "
+            "`<cell_start>=259`, `<cell_end>=260`; these are not on-disk sub-F vocab tokens "
+            "- LOCKED.",
+            "- BP2 encoding primitives: placeholder block `300..1499`; values lock at Task 2 "
+            "halt - PLACEHOLDER.",
+            "- BP7 boundary-ref: placeholder block `1500..1599`; values lock at Task 7 halt, `8` "
+            "expected used and `92` reserved - PLACEHOLDER.",
             "",
             "**`sentinel_inventory.yaml` post-N/dataloader reservation:**",
             "",
@@ -529,12 +521,14 @@ def build_report(
             "",
             "- BP2 (`300..1499`) and BP7 (`1500..1599`) are PLACEHOLDER blocks.",
             "- Their final sizes are empirically locked at Tasks 2 and 7 halts respectively.",
-            "- If Task 2 encoding-primitive count lands above `1200` or Task 7 boundary-ref count above `100`, BP2/BP7 blocks slide.",
+            "- If Task 2 encoding-primitive count lands above `1200` or Task 7 boundary-ref "
+            "count above `100`, BP2/BP7 blocks slide.",
             "- Only BP1 + BP4 + dataloader sentinel IDs are LOCKED at Halt 3 approval.",
             "",
             "**§10.5 telemetry:**",
             "",
-            "- Implementer-time-to-data-surface: approximately `30` wall-clock minutes from Task 4 start to Halt 3 report generation.",
+            "- Implementer-time-to-data-surface: approximately `30` wall-clock minutes from Task "
+            "4 start to Halt 3 report generation.",
             f"- Report generated at: `{generated_at}`.",
         ]
     )
@@ -548,9 +542,7 @@ def main() -> None:
     report = build_report(semantic_vocab, unknown_family, sentinel_inventory)
 
     UNKNOWN_FAMILY_PATH.write_text(canonicalize_yaml(unknown_family), encoding="utf-8")
-    SENTINEL_INVENTORY_PATH.write_text(
-        canonicalize_yaml(sentinel_inventory), encoding="utf-8"
-    )
+    SENTINEL_INVENTORY_PATH.write_text(canonicalize_yaml(sentinel_inventory), encoding="utf-8")
     REPORT_PATH.write_text(report, encoding="utf-8")
 
 

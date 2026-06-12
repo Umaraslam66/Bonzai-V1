@@ -85,13 +85,9 @@ def derive_cell_scope_metrics(cells: pa.Table) -> dict[tuple[int, int], bool]:
     present: set[tuple[int, int]] = set()
     cell_i = cells["cell_i"].to_pylist()
     cell_j = cells["cell_j"].to_pylist()
-    for i, j in zip(cell_i, cell_j):
+    for i, j in zip(cell_i, cell_j, strict=True):
         present.add((int(i), int(j)))
-    return {
-        (i, j): (i, j) in present
-        for i in range(CELL_GRID_SIZE)
-        for j in range(CELL_GRID_SIZE)
-    }
+    return {(i, j): (i, j) in present for i in range(CELL_GRID_SIZE) for j in range(CELL_GRID_SIZE)}
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +110,7 @@ def derive_zoning_evidence(features: pa.Table, cells: pa.Table) -> list[Evidence
     feat_i = features["cell_i"].to_pylist()
     feat_j = features["cell_j"].to_pylist()
     feat_class = features["feature_class"].to_pylist()
-    for i, j, c in zip(feat_i, feat_j, feat_class):
+    for i, j, c in zip(feat_i, feat_j, feat_class, strict=True):
         key = (int(i), int(j), int(c))
         counts[key] = counts.get(key, 0) + 1
 
@@ -158,7 +154,7 @@ def derive_density_evidence(features: pa.Table, cells: pa.Table) -> list[Evidenc
     ci = cells["cell_i"].to_pylist()
     cj = cells["cell_j"].to_pylist()
     ca = cells["cell_area_admin_clipped_m2"].to_pylist()
-    for i, j, area in zip(ci, cj, ca):
+    for i, j, area in zip(ci, cj, ca, strict=True):
         cell_area[(int(i), int(j))] = float(area)
 
     building_area: dict[tuple[int, int], float] = {}
@@ -166,7 +162,7 @@ def derive_density_evidence(features: pa.Table, cells: pa.Table) -> list[Evidenc
     fj = features["cell_j"].to_pylist()
     fc = features["feature_class"].to_pylist()
     fg = features["geometry"].to_pylist()
-    for i, j, c, g in zip(fi, fj, fc, fg):
+    for i, j, c, g in zip(fi, fj, fc, fg, strict=True):
         if int(c) != int(FeatureClass.BUILDING):
             continue
         geom = shapely_wkb.loads(bytes(g))
@@ -198,9 +194,7 @@ def derive_density_evidence(features: pa.Table, cells: pa.Table) -> list[Evidenc
 # ---------------------------------------------------------------------------
 
 
-def derive_road_skeleton_evidence(
-    crossings: pa.Table, features: pa.Table
-) -> list[EvidenceMetric]:
+def derive_road_skeleton_evidence(crossings: pa.Table, features: pa.Table) -> list[EvidenceMetric]:
     """Emit ``road_crossing_count`` per internal edge slot (all 112 slots).
 
     Crossings are joined to features by ``source_feature_id``; only crossings
@@ -215,7 +209,9 @@ def derive_road_skeleton_evidence(
     feat_class = features["feature_class"].to_pylist()
     feat_sid = features["source_feature_id"].to_pylist()
     road_ids: set[str] = {
-        str(sid) for sid, c in zip(feat_sid, feat_class) if int(c) == int(FeatureClass.ROAD)
+        str(sid)
+        for sid, c in zip(feat_sid, feat_class, strict=True)
+        if int(c) == int(FeatureClass.ROAD)
     }
 
     counts: dict[tuple[int, int, int], int] = {}
@@ -223,7 +219,7 @@ def derive_road_skeleton_evidence(
     cli = crossings["lower_cell_i"].to_pylist()
     clj = crossings["lower_cell_j"].to_pylist()
     cax = crossings["axis"].to_pylist()
-    for sid, li, lj, ax in zip(csid, cli, clj, cax):
+    for sid, li, lj, ax in zip(csid, cli, clj, cax, strict=True):
         if str(sid) not in road_ids:
             continue
         key = (int(li), int(lj), int(ax))
@@ -312,7 +308,7 @@ def derive_tile_population_density_evidence(
     ci = cells["cell_i"].to_pylist()
     cj = cells["cell_j"].to_pylist()
     ca = cells["cell_area_admin_clipped_m2"].to_pylist()
-    for i, j, area in zip(ci, cj, ca):
+    for i, j, area in zip(ci, cj, ca, strict=True):
         cell_area_by_cell[(int(i), int(j))] = float(area)
 
     # Reconstruct per-cell building area (ratio * cell_area) so the
@@ -356,6 +352,6 @@ def _percentile_of(values: list[float], q: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    idx = int(round(q * (len(ordered) - 1)))
+    idx = round(q * (len(ordered) - 1))
     idx = max(0, min(idx, len(ordered) - 1))
     return float(ordered[idx])

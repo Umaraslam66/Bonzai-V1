@@ -32,7 +32,6 @@ import pyarrow.parquet as pq
 from cfm.data.io import write_parquet
 from cfm.data.sub_d.enums import MetricNamespace, Scope, SlotKind
 
-
 # ---------------------------------------------------------------------------
 # macro_core.parquet (spec §11.2)
 # ---------------------------------------------------------------------------
@@ -175,7 +174,9 @@ class DerivationEvidenceRow:
     derivation_version: str
 
 
-def _dispatch_value(value: float | int | str | bool) -> tuple[int, float | None, int | None, str | None, bool | None]:
+def _dispatch_value(
+    value: float | int | str | bool,
+) -> tuple[int, float | None, int | None, str | None, bool | None]:
     """Return ``(value_type, value_float, value_int, value_string, value_bool)``.
 
     ``bool`` is checked BEFORE ``int`` because ``isinstance(True, int)`` is
@@ -196,9 +197,7 @@ def _dispatch_value(value: float | int | str | bool) -> tuple[int, float | None,
     )
 
 
-def write_derivation_evidence_parquet(
-    rows: list[DerivationEvidenceRow], path: Path
-) -> None:
+def write_derivation_evidence_parquet(rows: list[DerivationEvidenceRow], path: Path) -> None:
     """Write derivation_evidence.parquet with the pinned schema and sort key.
 
     Canonical sort key per spec §11.3:

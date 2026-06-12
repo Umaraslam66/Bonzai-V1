@@ -26,8 +26,12 @@ import pyarrow as pa
 from shapely import wkb
 from shapely.geometry.base import BaseGeometry
 
+# PARQUET_WRITE_KWARGS re-export is DELIBERATE: the spec-§14.3 determinism pin
+# test imports it from HERE (sub-C's write surface), not from cfm.data.io.
 from cfm.data.io import (
-    PARQUET_WRITE_KWARGS as _PARQUET_WRITE_KWARGS,
+    PARQUET_WRITE_KWARGS as _PARQUET_WRITE_KWARGS,  # noqa: F401
+)
+from cfm.data.io import (
     canonicalize_yaml,
     write_parquet,
 )
