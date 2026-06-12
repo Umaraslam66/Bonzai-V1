@@ -166,6 +166,16 @@ def main(argv: list[str] | None = None) -> int:
             "contract; default matches CellDataModule's MAX_TOO_LONG_DROP_RATE)"
         ),
     )
+    parser.add_argument(
+        "--budget",
+        type=int,
+        default=DEFAULT_MAX_CELL_TOKENS,
+        help=(
+            "cell-token budget the frac_over/drop is measured against (default: the "
+            "locked DEFAULT_MAX_CELL_TOKENS); explicit so a recorded-tail-drop "
+            "measurement at a candidate number never requires editing a constant"
+        ),
+    )
     args = parser.parse_args(argv)
 
     # sub_f_root_fn looked up via the MODULE global (not the def-time default) so
@@ -175,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         args.regions,
         out_path=args.out,
         sub_f_root_fn=sub_f_region_dir,
+        budget=args.budget,
         git_sha=_git_sha(),
     )
     offenders = sorted(

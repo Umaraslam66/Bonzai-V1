@@ -48,11 +48,16 @@ class ScaffoldConfig(BaseModel):
     d_model: int = 256
     n_layers: int = 6
     n_heads: int = 8
-    #: CELL token budget (sub-F P99.9 lock = 5760 tokens/cell). The model's positional
-    #: capacity is this PLUS the conditioning prefix (CONDITIONING_PREFIX_LEN = 9 id
-    #: positions + CHARACTER_PREFIX_POSITIONS = 1 continuous position since Task 24b)
+    #: CELL token budget — the LOCKED 13,312 EU-p99.9-cover window (token-budget
+    #: coupled decision, 2026-06-11 memo; ONE authoritative number with
+    #: DEFAULT_MAX_CELL_TOKENS, guarded by tests/training/test_budget_lock.py).
+    #: Scored runs additionally require eval_max_new >= this budget (the
+    #: --scored-run entrypoint gate); the 2048 opt-down sbatch entry points stay
+    #: legal for NON-scored jobs only. The model's positional capacity is this
+    #: PLUS the conditioning prefix (CONDITIONING_PREFIX_LEN = 9 id positions +
+    #: CHARACTER_PREFIX_POSITIONS = 1 continuous position since Task 24b)
     #: -- see models/backbone.py.
-    max_len: int = 5760
+    max_len: int = 13_312
 
     # optimisation
     lr: float = 3e-4
