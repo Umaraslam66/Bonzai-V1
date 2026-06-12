@@ -1,0 +1,54 @@
+{
+  "probe": "mamba-cpu-half (W4)",
+  "scope": "CPU-verifiable half ONLY; GPU fwd/bwd = the actual verify-before-lock verdict, PARKED",
+  "locked_torch_required": "2.5.1+cu121",
+  "install_rcs": {
+    "torch": 0,
+    "causal_conv1d": 0,
+    "mamba_ssm": 0
+  },
+  "build_mode": {
+    "causal_conv1d": "UNKNOWN (see log)",
+    "mamba_ssm": "UNKNOWN (see log)"
+  },
+  "wheel_fetch_evidence": "none",
+  "host_compiler": "gcc (Spack GCC) 12.2.0",
+  "runtime_requirement": {
+    "glibcxx": "GLIBCXX_3.4.29 (gcc-12 libstdc++) must be visible at import",
+    "preload_used": "/leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/lib64/../lib64/libstdc++.so.6"
+  },
+  "resolved_versions": {
+    "torch": "2.5.1+cu121",
+    "triton": "3.1.0",
+    "causal-conv1d": "1.6.2.post1",
+    "mamba-ssm": "2.3.1"
+  },
+  "nvcc": "Build cuda_12.2.r12.2/compiler.32965470_0",
+  "imports": {
+    "torch_matches_lock": {
+      "ok": true,
+      "rc": 0,
+      "stdout": "2.5.1+cu121",
+      "stderr": ""
+    },
+    "causal_conv1d": {
+      "ok": true,
+      "rc": 0,
+      "stdout": "1.6.2.post1",
+      "stderr": ""
+    },
+    "mamba_ssm": {
+      "ok": true,
+      "rc": 0,
+      "stdout": "2.3.1",
+      "stderr": ""
+    },
+    "mamba_module_cpu_construct": {
+      "ok": true,
+      "rc": 0,
+      "stdout": "constructed 32640",
+      "stderr": ""
+    }
+  },
+  "cpu_half_verdict": "RESOLVES"
+}
