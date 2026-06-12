@@ -19,8 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from cfm.data.determinism import compute_sha256
-from cfm.data.io import canonicalize_yaml
+from cfm.data.locked_yaml import sha256_excluding_field, stamp_and_seal
 from cfm.data.sub_f.vocab import vocab_tag_to_id
 from cfm.eval.holdout.labels import TileLabels, _derive_tile_conditioning
 
@@ -75,9 +74,8 @@ class CityRegistryError(RuntimeError):
 
 def city_registry_sha256(data: dict) -> str:
     """SHA over the canonical registry EXCLUDING the registry_sha256 field itself
-    (the same ``*_sha256`` exclusion grammar as the holdout manifest freeze)."""
-    payload = {k: v for k, v in data.items() if k != "registry_sha256"}
-    return compute_sha256(canonicalize_yaml(payload).encode("utf-8"))
+    (the shared ``locked_yaml`` grammar; one source since W2)."""
+    return sha256_excluding_field(data, "registry_sha256")
 
 
 def freeze_city_registry(cities: list[str], path: Path) -> None:
@@ -94,10 +92,7 @@ def freeze_city_registry(cities: list[str], path: Path) -> None:
         "registry_schema_version": CITY_REGISTRY_SCHEMA_VERSION,
         "cities": list(cities),
     }
-    data["registry_sha256"] = city_registry_sha256(data)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonicalize_yaml(data), encoding="utf-8")
-    (path.parent / CITY_REGISTRY_LOCK_NAME).touch()
+    stamp_and_seal(data, path, sha_field="registry_sha256", lock_name=CITY_REGISTRY_LOCK_NAME)
 
 
 def _read_verified_registry(path: Path) -> tuple[str, ...]:
