@@ -12,8 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cfm.data.determinism import compute_sha256
-from cfm.data.io import canonicalize_yaml
+from cfm.data.locked_yaml import sha256_excluding_field, stamp_and_seal
 
 # Single-region / Singapore LEGACY schema version. FROZEN — never bump: the frozen SG
 # holdout manifest on disk carries manifest_schema_version: '1.0' and its manifest_sha256
@@ -144,9 +143,9 @@ def build_holdout_manifest_multiregion(
 
 
 def manifest_sha256(data: dict) -> str:
-    """SHA over the canonical manifest EXCLUDING the manifest_sha256 field itself."""
-    payload = {k: v for k, v in data.items() if k != "manifest_sha256"}
-    return compute_sha256(canonicalize_yaml(payload).encode("utf-8"))
+    """SHA over the canonical manifest EXCLUDING the manifest_sha256 field itself
+    (the shared ``locked_yaml`` grammar; one source since W2)."""
+    return sha256_excluding_field(data, "manifest_sha256")
 
 
 def freeze_holdout_manifest(data: dict, path: Path) -> None:
@@ -156,7 +155,5 @@ def freeze_holdout_manifest(data: dict, path: Path) -> None:
             f"holdout manifest already locked at {path}; it is written once and never "
             "regenerated (spec §F). Delete deliberately only to re-lock the eval set."
         )
-    frozen = dict(data)
-    frozen["manifest_sha256"] = manifest_sha256(frozen)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonicalize_yaml(frozen), encoding="utf-8")
+    # marker (_EVAL_SET_LOCKED) is managed separately from the freeze: lock_name=None
+    stamp_and_seal(data, path, sha_field="manifest_sha256", lock_name=None)

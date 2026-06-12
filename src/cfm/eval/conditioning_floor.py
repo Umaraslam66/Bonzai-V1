@@ -68,8 +68,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from cfm.data.determinism import compute_sha256
-from cfm.data.io import canonicalize_yaml
+from cfm.data.locked_yaml import sha256_excluding_field, stamp_and_seal
 from cfm.eval.conditioning_discrimination import (
     benjamini_hochberg,
     ks_pvalue,
@@ -674,9 +673,8 @@ def cross_pair_table_from_payload(payload: dict) -> PairTable:
 
 def floor_artifact_sha256(data: dict) -> str:
     """SHA over the canonical payload EXCLUDING the floor_sha256 field itself
-    (the same ``*_sha256`` exclusion grammar as the holdout manifest freeze)."""
-    payload = {k: v for k, v in data.items() if k != "floor_sha256"}
-    return compute_sha256(canonicalize_yaml(payload).encode("utf-8"))
+    (the shared ``locked_yaml`` grammar; one source since W2)."""
+    return sha256_excluding_field(data, "floor_sha256")
 
 
 def freeze_floor_artifact(payload: dict, path: Path) -> None:
@@ -703,11 +701,7 @@ def freeze_floor_artifact(payload: dict, path: Path) -> None:
             f"conditioning-floor artifact already locked at {path}; it is "
             "write-once — delete deliberately only to re-measure the floors."
         )
-    frozen = dict(payload)
-    frozen["floor_sha256"] = floor_artifact_sha256(frozen)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonicalize_yaml(frozen), encoding="utf-8")
-    (path.parent / FLOOR_ARTIFACT_LOCK_NAME).touch()
+    stamp_and_seal(payload, path, sha_field="floor_sha256", lock_name=FLOOR_ARTIFACT_LOCK_NAME)
 
 
 #: Module-private construction proof (Task-25 quality review #3): only
