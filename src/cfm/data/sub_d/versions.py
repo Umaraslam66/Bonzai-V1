@@ -15,7 +15,7 @@ from enum import Enum
 from cfm.data.sub_d.errors import VersionMismatchError, VersionNamespaceError
 
 
-class VersionNamespace(str, Enum):
+class VersionNamespace(str, Enum):  # noqa: UP042 — sealed sub-D: StrEnum changes str(member)
     """Disjoint version namespaces tracked by sub-D artefacts."""
 
     ARTIFACT_FORMAT = "artifact_format"
@@ -52,6 +52,5 @@ def compare_version(
         )
     if expected.value != actual.value:
         raise VersionMismatchError(
-            f"version mismatch in {namespace.value}: "
-            f"expected {expected.value}, got {actual.value}"
+            f"version mismatch in {namespace.value}: expected {expected.value}, got {actual.value}"
         )

@@ -118,7 +118,7 @@ def test_loader_rejects_unknown_token_not_at_section_position_zero_when_section_
     # Put B__UNK__ at position 1 (not 0) in the building section.
     data["feature_class"]["building"]["tokens"] = ["B_residential", "B__UNK__", "B_commercial"]
     p = _write_yaml(tmp_path, data)
-    with pytest.raises(LoaderError, match="__UNK__.*position 0"):
+    with pytest.raises(LoaderError, match=r"__UNK__.*position 0"):
         Vocabulary.load(p)
 
 

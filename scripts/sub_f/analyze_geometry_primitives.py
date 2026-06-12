@@ -6,10 +6,10 @@ from __future__ import annotations
 import argparse
 import math
 import random
-from collections import Counter, defaultdict
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import pyarrow.parquet as pq
 import yaml
@@ -29,9 +29,7 @@ from cfm.data.sub_f.enums import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "configs" / "sub_f" / "encoding_primitives.yaml"
-DEFAULT_REPORT_PATH = (
-    REPO_ROOT / "reports" / "2026-05-23-phase-1-sub-F-task-2-halt.md"
-)
+DEFAULT_REPORT_PATH = REPO_ROOT / "reports" / "2026-05-23-phase-1-sub-F-task-2-halt.md"
 SAMPLE_SEED = 20260523
 SAMPLE_LIMIT = 1000
 
@@ -253,10 +251,10 @@ def _encode_decode(
             original_to_decoded.append(len(decoded) - 1)
             continue
         angle = math.atan2(end[1] - start[1], end[0] - start[0])
-        direction_bin = int(round((angle % (2.0 * math.pi)) / angle_step)) % direction_count
+        direction_bin = round((angle % (2.0 * math.pi)) / angle_step) % direction_count
         decoded_angle = direction_bin * angle_step
         for chunk in _chunk_lengths(length, chunk_threshold_m):
-            magnitude_value = int(round(chunk / magnitude_quantum_m))
+            magnitude_value = round(chunk / magnitude_quantum_m)
             decoded_length = magnitude_value * magnitude_quantum_m
             last = decoded[-1]
             decoded.append(
@@ -525,10 +523,14 @@ def _scan_inputs(
                         closed=True,
                     )
                     if decoded_pair is None:
-                        metrics["skip_count"] = int(metrics["skip_count"]) + len(right_angle_indexes)
+                        metrics["skip_count"] = int(metrics["skip_count"]) + len(
+                            right_angle_indexes
+                        )
                         continue
                     decoded, mapping = decoded_pair
-                    for idx, input_angle in zip(right_angle_indexes, right_angle_input_angles):
+                    for idx, input_angle in zip(
+                        right_angle_indexes, right_angle_input_angles, strict=True
+                    ):
                         prev_i = mapping[(idx - 1) % len(unique)]
                         cur_i = mapping[idx]
                         next_i = mapping[(idx + 1) % len(unique)]
@@ -568,8 +570,7 @@ def _scan_inputs(
         "feature_count": feature_count,
         "geometry_type_counts": dict(sorted(geometry_type_counts.items())),
         "geometry_type_labels": {
-            int(code): GEOMETRY_TYPE[int(code)]
-            for code in sorted(geometry_type_counts)
+            int(code): GEOMETRY_TYPE[int(code)] for code in sorted(geometry_type_counts)
         },
         "turn_angle_distribution": {
             "polylines_abs_deg": _distribution(line_turn_angles),
@@ -585,14 +586,8 @@ def _scan_inputs(
         "total_polyline_triples": total_polyline_triples,
         "collinear_deviations": collinear_deviations,
         "eligible_counts": dict(eligible_counts),
-        "sample_counts": {
-            key: len(refs)
-            for key, refs in sampled_refs.items()
-        },
-        "candidate_counts": {
-            key: len(refs)
-            for key, refs in sample_refs.items()
-        },
+        "sample_counts": {key: len(refs) for key, refs in sampled_refs.items()},
+        "candidate_counts": {key: len(refs) for key, refs in sample_refs.items()},
         "sampled_refs": sampled_refs,
         "cell_base_tokens": cell_base_tokens,
         "cell_primitive_counts": cell_primitive_counts,
@@ -714,7 +709,7 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
     denom_y = math.sqrt(sum(y * y for y in dy))
     if denom_x == 0.0 or denom_y == 0.0:
         return None
-    return sum(x * y for x, y in zip(dx, dy)) / (denom_x * denom_y)
+    return sum(x * y for x, y in zip(dx, dy, strict=True)) / (denom_x * denom_y)
 
 
 def _ranks(values: list[float]) -> list[float]:
@@ -756,9 +751,7 @@ def _line_metrics(coords: list[Coord]) -> dict[str, float | int | None]:
         "total_length_m": _round_float(total_length),
         "vertex_count": len(unique),
         "max_abs_turn_angle_deg": _round_float(max(turns) if turns else 0.0),
-        "mean_vertex_spacing_m": _round_float(
-            (sum(spacings) / len(spacings)) if spacings else 0.0
-        ),
+        "mean_vertex_spacing_m": _round_float((sum(spacings) / len(spacings)) if spacings else 0.0),
     }
 
 
@@ -783,8 +776,7 @@ def _classify_linf_root_cause(
     correlations: dict[str, dict[str, float | None]],
 ) -> dict[str, object]:
     spearman_values = {
-        field: abs(float(values["spearman"] or 0.0))
-        for field, values in correlations.items()
+        field: abs(float(values["spearman"] or 0.0)) for field, values in correlations.items()
     }
     dominant_field, dominant_abs_spearman = max(
         spearman_values.items(),
@@ -792,7 +784,9 @@ def _classify_linf_root_cause(
     )
     if dominant_field in {"total_length_m", "vertex_count"}:
         classification = "length_correlated_threshold_chunking_lever"
-        reviewer_action = "Revisit chunking threshold or accumulated direction quantization before lock."
+        reviewer_action = (
+            "Revisit chunking threshold or accumulated direction quantization before lock."
+        )
     elif dominant_field == "max_abs_turn_angle_deg":
         classification = "turn_angle_correlated_direction_count_or_angle_bias_lever"
         reviewer_action = "Investigate higher direction count or angle-bias correction before lock."
@@ -854,7 +848,9 @@ def _build_linf_decomposition(
             "geometry_class": "polylines",
         },
         "sample_seed": SAMPLE_SEED,
-        "sample_sort_key": "(tile_id, source_feature_id, cell_i, cell_j, primitive_index); primary key preserves requested (tile_id, source_feature_id) ordering with deterministic tie-breakers",
+        "sample_sort_key": "(tile_id, source_feature_id, cell_i, cell_j, primitive_index); "
+        "primary key preserves requested (tile_id, source_feature_id) ordering with "
+        "deterministic tie-breakers",
         "sample_count": len(records),
         "skip_count": skip_count,
         "correlations": correlations,
@@ -951,40 +947,35 @@ def _build_linf_chunk_threshold_sweep(
         "roundtrip_l_inf_p99_m",
         "roundtrip_l_inf_max_m",
     )
-    metric_signatures = {
-        tuple(row[key] for key in metric_keys)
-        for row in rows
-    }
+    metric_signatures = {tuple(row[key] for key in metric_keys) for row in rows}
     p95_16 = float(rows_by_threshold[16.0]["roundtrip_l_inf_p95_m"] or 0.0)
     p95_12 = float(rows_by_threshold[12.0]["roundtrip_l_inf_p95_m"] or 0.0)
     if len(metric_signatures) == 1:
         classification = "chunking_is_no_op_on_test_sample"
         reviewer_guidance = (
-            "Chunk-as-lever hypothesis falsified: 32/24/16/12m chunk thresholds are identical to reported precision on this sample."
+            "Chunk-as-lever hypothesis falsified: 32/24/16/12m chunk thresholds "
+            "are identical to reported precision on this sample."
         )
         proposed_chunk_threshold_m = 32
         proposed_l_inf_threshold_m = current_l_inf_threshold_m
         proposed_l_inf_threshold_status = "PENDING_DIRECTION_SWEEP"
     elif p95_16 < 5.0:
         classification = "sixteen_meter_chunking_drops_p95_below_5m"
-        reviewer_guidance = (
-            "Propose chunk_threshold_m=16 and round_trip_l_inf_threshold_m=5.0m."
-        )
+        reviewer_guidance = "Propose chunk_threshold_m=16 and round_trip_l_inf_threshold_m=5.0m."
         proposed_chunk_threshold_m = 16
         proposed_l_inf_threshold_m = 5.0
         proposed_l_inf_threshold_status = "PROPOSED_AFTER_CHUNK_SWEEP"
     elif p95_12 < p95_16 * 0.9:
         classification = "twelve_meter_materially_improves_over_16m_reviewer_tradeoff"
-        reviewer_guidance = (
-            "Surface 12m vs 16m tradeoff; do not auto-lock the L_inf threshold."
-        )
+        reviewer_guidance = "Surface 12m vs 16m tradeoff; do not auto-lock the L_inf threshold."
         proposed_chunk_threshold_m = 32
         proposed_l_inf_threshold_m = current_l_inf_threshold_m
         proposed_l_inf_threshold_status = "PENDING_REVIEW"
     elif p95_16 > 7.0:
         classification = "known_length_correlated_degradation_default_chunking_retained"
         reviewer_guidance = (
-            "16m chunking does not materially clear the >7m p95 band; keep current/default chunking pending reviewer threshold decision."
+            "16m chunking does not materially clear the >7m p95 band; keep "
+            "current/default chunking pending reviewer threshold decision."
         )
         proposed_chunk_threshold_m = 32
         proposed_l_inf_threshold_m = current_l_inf_threshold_m
@@ -1020,10 +1011,7 @@ def _bp2_fit_for_direction(direction_count: int) -> dict[str, object]:
     magnitude_vocab_size = math.ceil(MAX_SEGMENT_CHUNK_M / 0.5) + 1
     structural_sentinel_count = 0
     required_slots = (
-        anchor_vocab_size
-        + direction_count
-        + magnitude_vocab_size
-        + structural_sentinel_count
+        anchor_vocab_size + direction_count + magnitude_vocab_size + structural_sentinel_count
     )
     return {
         "placeholder_range": f"{BP2_PLACEHOLDER_START_ID}..{BP2_PLACEHOLDER_END_ID}",
@@ -1036,8 +1024,7 @@ def _bp2_fit_for_direction(direction_count: int) -> dict[str, object]:
             "structural_sentinel_count": structural_sentinel_count,
         },
         "accounting_note": "No structural sentinels are included in Task 2 BP2 fit accounting.",
-        "fits_placeholder": required_slots
-        <= BP2_PLACEHOLDER_END_ID - BP2_PLACEHOLDER_START_ID + 1,
+        "fits_placeholder": required_slots <= BP2_PLACEHOLDER_END_ID - BP2_PLACEHOLDER_START_ID + 1,
     }
 
 
@@ -1083,7 +1070,8 @@ def _build_linf_direction_count_sweep(
         proposed_threshold = _round_up(p95_48, 0.1)
         classification = "forty_eight_dirs_restores_poc_target_band"
         reviewer_guidance = (
-            "48 directions drop p95 into the 3-5m target band and fit BP2; propose direction_count=48."
+            "48 directions drop p95 into the 3-5m target band and fit BP2; "
+            "propose direction_count=48."
         )
     else:
         proposed_direction_count = 24
@@ -1093,13 +1081,15 @@ def _build_linf_direction_count_sweep(
         )
         classification = "twenty_four_dirs_known_length_correlated_degradation"
         reviewer_guidance = (
-            "48 directions do not reach the 3-5m target band or fail fit; propose direction_count=24 with known length-correlated degradation."
+            "48 directions do not reach the 3-5m target band or fail fit; "
+            "propose direction_count=24 with known length-correlated degradation."
         )
 
     if not rows_by_direction[proposed_direction_count]["bp2_fit"]["fits_placeholder"]:
         classification = "proposed_direction_breaks_bp2_placeholder_fit"
         reviewer_guidance = (
-            "Higher direction count does not fit BP2 placeholder; reviewer intervention required before proposal."
+            "Higher direction count does not fit BP2 placeholder; reviewer "
+            "intervention required before proposal."
         )
 
     return {
@@ -1146,9 +1136,7 @@ def _build_right_angle_catastrophic_decomposition(
             8,
         )
     catastrophic_count = buckets[3]["count"]
-    catastrophic_fraction = (
-        catastrophic_count / measured_count if measured_count else 0.0
-    )
+    catastrophic_fraction = catastrophic_count / measured_count if measured_count else 0.0
     if catastrophic_fraction < 0.0001:
         classification = "edge_case"
     elif catastrophic_fraction > 0.001:
@@ -1219,40 +1207,51 @@ def _build_right_angle_root_cause(
 
     triggered_hypotheses: list[str] = []
     if float(dominant_ring["fraction"]) > 0.5 and dominant_ring["bucket"] == "position_0_or_1":
-        triggered_hypotheses.append("possible_bp2_anchor_design_structural_issue_cascade_8_candidate")
+        triggered_hypotheses.append(
+            "possible_bp2_anchor_design_structural_issue_cascade_8_candidate"
+        )
     if float(dominant_input["fraction"]) > 0.5 and dominant_input["bucket"] == "<1deg":
         triggered_hypotheses.append("possible_direction_bin_boundary_or_angle_wrapping_bug")
-    if float(dominant_perimeter["fraction"]) > 0.5 and dominant_perimeter["bucket"] in {"30_to_100m", ">100m"}:
+    if float(dominant_perimeter["fraction"]) > 0.5 and dominant_perimeter["bucket"] in {
+        "30_to_100m",
+        ">100m",
+    }:
         triggered_hypotheses.append("larger_perimeter_dominates_not_small_polygon_loss")
 
     if len(triggered_hypotheses) >= 2:
         classification = "multiple_structural_hypotheses_triggered"
         reviewer_guidance = (
-            "Catastrophic corners trigger multiple structural hypotheses; review anchor handling and direction-bin boundary/angle wrapping before angle lock."
+            "Catastrophic corners trigger multiple structural hypotheses; review "
+            "anchor handling and direction-bin boundary/angle wrapping before angle lock."
         )
     elif triggered_hypotheses:
         classification = triggered_hypotheses[0]
         if classification == "possible_bp2_anchor_design_structural_issue_cascade_8_candidate":
             reviewer_guidance = (
-                "Catastrophic corners cluster near ring position 0/1; review anchor handling before angle lock."
+                "Catastrophic corners cluster near ring position 0/1; review "
+                "anchor handling before angle lock."
             )
         elif classification == "possible_direction_bin_boundary_or_angle_wrapping_bug":
             reviewer_guidance = (
-                "Catastrophic corners are mostly nearly exact right angles; inspect direction-bin boundary and angle wrapping."
+                "Catastrophic corners are mostly nearly exact right angles; "
+                "inspect direction-bin boundary and angle wrapping."
             )
         else:
             reviewer_guidance = (
-                "Catastrophic corners are dominated by larger parent polygons; do not classify as small-polygon known loss."
+                "Catastrophic corners are dominated by larger parent polygons; "
+                "do not classify as small-polygon known loss."
             )
     elif float(dominant_perimeter["fraction"]) > 0.5 and dominant_perimeter["bucket"] == "<10m":
         classification = "small_polygon_known_loss"
         reviewer_guidance = (
-            "Catastrophic corners are dominated by <10m parent polygons; can be reviewed as small-geometry known loss."
+            "Catastrophic corners are dominated by <10m parent polygons; can be "
+            "reviewed as small-geometry known loss."
         )
     else:
         classification = "mixed_root_cause_reviewer_decision_band"
         reviewer_guidance = (
-            "No single hypothesis dominates; keep angle threshold/root cause pending reviewer decision."
+            "No single hypothesis dominates; keep angle threshold/root cause "
+            "pending reviewer decision."
         )
 
     return {
@@ -1260,8 +1259,11 @@ def _build_right_angle_root_cause(
             "direction_count": 24,
             "magnitude_quantum_m": 0.5,
         },
-        "right_angle_catastrophic_v1_classification": "accepted_v1_known_loss_cascade_8_candidate_for_sub_f_v2",
-        "v1_known_loss_note": "4517 / 2.08M catastrophic corners (0.22%) accepted for v1; cascade #8 candidate against BP2 anchor + direction-bin alignment for sub-F-v2.",
+        "right_angle_catastrophic_v1_classification": (
+            "accepted_v1_known_loss_cascade_8_candidate_for_sub_f_v2"
+        ),
+        "v1_known_loss_note": "4517 / 2.08M catastrophic corners (0.22%) accepted for v1; "
+        "cascade #8 candidate against BP2 anchor + direction-bin alignment for sub-F-v2.",
         "catastrophic_corner_count": total,
         "ring_position_buckets": ring_rows,
         "input_deviation_buckets": input_rows,
@@ -1282,10 +1284,7 @@ def _build_right_angle_known_loss_threshold_proposal(
     proposed_direction_count: int,
 ) -> dict[str, object]:
     candidate = (proposed_direction_count, 0.5)
-    values = [
-        float(value)
-        for value in right_angle_metrics[candidate]["post_deviation_deg"]
-    ]
+    values = [float(value) for value in right_angle_metrics[candidate]["post_deviation_deg"]]
     non_catastrophic = [value for value in values if value <= 45.0]
     distribution = _distribution(non_catastrophic)
     threshold = _round_up(float(distribution["p95"] or 0.0), 0.1)
@@ -1314,9 +1313,8 @@ def _row_for_candidate(
 ) -> dict[str, object]:
     direction_count, magnitude_quantum_m = candidate
     angle_half_bin_deg = 180.0 / direction_count
-    analytical_bound = (
-        MAX_SEGMENT_CHUNK_M * math.sin(math.radians(angle_half_bin_deg))
-        + (magnitude_quantum_m / 2.0)
+    analytical_bound = MAX_SEGMENT_CHUNK_M * math.sin(math.radians(angle_half_bin_deg)) + (
+        magnitude_quantum_m / 2.0
     )
     linf_distribution = linf_measurements[candidate]["distribution"]
     right_angle = right_angle_metrics[candidate]
@@ -1358,13 +1356,10 @@ def _choose_proposed_lock(
     right_angle_threshold_proposal: dict[str, object] | None = None,
 ) -> dict[str, object]:
     row_by_pair = {
-        (int(row["direction_count"]), float(row["magnitude_quantum_m"])): row
-        for row in rows
+        (int(row["direction_count"]), float(row["magnitude_quantum_m"])): row for row in rows
     }
     selected_direction_count = (
-        int(direction_sweep["proposed_direction_count"])
-        if direction_sweep is not None
-        else 24
+        int(direction_sweep["proposed_direction_count"]) if direction_sweep is not None else 24
     )
     selected_pair = (24, 0.5)
     selected = row_by_pair[selected_pair]
@@ -1388,9 +1383,7 @@ def _choose_proposed_lock(
         angle_threshold_status = "PENDING_REVIEW"
     else:
         angle_threshold_m = right_angle_threshold_proposal["round_trip_angle_threshold_deg"]
-        angle_threshold_status = right_angle_threshold_proposal[
-            "round_trip_angle_threshold_status"
-        ]
+        angle_threshold_status = right_angle_threshold_proposal["round_trip_angle_threshold_status"]
     return {
         "direction_count": selected_direction_count,
         "magnitude_quantum_m": selected_pair[1],
@@ -1481,15 +1474,9 @@ def _build_anchor_verification(
     linf_chunk_sweep: dict[str, object],
 ) -> dict[str, object]:
     row_24_05 = next(
-        row
-        for row in rows
-        if row["direction_count"] == 24 and row["magnitude_quantum_m"] == 0.5
+        row for row in rows if row["direction_count"] == 24 and row["magnitude_quantum_m"] == 0.5
     )
-    chunk_32 = next(
-        row
-        for row in linf_chunk_sweep["rows"]
-        if row["chunk_threshold_m"] == 32
-    )
+    chunk_32 = next(row for row in linf_chunk_sweep["rows"] if row["chunk_threshold_m"] == 32)
     return {
         "joint_surface_anchor_scheme": "anchor_scheme_independent",
         "joint_surface_geometry_scope": "combined_polylines_and_polygon_exterior_rings",
@@ -1499,10 +1486,16 @@ def _build_anchor_verification(
         "lock_threshold_surface_24_0_5_l_inf_p95_m": chunk_32["roundtrip_l_inf_p95_m"],
         "verified_inconsistency_cause": "geometry_scope_difference_not_anchor_scheme",
         "note": (
-            "Analysis-local encode/decode uses vertex-anchor deltas; flat vs hierarchical anchor tokenization affects BP2 vocab/sequence accounting, not decoded geometry coordinates. The 7.59m vs 10.34m p95 mismatch comes from combined geometry-class joint-surface aggregation versus polyline-only lock-threshold measurement."
+            "Analysis-local encode/decode uses vertex-anchor deltas; flat vs hierarchical anchor "
+            "tokenization affects BP2 vocab/sequence accounting, not decoded geometry "
+            "coordinates. The 7.59m vs 10.34m p95 mismatch comes from combined "
+            "geometry-class joint-surface aggregation versus polyline-only "
+            "lock-threshold measurement."
         ),
         "anchor_tradeoff": (
-            "Hierarchical saves namespace (96 anchor slots vs flat 1000) with a bounded sequence-length cost; L_inf lock-threshold surfaces are labeled hierarchical and do not rely on pre-revision joint-surface aggregate numbers."
+            "Hierarchical saves namespace (96 anchor slots vs flat 1000) with a bounded "
+            "sequence-length cost; L_inf lock-threshold surfaces are labeled hierarchical "
+            "and do not rely on pre-revision joint-surface aggregate numbers."
         ),
     }
 
@@ -1512,7 +1505,12 @@ def _protocol_v2_candidate_9_capture() -> dict[str, object]:
         "candidate": 9,
         "classification": "hypothesis_falsified_capture",
         "note": (
-            "Protocol-v2 candidate (9th): when diagnostic measurement contradicts prior hypothesis classification, surface hypothesis falsified explicitly. Sub-F Task 2 Continuation #2 Item A: chunk-as-lever hypothesis was falsified by identical L_inf across 4 chunk values; classification should have been chunking_is_no_op_on_test_sample rather than default chunking retained."
+            "Protocol-v2 candidate (9th): when diagnostic measurement contradicts prior "
+            "hypothesis classification, surface hypothesis falsified explicitly. Sub-F Task "
+            "2 Continuation #2 Item A: chunk-as-lever hypothesis was falsified by "
+            "identical L_inf across 4 chunk values; classification should have been "
+            "chunking_is_no_op_on_test_sample rather than default "
+            "chunking retained."
         ),
     }
 
@@ -1532,8 +1530,7 @@ def _build_yaml(
     right_angle_threshold_proposal: dict[str, object],
 ) -> dict[str, object]:
     geometry_counts = {
-        int(code): int(count)
-        for code, count in inventory["geometry_type_counts"].items()
+        int(code): int(count) for code, count in inventory["geometry_type_counts"].items()
     }
     building_distribution = _distribution(inventory["building_corner_deviations"])
     right_angle_fraction = (
@@ -1545,9 +1542,7 @@ def _build_yaml(
     selected_quantum = float(proposed_lock["magnitude_quantum_m"])
     selected_anchor = str(proposed_lock["anchor_scheme"])
     selected_anchor_vocab = next(
-        row["anchor_vocab_size"]
-        for row in anchor_comparison
-        if row["scheme"] == selected_anchor
+        row["anchor_vocab_size"] for row in anchor_comparison if row["scheme"] == selected_anchor
     )
     magnitude_vocab_size = math.ceil(MAX_SEGMENT_CHUNK_M / selected_quantum) + 1
     required_slots = selected_anchor_vocab + selected_direction + magnitude_vocab_size
@@ -1705,7 +1700,9 @@ def _bucket_rows_report_table(rows: list[dict[str, object]]) -> str:
     return header + body
 
 
-def _write_report(data: dict[str, object], rows: list[dict[str, object]], report_path: Path) -> None:
+def _write_report(
+    data: dict[str, object], rows: list[dict[str, object]], report_path: Path
+) -> None:
     source = data["source_scope"]
     characterization = data["input_geometry_characterization"]
     right_angle = data["right_angle_input_characterization"]
@@ -1714,9 +1711,7 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
     anchor_rows = data["anchor_scheme_comparison"]
     bp2 = data["bp2_placeholder_fit"]
     linf_decomposition = data["l_inf_decomposition_proposed_24_0_5"]
-    right_angle_decomposition = data[
-        "right_angle_catastrophic_decomposition_proposed_24_0_5"
-    ]
+    right_angle_decomposition = data["right_angle_catastrophic_decomposition_proposed_24_0_5"]
     linf_chunk_sweep = data["l_inf_chunk_threshold_sweep_24_0_5_hierarchical"]
     direction_sweep = data["l_inf_direction_count_sweep_0_5_hierarchical"]
     right_angle_root_cause = data["right_angle_catastrophic_root_cause_24_0_5"]
@@ -1730,9 +1725,12 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
         "",
         "## Audit outcomes",
         "",
-        "- WKB writer audit: PASS; `src/cfm/data/sub_c/io.py` retains `byte_order=1`, `dump_wkb`, and shapely/WKB symbols.",
-        f"- Singapore cache audit: PASS; tile count `{source['tile_count']}` from `tile=EPSG3414_*`, with WKB byte order verified as `1` before implementation.",
-        f"- BP2 placeholder audit: PASS; placeholder block `{bp2['placeholder_range']}` remains available.",
+        "- WKB writer audit: PASS; `src/cfm/data/sub_c/io.py` retains `byte_order=1`, "
+        "`dump_wkb`, and shapely/WKB symbols.",
+        f"- Singapore cache audit: PASS; tile count `{source['tile_count']}` from "
+        "`tile=EPSG3414_*`, with WKB byte order verified as `1` before implementation.",
+        f"- BP2 placeholder audit: PASS; placeholder block `{bp2['placeholder_range']}` remains "
+        "available.",
         "",
         "## All-tile input inventory",
         "",
@@ -1746,24 +1744,33 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
         "",
         f"- Turn angles: `{characterization['turn_angle_distribution']}`",
         f"- Vertex spacing: `{characterization['vertex_spacing_distribution_m']}`",
-        f"- Building corner abs deviation from 90 deg: `{characterization['building_corner_angle_abs_deviation_from_90_distribution_deg']}`",
+        "- Building corner abs deviation from 90 deg: "
+        f"`{characterization['building_corner_angle_abs_deviation_from_90_distribution_deg']}`",
         "",
         "## Joint candidate surface",
         "",
         _linf_report_table(rows),
         "",
-        "Measured L_inf convention: polylines are open and include all original vertices; polygon exterior rings exclude the implicit closure vertex from original-vertex error measurement, and decoded closure is reconstructed.",
+        "Measured L_inf convention: polylines are open and include all original vertices; "
+        "polygon exterior rings exclude the implicit closure vertex from original-vertex "
+        "error measurement, and decoded closure is reconstructed.",
         "",
         "## Singapore building right angles",
         "",
         f"- Definition: `{right_angle['definition']}`",
-        f"- Total building polygon corner count: {right_angle['total_building_polygon_corner_count']}",
+        "- Total building polygon corner count: "
+        f"{right_angle['total_building_polygon_corner_count']}",
         f"- Input right-angle corner count: {right_angle['input_right_angle_corner_count']}",
         f"- Fraction within +/-5 deg of 90: {right_angle['fraction_within_5_deg_of_90']}",
-        f"- Input caveat: Singapore building right-angle input fraction is {right_angle['fraction_within_5_deg_of_90']} (81.9%) within +/-5 deg of 90, not the POC 95% claim.",
-        "- Mean deviation is 8.7 deg and p95 is about 68 deg, so 5% of corners are substantially non-rectilinear.",
-        "- BP2 angular precision must handle the rectilinear majority and the curved/complex minority.",
-        "- 24 directions accepts known loss on the 5% non-rectilinear minority; this is a design tradeoff, not a bug.",
+        "- Input caveat: Singapore building right-angle input fraction is "
+        f"{right_angle['fraction_within_5_deg_of_90']} (81.9%) within +/-5 deg of 90, not "
+        "the POC 95% claim.",
+        "- Mean deviation is 8.7 deg and p95 is about 68 deg, so 5% of corners are substantially "
+        "non-rectilinear.",
+        "- BP2 angular precision must handle the rectilinear majority and the curved/complex "
+        "minority.",
+        "- 24 directions accepts known loss on the 5% non-rectilinear minority; this is a design "
+        "tradeoff, not a bug.",
         "",
         _right_angle_report_table(rows),
         "",
@@ -1775,32 +1782,42 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
         f"- Skip count: {linf_decomposition['skip_count']}",
         f"- Correlations: `{linf_decomposition['correlations']}`",
         f"- Root-cause classification: `{linf_decomposition['root_cause_classification']}`",
-        "- Threshold status: pending reviewer decision; no final L_inf lock is made in this continuation.",
+        "- Threshold status: pending reviewer decision; no final L_inf lock is made in this "
+        "continuation.",
         "",
         _linf_top50_report_table(linf_decomposition),
         "",
         "### Item 2: right-angle catastrophic bucket decomposition at proposed (24, 0.5m)",
         "",
-        f"- Measured right-angle corner count: {right_angle_decomposition['measured_right_angle_corner_count']}",
+        "- Measured right-angle corner count: "
+        f"{right_angle_decomposition['measured_right_angle_corner_count']}",
         f"- Skip count: {right_angle_decomposition['skip_count']}",
         f"- Catastrophic count (>45 deg): {right_angle_decomposition['catastrophic_count']}",
         f"- Catastrophic fraction: {right_angle_decomposition['catastrophic_fraction']}",
         f"- Classification: {right_angle_decomposition['classification']}",
-        "- Angle threshold status: pending reviewer decision; no final angle lock is made in this continuation.",
+        "- Angle threshold status: pending reviewer decision; no final angle lock is made in "
+        "this continuation.",
         "",
         _right_angle_bucket_report_table(right_angle_decomposition),
         "",
         "### Item 3: anchor proposal revision",
         "",
         "- Proposed anchor scheme is revised to hierarchical.",
-        "- Rationale: flat consumes 1000/1200 BP2 placeholder slots (83%); hierarchical consumes 96/1200 (8%). The 14% mean sequence-length cost is bounded training-compute cost, while the 10x vocab namespace cost is permanent within phase. Hierarchical leaves headroom for sub-F-v2 anchor changes.",
+        "- Rationale: flat consumes 1000/1200 BP2 placeholder slots (83%); hierarchical consumes "
+        "96/1200 (8%). The 14% mean sequence-length cost is bounded training-compute cost, "
+        "while the 10x vocab namespace cost is permanent within phase. Hierarchical "
+        "leaves headroom for sub-F-v2 anchor changes.",
         "",
         "### Item 4: input characterization caveat",
         "",
-        f"- Singapore building right-angle input fraction is {right_angle['fraction_within_5_deg_of_90']} (81.9%) within +/-5 deg of 90, not the POC 95% claim.",
-        "- Mean deviation is 8.7 deg; p95 is about 68 deg, so 5% of corners are substantially non-rectilinear.",
+        "- Singapore building right-angle input fraction is "
+        f"{right_angle['fraction_within_5_deg_of_90']} (81.9%) within +/-5 deg of 90, not "
+        "the POC 95% claim.",
+        "- Mean deviation is 8.7 deg; p95 is about 68 deg, so 5% of corners are substantially "
+        "non-rectilinear.",
         "- BP2 angular precision must handle rectilinear majority and curved/complex minority.",
-        "- 24 directions accepts known loss on the 5% non-rectilinear minority; this is design tradeoff, not bug.",
+        "- 24 directions accepts known loss on the 5% non-rectilinear minority; this is design "
+        "tradeoff, not bug.",
         "",
         "### Continuation #2 Item A: L_inf chunking lever sweep",
         "",
@@ -1808,7 +1825,8 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
         f"- Classification: {linf_chunk_sweep['classification']}",
         f"- Reviewer guidance: {linf_chunk_sweep['reviewer_guidance']}",
         f"- Proposed chunk threshold metadata: {linf_chunk_sweep['proposed_chunk_threshold_m']} m",
-        f"- Proposed L_inf threshold metadata: {linf_chunk_sweep['proposed_l_inf_threshold_m']} m ({linf_chunk_sweep['proposed_l_inf_threshold_status']})",
+        f"- Proposed L_inf threshold metadata: {linf_chunk_sweep['proposed_l_inf_threshold_m']} "
+        f"m ({linf_chunk_sweep['proposed_l_inf_threshold_status']})",
         "",
         _linf_chunk_sweep_report_table(linf_chunk_sweep),
         "",
@@ -1818,7 +1836,8 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
         f"- Classification: {direction_sweep['classification']}",
         f"- Reviewer guidance: {direction_sweep['reviewer_guidance']}",
         f"- Proposed direction count: {direction_sweep['proposed_direction_count']}",
-        f"- Proposed L_inf threshold: {direction_sweep['proposed_l_inf_threshold_m']} m ({direction_sweep['proposed_l_inf_threshold_status']})",
+        f"- Proposed L_inf threshold: {direction_sweep['proposed_l_inf_threshold_m']} m "
+        f"({direction_sweep['proposed_l_inf_threshold_status']})",
         "",
         "| dirs | mean_m | p50_m | p95_m | p99_m | max_m | required BP2 slots | fits |",
         "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
@@ -1832,55 +1851,65 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
         )
     lines.extend(
         [
-        "",
-        "### Continuation #3 Item B: anchor verification / cross-measurement inconsistency",
-        "",
-        f"- Joint surface anchor scheme: {anchor_verification['joint_surface_anchor_scheme']}",
-        f"- Joint surface scope: {anchor_verification['joint_surface_geometry_scope']}",
-        f"- Lock-threshold surface anchor scheme: {anchor_verification['lock_threshold_surface_anchor_scheme']}",
-        f"- Verified inconsistency cause: {anchor_verification['verified_inconsistency_cause']}",
-        f"- Note: {anchor_verification['note']}",
-        f"- Anchor tradeoff: {anchor_verification['anchor_tradeoff']}",
-        "",
-        "### Continuation #2 Item B: right-angle catastrophic root-cause buckets",
-        "",
-        f"- Catastrophic corner count: {right_angle_root_cause['catastrophic_corner_count']}",
-        f"- Root-cause classification: `{right_angle_root_cause['root_cause_classification']}`",
-        f"- V1 classification: {right_angle_root_cause['right_angle_catastrophic_v1_classification']}",
-        f"- Angle threshold proposal: {angle_threshold_proposal['round_trip_angle_threshold_deg']} deg ({angle_threshold_proposal['round_trip_angle_threshold_status']}), basis `{angle_threshold_proposal['threshold_basis']}`, catastrophic >45 deg excluded: {angle_threshold_proposal['excluded_catastrophic_gt_45_deg']}",
-        "",
-        "Ring position buckets:",
-        "",
-        _bucket_rows_report_table(right_angle_root_cause["ring_position_buckets"]),
-        "",
-        "Input deviation buckets:",
-        "",
-        _bucket_rows_report_table(right_angle_root_cause["input_deviation_buckets"]),
-        "",
-        "Parent polygon perimeter buckets:",
-        "",
-        _bucket_rows_report_table(right_angle_root_cause["perimeter_buckets"]),
-        "",
-        "### Continuation #3 Item D: protocol-v2 candidate 9 capture",
-        "",
-        f"- {protocol_note['note']}",
-        "",
-        "## Collinearity admission threshold",
-        "",
-        f"- Candidate triples X: {collinearity['collinear_candidate_triples']}",
-        f"- Total polyline interior triples Y: {collinearity['total_polyline_interior_triples']}",
-        f"- Weak empirical p95 basis: {collinearity['weak_empirical_p95_basis']}",
-        f"- Perpendicular deviation distribution: `{collinearity['distribution_perpendicular_m']}`",
-        f"- Fixed multiples: `{collinearity['fixed_multiple_thresholds_m']}`",
-        f"- Proposed method: `{collinearity['proposed_threshold_method']}`",
-        f"- Proposed threshold: {collinearity['proposed_threshold_m']} m",
-        "",
-        "Spec framing applied: collinearity admission threshold is the maximum perpendicular deviation from the straight line through neighboring decoded vertices.",
-        "",
-        "## Anchor scheme comparison",
-        "",
-        "| scheme | vocab size | tokens/anchor | mean seq/cell | p95 seq/cell | derivation |",
-        "| --- | ---: | ---: | ---: | ---: | --- |",
+            "",
+            "### Continuation #3 Item B: anchor verification / cross-measurement inconsistency",
+            "",
+            f"- Joint surface anchor scheme: {anchor_verification['joint_surface_anchor_scheme']}",
+            f"- Joint surface scope: {anchor_verification['joint_surface_geometry_scope']}",
+            "- Lock-threshold surface anchor scheme: "
+            f"{anchor_verification['lock_threshold_surface_anchor_scheme']}",
+            "- Verified inconsistency cause: "
+            f"{anchor_verification['verified_inconsistency_cause']}",
+            f"- Note: {anchor_verification['note']}",
+            f"- Anchor tradeoff: {anchor_verification['anchor_tradeoff']}",
+            "",
+            "### Continuation #2 Item B: right-angle catastrophic root-cause buckets",
+            "",
+            f"- Catastrophic corner count: {right_angle_root_cause['catastrophic_corner_count']}",
+            f"- Root-cause classification: `{right_angle_root_cause['root_cause_classification']}`",
+            "- V1 classification: "
+            f"{right_angle_root_cause['right_angle_catastrophic_v1_classification']}",
+            "- Angle threshold proposal: "
+            f"{angle_threshold_proposal['round_trip_angle_threshold_deg']} deg "
+            f"({angle_threshold_proposal['round_trip_angle_threshold_status']}), basis "
+            f"`{angle_threshold_proposal['threshold_basis']}`, catastrophic >45 deg "
+            f"excluded: {angle_threshold_proposal['excluded_catastrophic_gt_45_deg']}",
+            "",
+            "Ring position buckets:",
+            "",
+            _bucket_rows_report_table(right_angle_root_cause["ring_position_buckets"]),
+            "",
+            "Input deviation buckets:",
+            "",
+            _bucket_rows_report_table(right_angle_root_cause["input_deviation_buckets"]),
+            "",
+            "Parent polygon perimeter buckets:",
+            "",
+            _bucket_rows_report_table(right_angle_root_cause["perimeter_buckets"]),
+            "",
+            "### Continuation #3 Item D: protocol-v2 candidate 9 capture",
+            "",
+            f"- {protocol_note['note']}",
+            "",
+            "## Collinearity admission threshold",
+            "",
+            f"- Candidate triples X: {collinearity['collinear_candidate_triples']}",
+            "- Total polyline interior triples Y: "
+            f"{collinearity['total_polyline_interior_triples']}",
+            f"- Weak empirical p95 basis: {collinearity['weak_empirical_p95_basis']}",
+            "- Perpendicular deviation distribution: "
+            f"`{collinearity['distribution_perpendicular_m']}`",
+            f"- Fixed multiples: `{collinearity['fixed_multiple_thresholds_m']}`",
+            f"- Proposed method: `{collinearity['proposed_threshold_method']}`",
+            f"- Proposed threshold: {collinearity['proposed_threshold_m']} m",
+            "",
+            "Spec framing applied: collinearity admission threshold is the maximum perpendicular "
+            "deviation from the straight line through neighboring decoded vertices.",
+            "",
+            "## Anchor scheme comparison",
+            "",
+            "| scheme | vocab size | tokens/anchor | mean seq/cell | p95 seq/cell | derivation |",
+            "| --- | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for row in anchor_rows:
@@ -1892,7 +1921,8 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
     lines.extend(
         [
             "",
-            "Boundary-reference overhead is out of scope for Task 2; Tasks 3/7 cover cross-cell overhead later.",
+            "Boundary-reference overhead is out of scope for Task 2; Tasks 3/7 cover cross-cell "
+            "overhead later.",
             "",
             "## Proposed lock inputs",
             "",
@@ -1900,9 +1930,13 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
             f"- Magnitude quantum: {proposed['magnitude_quantum_m']} m",
             f"- Anchor scheme: {proposed['anchor_scheme']}",
             f"- Chunk threshold: {proposed['chunk_threshold_m']} m",
-            f"- Round-trip L_inf threshold: {proposed['round_trip_l_inf_threshold_m']} m ({proposed['round_trip_l_inf_threshold_status']})",
-            f"- Round-trip 95th-percentile angle threshold: {proposed['round_trip_angle_threshold_deg']} deg ({proposed['round_trip_angle_threshold_status']})",
-            f"- Collinearity admission perpendicular threshold: {proposed['collinearity_admission_perpendicular_m']} m",
+            f"- Round-trip L_inf threshold: {proposed['round_trip_l_inf_threshold_m']} m "
+            f"({proposed['round_trip_l_inf_threshold_status']})",
+            "- Round-trip 95th-percentile angle threshold: "
+            f"{proposed['round_trip_angle_threshold_deg']} deg "
+            f"({proposed['round_trip_angle_threshold_status']})",
+            "- Collinearity admission perpendicular threshold: "
+            f"{proposed['collinearity_admission_perpendicular_m']} m",
             f"- Rationale: {proposed['rationale']}",
             "",
             "## BP2 placeholder fit",
@@ -1915,10 +1949,12 @@ def _write_report(data: dict[str, object], rows: list[dict[str, object]], report
             "## Section 10.5 telemetry",
             "",
             "- Deterministic sampling seed: 20260523",
-            "- Candidate grid: direction_count in 8, 16, 24 crossed with magnitude_quantum_m in 0.25, 0.5, 1.0.",
+            "- Candidate grid: direction_count in 8, 16, 24 crossed with magnitude_quantum_m in "
+            "0.25, 0.5, 1.0.",
             "- Data read mode: `pq.ParquetFile(path).read()` per tile, not parent-directory reads.",
             "- Geometry decode: `shapely.wkb.loads` from Sub-C little-endian WKB.",
-            "- Halt boundary: YAML remains `_status: PROPOSED`; sentinel inventory remains BP2 PLACEHOLDER.",
+            "- Halt boundary: YAML remains `_status: PROPOSED`; sentinel inventory remains BP2 "
+            "PLACEHOLDER.",
             "",
         ]
     )
@@ -1940,9 +1976,7 @@ def main() -> None:
     )
     linf_measurements = _measure_linf_surface(sampled_coords)
     linf_decomposition = _build_linf_decomposition(sampled_coords)
-    right_angle_decomposition = _build_right_angle_catastrophic_decomposition(
-        right_angle_metrics
-    )
+    right_angle_decomposition = _build_right_angle_catastrophic_decomposition(right_angle_metrics)
     right_angle_root_cause = _build_right_angle_root_cause(
         inventory,
         right_angle_decomposition,
@@ -1952,9 +1986,7 @@ def main() -> None:
         for candidate in _candidate_pairs()
     ]
     proposed_row = next(
-        row
-        for row in rows
-        if row["direction_count"] == 24 and row["magnitude_quantum_m"] == 0.5
+        row for row in rows if row["direction_count"] == 24 and row["magnitude_quantum_m"] == 0.5
     )
     current_l_inf_threshold_m = _round_float(
         max(0.5, _round_up(float(proposed_row["roundtrip_l_inf_p99_m"] or 0.0), 0.05))

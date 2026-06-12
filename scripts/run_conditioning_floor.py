@@ -65,7 +65,8 @@ from cfm.data.training.build_shards import (  # noqa: E402
 )
 
 # Private import SANCTIONED (Task-25 quality review #2; the has_outbound_bref
-# precedent — that one since promoted public at W7): _verify_manifest_integrity is the ONE F9 authority for "this
+# precedent — that one since promoted public at W7): _verify_manifest_integrity
+# is the ONE F9 authority for "this
 # holdout manifest is sealed and untampered" (sha + _EVAL_SET_LOCKED) — reusing
 # it here means the D-vs-T boundary the floor artifact freezes is defined by
 # the same verifier training uses, never a second hand-rolled copy.

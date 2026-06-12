@@ -22,12 +22,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
-
-import json
 
 TAGINFO_KEYS_URL = "https://taginfo.openstreetmap.org/api/4/keys/all"
 TAGINFO_VALUES_URL = (
@@ -72,8 +71,14 @@ def snapshot(out_csv: Path, top_n_keys: int = 200) -> None:
         writer = csv.writer(f)
         writer.writerow(
             [
-                "key", "value", "count_all", "count_ways", "count_nodes",
-                "count_relations", "row_type", "parent_key",
+                "key",
+                "value",
+                "count_all",
+                "count_ways",
+                "count_nodes",
+                "count_relations",
+                "row_type",
+                "parent_key",
             ]
         )
         for key_row in keys_sorted:
@@ -81,9 +86,14 @@ def snapshot(out_csv: Path, top_n_keys: int = 200) -> None:
             # Key row: raw counts per ET from /keys/all
             writer.writerow(
                 [
-                    key, "", key_row["count_all"], key_row["count_ways"],
-                    key_row["count_nodes"], key_row["count_relations"],
-                    "key", "",
+                    key,
+                    "",
+                    key_row["count_all"],
+                    key_row["count_ways"],
+                    key_row["count_nodes"],
+                    key_row["count_relations"],
+                    "key",
+                    "",
                 ]
             )
             # Value rows: only count_all from /key/values; per-ET breakdown not
@@ -98,11 +108,17 @@ def snapshot(out_csv: Path, top_n_keys: int = 200) -> None:
                 for v in values_data:
                     writer.writerow(
                         [
-                            key, v["value"], v["count"], 0, 0, 0,
-                            "value", key,
+                            key,
+                            v["value"],
+                            v["count"],
+                            0,
+                            0,
+                            0,
+                            "value",
+                            key,
                         ]
                     )
-            except Exception as exc:  # noqa: BLE001 — best-effort per key
+            except Exception as exc:
                 print(f"[snapshot_taginfo] warning: {key}: {exc}", file=sys.stderr)
 
     print(f"[snapshot_taginfo] wrote {out_csv}")
@@ -112,7 +128,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--release", default="2026-04-15.0")
     args = parser.parse_args()
-    out = Path(__file__).resolve().parents[2] / "configs" / "sub_f" / "taginfo" / f"{args.release}.csv"
+    out = (
+        Path(__file__).resolve().parents[2]
+        / "configs"
+        / "sub_f"
+        / "taginfo"
+        / f"{args.release}.csv"
+    )
     snapshot(out)
     return 0
 

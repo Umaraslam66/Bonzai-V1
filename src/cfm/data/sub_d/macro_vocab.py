@@ -79,9 +79,7 @@ def validate_macro_vocab(data: dict) -> None:
     required_top = {"status", "locked_buckets", "locked_proxy", "append_only_within_phase"}
     missing = required_top - data.keys()
     if missing:
-        raise SubDValidationError(
-            f"macro vocab missing required top-level keys: {sorted(missing)}"
-        )
+        raise SubDValidationError(f"macro vocab missing required top-level keys: {sorted(missing)}")
     if data["status"] != "locked":
         raise SubDValidationError(
             f"macro vocab status must be 'locked'; got {data['status']!r}. "
@@ -112,9 +110,7 @@ def validate_macro_vocab(data: dict) -> None:
             )
 
     if not data["locked_proxy"].get("tile_population_density"):
-        raise SubDValidationError(
-            "macro vocab missing locked_proxy[tile_population_density]"
-        )
+        raise SubDValidationError("macro vocab missing locked_proxy[tile_population_density]")
 
 
 def token_name_to_id(section: str, token_name: str, vocab: dict) -> int:

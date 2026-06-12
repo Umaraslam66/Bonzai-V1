@@ -163,9 +163,7 @@ def build_feature_splitting_report(sub_c_region_dir: Path) -> dict[str, Any]:
         "no_multi_part_boundary_interaction": road_multiline_part_edge_buckets[
             "no_multi_part_boundary_interaction"
         ],
-        "same_cell_edge_multi_part": road_multiline_part_edge_buckets[
-            "same_cell_edge_multi_part"
-        ],
+        "same_cell_edge_multi_part": road_multiline_part_edge_buckets["same_cell_edge_multi_part"],
     }
 
     return {

@@ -36,11 +36,34 @@ ROOT = Path(__file__).resolve().parents[2]
 # transclusion list. Each `{{Map_Features:X}}` or `{{Building typology}}` line
 # in that section contributes one key.
 WIKI_L1_MUST_APPEARS: Final[tuple[str, ...]] = (
-    "aerialway", "aeroway", "amenity", "barrier", "boundary", "building",
-    "craft", "emergency", "geological", "healthcare", "highway", "historic",
-    "landuse", "leisure", "man_made", "military", "natural", "office",
-    "place", "power", "public_transport", "railway", "route", "shop",
-    "telecom", "tourism", "water", "waterway",
+    "aerialway",
+    "aeroway",
+    "amenity",
+    "barrier",
+    "boundary",
+    "building",
+    "craft",
+    "emergency",
+    "geological",
+    "healthcare",
+    "highway",
+    "historic",
+    "landuse",
+    "leisure",
+    "man_made",
+    "military",
+    "natural",
+    "office",
+    "place",
+    "power",
+    "public_transport",
+    "railway",
+    "route",
+    "shop",
+    "telecom",
+    "tourism",
+    "water",
+    "waterway",
 )
 
 # L2: highway + building only per cascade #4 (Singapore X scope).
@@ -52,15 +75,31 @@ WIKI_L1_MUST_APPEARS: Final[tuple[str, ...]] = (
 # infrastructure) which are point-features not way-classifications.
 WIKI_L2_HIGHWAY: Final[tuple[str, ...]] = (
     # Roads (7 main road network tags per template's road_network annotation)
-    "motorway", "trunk", "primary", "secondary", "tertiary",
-    "unclassified", "residential",
+    "motorway",
+    "trunk",
+    "primary",
+    "secondary",
+    "tertiary",
+    "unclassified",
+    "residential",
     # Link roads
-    "motorway_link", "trunk_link", "primary_link",
-    "secondary_link", "tertiary_link",
+    "motorway_link",
+    "trunk_link",
+    "primary_link",
+    "secondary_link",
+    "tertiary_link",
     # Special road types
-    "living_street", "service", "pedestrian", "busway",
+    "living_street",
+    "service",
+    "pedestrian",
+    "busway",
     # Paths
-    "footway", "cycleway", "bridleway", "path", "steps", "track",
+    "footway",
+    "cycleway",
+    "bridleway",
+    "path",
+    "steps",
+    "track",
     # Lifecycle placeholder
     "road",
 )
@@ -71,18 +110,42 @@ WIKI_L2_HIGHWAY: Final[tuple[str, ...]] = (
 WIKI_L2_BUILDING: Final[tuple[str, ...]] = (
     "yes",  # catch-all (added manually per OSM convention, not in template)
     # Typology values from Building_typology template
-    "annexe", "apartments", "barn", "barracks", "bungalow", "cabin",
-    "commercial", "detached", "dormitory", "entrance", "farm",
-    "farm_auxiliary", "gatehouse", "ger", "hangar", "hotel", "house",
-    "houseboat", "library", "office", "public", "residential",
-    "semidetached_house", "service", "shed", "static_caravan",
-    "stilt_house", "supermarket", "terrace", "train_station", "tree_house",
+    "annexe",
+    "apartments",
+    "barn",
+    "barracks",
+    "bungalow",
+    "cabin",
+    "commercial",
+    "detached",
+    "dormitory",
+    "entrance",
+    "farm",
+    "farm_auxiliary",
+    "gatehouse",
+    "ger",
+    "hangar",
+    "hotel",
+    "house",
+    "houseboat",
+    "library",
+    "office",
+    "public",
+    "residential",
+    "semidetached_house",
+    "service",
+    "shed",
+    "static_caravan",
+    "stilt_house",
+    "supermarket",
+    "terrace",
+    "train_station",
+    "tree_house",
     "trullo",
 )
 
 WIKI_L2_PRIMARY_PAIRS: Final[frozenset[tuple[str, str]]] = frozenset(
-    {("highway", v) for v in WIKI_L2_HIGHWAY}
-    | {("building", v) for v in WIKI_L2_BUILDING}
+    {("highway", v) for v in WIKI_L2_HIGHWAY} | {("building", v) for v in WIKI_L2_BUILDING}
 )
 
 # L3: deferred entirely per spec §12 #10. Placeholder for future expansion.
@@ -94,7 +157,7 @@ WIKI_L3_ALL_PAIRS: Final[frozenset[tuple[str, str]]] = frozenset()
 # water+landuse+natural with ambiguous parent key). Per spec §12 #11.
 # ---------------------------------------------------------------------------
 FEATURE_CLASS_TO_KEY: Final[dict[int, str]] = {
-    0: "highway",   # road class — exact 1:1 (sub-C extracts only highway)
+    0: "highway",  # road class — exact 1:1 (sub-C extracts only highway)
     1: "building",  # exact 1:1
     # 2 (poi) + 3 (base) deferred per cascade #4.
 }
@@ -166,8 +229,7 @@ def f_min_for_level(
         candidates = [
             fraction_within_et(r, et_totals, key_rows_by_name)
             for r in rows
-            if r["row_type"] == "value"
-            and (r["parent_key"], r["value"]) in WIKI_L2_PRIMARY_PAIRS
+            if r["row_type"] == "value" and (r["parent_key"], r["value"]) in WIKI_L2_PRIMARY_PAIRS
         ]
     elif level == 3:
         if not WIKI_L3_ALL_PAIRS:
@@ -175,8 +237,7 @@ def f_min_for_level(
         candidates = [
             fraction_within_et(r, et_totals, key_rows_by_name)
             for r in rows
-            if r["row_type"] == "value"
-            and (r["parent_key"], r["value"]) in WIKI_L3_ALL_PAIRS
+            if r["row_type"] == "value" and (r["parent_key"], r["value"]) in WIKI_L3_ALL_PAIRS
         ]
     else:
         raise ValueError(f"unknown level {level}")
@@ -193,13 +254,14 @@ def vocab_size_at_F(
     """Count slots at granularity level passing F (Bug 3 fix: level-aware row-type filter)."""
     if level == 1:
         return sum(
-            1 for r in rows
-            if r["row_type"] == "key"
-            and fraction_within_et(r, et_totals, key_rows_by_name) >= F
+            1
+            for r in rows
+            if r["row_type"] == "key" and fraction_within_et(r, et_totals, key_rows_by_name) >= F
         )
     if level == 2:
         return sum(
-            1 for r in rows
+            1
+            for r in rows
             if r["row_type"] == "value"
             and (r["parent_key"], r["value"]) in WIKI_L2_PRIMARY_PAIRS
             and fraction_within_et(r, et_totals, key_rows_by_name) >= F
@@ -208,7 +270,8 @@ def vocab_size_at_F(
         if not WIKI_L3_ALL_PAIRS:
             return 0  # L3 deferred
         return sum(
-            1 for r in rows
+            1
+            for r in rows
             if r["row_type"] == "value"
             and (r["parent_key"], r["value"]) in WIKI_L3_ALL_PAIRS
             and fraction_within_et(r, et_totals, key_rows_by_name) >= F
@@ -289,8 +352,7 @@ def derive_x_threshold(
     return {
         "candidate_a_singapore_elbow": float(min(present_fractions)) if present_fractions else 0.0,
         "candidate_b_median_must_appear_freq": (
-            float(present_fractions[len(present_fractions) // 2])
-            if present_fractions else 0.0
+            float(present_fractions[len(present_fractions) // 2]) if present_fractions else 0.0
         ),
         "n_must_appears_present_in_singapore": len(present_fractions),
         "n_must_appears_total": len(wiki_must_appears),
@@ -310,7 +372,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--release", default="2026-04-15.0")
     parser.add_argument(
-        "--sub-c-region-dir", type=Path,
+        "--sub-c-region-dir",
+        type=Path,
         default=Path("data/processed/sub_c/2026-04-15.0/singapore"),
     )
     args = parser.parse_args()
@@ -322,9 +385,13 @@ def main() -> int:
 
     # L1 + L2 curve (L3 deferred per spec §12 #10).
     f_l1 = f_min_for_level(rows, level=1, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
-    vocab_l1 = vocab_size_at_F(rows, f_l1, level=1, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
+    vocab_l1 = vocab_size_at_F(
+        rows, f_l1, level=1, et_totals=et_totals, key_rows_by_name=key_rows_by_name
+    )
     f_l2 = f_min_for_level(rows, level=2, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
-    vocab_l2 = vocab_size_at_F(rows, f_l2, level=2, et_totals=et_totals, key_rows_by_name=key_rows_by_name)
+    vocab_l2 = vocab_size_at_F(
+        rows, f_l2, level=2, et_totals=et_totals, key_rows_by_name=key_rows_by_name
+    )
 
     # Singapore X-threshold per BP1 fix C (Bug 5 fix per cascade #4 scope).
     # Cascade #7: filter sub-C normalization sentinels before X derivation.
@@ -355,7 +422,8 @@ def main() -> int:
             },
             {
                 "level": 2,
-                "level_description": "(key, primary-value) pairs — highway + building per cascade #4",
+                "level_description": "(key, primary-value) pairs — highway + building per "
+                "cascade #4",
                 "f_min": float(f_l2),
                 "vocab_size": int(vocab_l2),
                 "must_appears_count": len(WIKI_L2_PRIMARY_PAIRS),
@@ -368,7 +436,8 @@ def main() -> int:
                 "vocab_size": None,
                 "must_appears_count": 0,
                 "must_appears_admitted": 0,
-                "deferral_reason": "Cascade #5 + recursive marginal-cost-of-cut: enumerate where reviewable benefit exists.",
+                "deferral_reason": "Cascade #5 + recursive marginal-cost-of-cut: enumerate "
+                "where reviewable benefit exists.",
             },
         ],
         "proposed_elbow": {
@@ -387,9 +456,13 @@ def main() -> int:
         },
         "proposed_x_threshold": {
             "candidate_a_singapore_elbow": x_threshold.get("candidate_a_singapore_elbow"),
-            "candidate_b_median_must_appear_freq": x_threshold.get("candidate_b_median_must_appear_freq"),
+            "candidate_b_median_must_appear_freq": x_threshold.get(
+                "candidate_b_median_must_appear_freq"
+            ),
             "scope_note": x_threshold.get("scope_note"),
-            "n_must_appears_present_in_singapore": x_threshold.get("n_must_appears_present_in_singapore"),
+            "n_must_appears_present_in_singapore": x_threshold.get(
+                "n_must_appears_present_in_singapore"
+            ),
             "n_must_appears_total": x_threshold.get("n_must_appears_total"),
             "sentinel_filter": {
                 "status": "applied before X derivation per cascade #7",
@@ -405,7 +478,9 @@ def main() -> int:
                     for (key, value), count in sorted(sg_filtered.items())
                 ],
             },
-            "paired_structural_check": "For each Singapore-frequency-≥X (highway, value) and (building, value) pair: must appear above F in semantic_vocab.yaml. POI + base scope deferred per spec §12 #11.",
+            "paired_structural_check": "For each Singapore-frequency-≥X (highway, value) and "
+            "(building, value) pair: must appear above F in semantic_vocab.yaml. POI + base "
+            "scope deferred per spec §12 #11.",
         },
         "_status": "PROPOSED — pending Halt 1 reviewer approval per spec §10.3.",
     }

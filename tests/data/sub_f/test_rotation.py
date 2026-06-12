@@ -22,9 +22,7 @@ from cfm.data.sub_e.rotation import cell_to_edge_ids
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_ROOT = REPO_ROOT / "configs" / "sub_f"
-SUB_C_SINGAPORE_ROOT = (
-    REPO_ROOT / "data" / "processed" / "sub_c" / "2026-04-15.0" / "singapore"
-)
+SUB_C_SINGAPORE_ROOT = REPO_ROOT / "data" / "processed" / "sub_c" / "2026-04-15.0" / "singapore"
 HALT_REPORT_PATH = REPO_ROOT / "reports" / "2026-05-23-phase-1-sub-F-task-7-halt.md"
 FEATURE_SPLITTING_REPORT_PATH = REPO_ROOT / "reports" / "sub_f_task_7_feature_splitting.yaml"
 FEATURE_SPLITTING_SCRIPT_PATH = (
@@ -95,6 +93,7 @@ EXPECTED_MISSING_FROM_SUB_E_GROUPING: Final[tuple[str, ...]] = (
     "track",
     "trunk_link",
 )
+
 
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -198,8 +197,7 @@ def test_boundary_reference_vocab_has_exact_direction_class_cross_product(
     boundary_reference_vocab: dict,
 ):
     actual = {
-        (slot["direction"], slot["boundary_class"])
-        for slot in boundary_reference_vocab["slots"]
+        (slot["direction"], slot["boundary_class"]) for slot in boundary_reference_vocab["slots"]
     }
     expected = {
         (direction, boundary_class)
@@ -246,9 +244,7 @@ def test_sub_f_consumes_sub_e_boundary_class_without_local_override():
         )
     )
     grouping = load_class_grouping_map()
-    missing_from_grouping = tuple(
-        value for value in actual_highways if value not in grouping
-    )
+    missing_from_grouping = tuple(value for value in actual_highways if value not in grouping)
 
     assert actual_highways == EXPECTED_HIGHWAY_VALUES
     assert missing_from_grouping == EXPECTED_MISSING_FROM_SUB_E_GROUPING
@@ -286,8 +282,7 @@ def test_locked_highway_coverage_diagnostic_is_surfaced_in_halt_report(
         assert f"`{value}`" in report
         assert f"singapore_row_count={evidence['singapore_row_count']}" in report
         assert (
-            "multi_tile_source_feature_count="
-            f"{evidence['multi_tile_source_feature_count']}"
+            f"multi_tile_source_feature_count={evidence['multi_tile_source_feature_count']}"
         ) in report
 
 
@@ -382,7 +377,4 @@ def test_feature_splitting_report_has_allowed_halt_outcome():
         "no_multi_part_boundary_interaction",
         "same_cell_edge_multi_part",
     }
-    assert (
-        sum(data["road_multiline_part_edge_buckets"].values())
-        == data["road_multiline_count"]
-    )
+    assert sum(data["road_multiline_part_edge_buckets"].values()) == data["road_multiline_count"]

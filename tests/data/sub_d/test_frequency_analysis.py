@@ -133,7 +133,7 @@ def _build_synthetic_inputs() -> list[SubCTileInputs]:
     Counts are picked so the marginal-cost-of-cut sequence has a non-trivial
     monotonic shape and so zoning vs density are not perfectly correlated.
     """
-    big_building = _wkb_square(7.0)   # 49 m^2 in a 100 m^2 cell -> ratio 0.49
+    big_building = _wkb_square(7.0)  # 49 m^2 in a 100 m^2 cell -> ratio 0.49
     small_building = _wkb_square(3.0)  # 9 m^2 -> ratio 0.09
 
     tile_a = _make_tile_inputs(
@@ -259,8 +259,7 @@ def _candidate_strategies_for_section(analysis: dict, section: str) -> list[list
     """
     if section == "tile_population_density_proposal":
         return [
-            list(proxy["candidate_strategies"])
-            for proxy in analysis[section]["candidate_proxies"]
+            list(proxy["candidate_strategies"]) for proxy in analysis[section]["candidate_proxies"]
         ]
     return [list(analysis[section]["candidate_strategies"])]
 
@@ -347,8 +346,7 @@ def test_frequency_analysis_writes_reviewable_proposal_sections(tmp_path: Path):
             assert "coverage" in entry
             assert "marginal_cost" in entry
             assert any(
-                k in entry
-                for k in ("kept_tokens", "bucket_boundaries", "bucket_lower_bounds")
+                k in entry for k in ("kept_tokens", "bucket_boundaries", "bucket_lower_bounds")
             ), f"{section} candidate entry missing bucket definition: {entry}"
 
     # tile_population_density carries candidate_proxies[] (each with its own
@@ -356,7 +354,7 @@ def test_frequency_analysis_writes_reviewable_proposal_sections(tmp_path: Path):
     # level. There is NO top-level candidate_strategies mirror — consumers
     # look up the locked proxy in candidate_proxies[].
     tpd = loaded["tile_population_density_proposal"]
-    assert "locked_proxy" in tpd and tpd["locked_proxy"]
+    assert tpd.get("locked_proxy")
     assert "locked_buckets" in tpd and len(tpd["locked_buckets"]) >= 1
     assert "candidate_proxies" in tpd and len(tpd["candidate_proxies"]) >= 1
     assert "candidate_strategies" not in tpd, (
@@ -364,7 +362,7 @@ def test_frequency_analysis_writes_reviewable_proposal_sections(tmp_path: Path):
         "candidate_strategies mirror; strategies live under candidate_proxies[]"
     )
     for proxy_entry in tpd["candidate_proxies"]:
-        assert "proxy_name" in proxy_entry and proxy_entry["proxy_name"]
+        assert proxy_entry.get("proxy_name")
         assert "candidate_strategies" in proxy_entry
         assert len(proxy_entry["candidate_strategies"]) >= 1
 
@@ -604,9 +602,7 @@ def test_proposal_artifacts_split_into_four_namespace_files_plus_index(tmp_path:
     # Determinism: a second call with the same analysis writes byte-identical
     # files. Use a separate dir to avoid mutating the first run's output.
     out_b = tmp_path / "run_b"
-    write_proposal_artifacts(
-        analysis, out_b, layer3_subset=layer3_subset, status="proposal"
-    )
+    write_proposal_artifacts(analysis, out_b, layer3_subset=layer3_subset, status="proposal")
     for filename in expected_files:
         assert (tmp_path / filename).read_bytes() == (out_b / filename).read_bytes(), (
             f"{filename} not byte-identical across runs"
@@ -616,9 +612,7 @@ def test_proposal_artifacts_split_into_four_namespace_files_plus_index(tmp_path:
     # ``status:`` line of the index differs. This is what Task 8's
     # promote-script will rely on for its byte-identity-modulo-status test.
     out_locked = tmp_path / "run_locked"
-    write_proposal_artifacts(
-        analysis, out_locked, layer3_subset=layer3_subset, status="locked"
-    )
+    write_proposal_artifacts(analysis, out_locked, layer3_subset=layer3_subset, status="locked")
     # Namespace files unchanged across the proposal/locked variants.
     for filename in NAMESPACE_ARTIFACT_FILENAMES.values():
         assert (tmp_path / filename).read_bytes() == (out_locked / filename).read_bytes()

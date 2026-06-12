@@ -16,7 +16,6 @@ from cfm.data.sub_d.lattice import (
     EXTERNAL_EDGE_SLOT_COUNT,
     INTERNAL_EDGE_SLOT_COUNT,
     CellSlot,
-    EdgeSlot,
     derive_external_edge_scope,
     derive_internal_edge_scope,
     iter_cell_slots,

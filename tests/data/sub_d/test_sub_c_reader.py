@@ -7,8 +7,8 @@ they pin sub-C's output bytes, not its writer implementation.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -50,7 +50,9 @@ def _build_fake_sub_c_region(
     for tile_i, tile_j in tile_keys:
         tile_dir = region_dir / f"tile={epsg_label}_i{tile_i}_j{tile_j}"
         tile_dir.mkdir()
-        write_parquet(pa.table({"cell_i": [tile_i], "cell_j": [tile_j]}), tile_dir / "cells.parquet")
+        write_parquet(
+            pa.table({"cell_i": [tile_i], "cell_j": [tile_j]}), tile_dir / "cells.parquet"
+        )
         write_parquet(pa.table({"feature_class": [0]}), tile_dir / "features.parquet")
         write_parquet(pa.table({"axis": [0]}), tile_dir / "crossings.parquet")
         meta_content = {

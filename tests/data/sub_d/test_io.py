@@ -28,7 +28,6 @@ from cfm.data.sub_d.io import (
     write_macro_core_parquet,
 )
 
-
 # ---------------------------------------------------------------------------
 # Schema tests (spec §11.2, §11.3)
 # ---------------------------------------------------------------------------
@@ -69,9 +68,7 @@ def test_macro_core_schema_matches_spec_11_2(tmp_path: Path):
     assert set(table.schema.names) == set(expected_fields.keys())
     for name, expected_type in expected_fields.items():
         field = table.schema.field(name)
-        assert field.type == expected_type, (
-            f"{name}: expected {expected_type}, got {field.type}"
-        )
+        assert field.type == expected_type, f"{name}: expected {expected_type}, got {field.type}"
 
 
 def test_derivation_evidence_schema_matches_spec_11_3(tmp_path: Path):
@@ -103,9 +100,7 @@ def test_derivation_evidence_schema_matches_spec_11_3(tmp_path: Path):
     assert set(table.schema.names) == set(expected_fields.keys())
     for name, expected_type in expected_fields.items():
         field = table.schema.field(name)
-        assert field.type == expected_type, (
-            f"{name}: expected {expected_type}, got {field.type}"
-        )
+        assert field.type == expected_type, f"{name}: expected {expected_type}, got {field.type}"
 
 
 # ---------------------------------------------------------------------------
@@ -116,24 +111,30 @@ def test_derivation_evidence_schema_matches_spec_11_3(tmp_path: Path):
 def test_macro_core_writer_sorts_by_slot_kind_slot_index(tmp_path: Path):
     # Submit rows in scrambled order across all three slot_kinds.
     rows = [
-        MacroCoreRow(SlotKind.EXTERNAL_EDGE, 5, None, None, -1, 5, 0, Scope.FULLY_MASKED, None, None, None),
+        MacroCoreRow(
+            SlotKind.EXTERNAL_EDGE, 5, None, None, -1, 5, 0, Scope.FULLY_MASKED, None, None, None
+        ),
         MacroCoreRow(SlotKind.CELL, 63, 7, 7, None, None, None, Scope.ACTIVE, 0, 1, None),
         MacroCoreRow(SlotKind.INTERNAL_EDGE, 0, None, None, 0, 0, 0, Scope.ACTIVE, None, None, 0),
         MacroCoreRow(SlotKind.CELL, 0, 0, 0, None, None, None, Scope.ACTIVE, 0, 0, None),
-        MacroCoreRow(SlotKind.INTERNAL_EDGE, 111, None, None, 7, 6, 1, Scope.SCOPE_BOUNDARY, None, None, None),
+        MacroCoreRow(
+            SlotKind.INTERNAL_EDGE, 111, None, None, 7, 6, 1, Scope.SCOPE_BOUNDARY, None, None, None
+        ),
     ]
     path = tmp_path / "macro_core.parquet"
     write_macro_core_parquet(rows, path)
     table = pq.ParquetFile(path).read()
 
-    keys = list(zip(table["slot_kind"].to_pylist(), table["slot_index"].to_pylist()))
-    expected = sorted([
-        (int(SlotKind.EXTERNAL_EDGE), 5),
-        (int(SlotKind.CELL), 63),
-        (int(SlotKind.INTERNAL_EDGE), 0),
-        (int(SlotKind.CELL), 0),
-        (int(SlotKind.INTERNAL_EDGE), 111),
-    ])
+    keys = list(zip(table["slot_kind"].to_pylist(), table["slot_index"].to_pylist(), strict=True))
+    expected = sorted(
+        [
+            (int(SlotKind.EXTERNAL_EDGE), 5),
+            (int(SlotKind.CELL), 63),
+            (int(SlotKind.INTERNAL_EDGE), 0),
+            (int(SlotKind.CELL), 0),
+            (int(SlotKind.INTERNAL_EDGE), 111),
+        ]
+    )
     assert keys == expected
     # macro_core never carries SlotKind.TILE rows (those live only in
     # derivation_evidence.parquet per spec §11.2).
@@ -144,7 +145,12 @@ def test_derivation_evidence_writer_sorts_by_canonical_key(tmp_path: Path):
     # Scrambled across all four key fields.
     rows = [
         DerivationEvidenceRow(
-            SlotKind.INTERNAL_EDGE, 10, MetricNamespace.ROAD_SKELETON, "road_crossing_count", 3, "1.0"
+            SlotKind.INTERNAL_EDGE,
+            10,
+            MetricNamespace.ROAD_SKELETON,
+            "road_crossing_count",
+            3,
+            "1.0",
         ),
         DerivationEvidenceRow(
             SlotKind.CELL, 0, MetricNamespace.ZONING, "feature_count_building", 5, "1.0"
@@ -156,26 +162,46 @@ def test_derivation_evidence_writer_sorts_by_canonical_key(tmp_path: Path):
             SlotKind.CELL, 0, MetricNamespace.CELL_DENSITY, "building_footprint_ratio", 0.1, "1.0"
         ),
         DerivationEvidenceRow(
-            SlotKind.TILE, 0, MetricNamespace.TILE_POPULATION_DENSITY, "p75_building_footprint_ratio", 0.05, "1.0"
+            SlotKind.TILE,
+            0,
+            MetricNamespace.TILE_POPULATION_DENSITY,
+            "p75_building_footprint_ratio",
+            0.05,
+            "1.0",
         ),
     ]
     path = tmp_path / "derivation_evidence.parquet"
     write_derivation_evidence_parquet(rows, path)
     table = pq.ParquetFile(path).read()
 
-    keys = list(zip(
-        table["slot_kind"].to_pylist(),
-        table["slot_index"].to_pylist(),
-        table["metric_namespace"].to_pylist(),
-        table["metric_name"].to_pylist(),
-    ))
-    expected = sorted([
-        (int(SlotKind.INTERNAL_EDGE), 10, int(MetricNamespace.ROAD_SKELETON), "road_crossing_count"),
-        (int(SlotKind.CELL), 0, int(MetricNamespace.ZONING), "feature_count_building"),
-        (int(SlotKind.CELL), 0, int(MetricNamespace.ZONING), "feature_count_road"),
-        (int(SlotKind.CELL), 0, int(MetricNamespace.CELL_DENSITY), "building_footprint_ratio"),
-        (int(SlotKind.TILE), 0, int(MetricNamespace.TILE_POPULATION_DENSITY), "p75_building_footprint_ratio"),
-    ])
+    keys = list(
+        zip(
+            table["slot_kind"].to_pylist(),
+            table["slot_index"].to_pylist(),
+            table["metric_namespace"].to_pylist(),
+            table["metric_name"].to_pylist(),
+            strict=True,
+        )
+    )
+    expected = sorted(
+        [
+            (
+                int(SlotKind.INTERNAL_EDGE),
+                10,
+                int(MetricNamespace.ROAD_SKELETON),
+                "road_crossing_count",
+            ),
+            (int(SlotKind.CELL), 0, int(MetricNamespace.ZONING), "feature_count_building"),
+            (int(SlotKind.CELL), 0, int(MetricNamespace.ZONING), "feature_count_road"),
+            (int(SlotKind.CELL), 0, int(MetricNamespace.CELL_DENSITY), "building_footprint_ratio"),
+            (
+                int(SlotKind.TILE),
+                0,
+                int(MetricNamespace.TILE_POPULATION_DENSITY),
+                "p75_building_footprint_ratio",
+            ),
+        ]
+    )
     assert keys == expected
 
 
@@ -215,9 +241,7 @@ def test_writers_are_byte_identical_for_same_rows(tmp_path: Path):
         )
     )
     evid_rows.append(
-        DerivationEvidenceRow(
-            SlotKind.CELL, 1, MetricNamespace.ZONING, "as_bool", True, "1.0"
-        )
+        DerivationEvidenceRow(SlotKind.CELL, 1, MetricNamespace.ZONING, "as_bool", True, "1.0")
     )
 
     a = tmp_path / "run_a"
@@ -230,10 +254,9 @@ def test_writers_are_byte_identical_for_same_rows(tmp_path: Path):
     write_derivation_evidence_parquet(evid_rows, b / "derivation_evidence.parquet")
 
     assert (a / "macro_core.parquet").read_bytes() == (b / "macro_core.parquet").read_bytes()
-    assert (
-        (a / "derivation_evidence.parquet").read_bytes()
-        == (b / "derivation_evidence.parquet").read_bytes()
-    )
+    assert (a / "derivation_evidence.parquet").read_bytes() == (
+        b / "derivation_evidence.parquet"
+    ).read_bytes()
 
 
 # ---------------------------------------------------------------------------
@@ -293,14 +316,12 @@ def test_macro_core_writer_rejects_slot_kind_tile(tmp_path: Path):
     silently produce a slot_kind=3 row that downstream consumers cannot
     index into the 3-kind lattice.
     """
-    valid_row = MacroCoreRow(
-        SlotKind.CELL, 0, 0, 0, None, None, None, Scope.ACTIVE, 0, 0, None
-    )
+    valid_row = MacroCoreRow(SlotKind.CELL, 0, 0, 0, None, None, None, Scope.ACTIVE, 0, 0, None)
     tile_row = MacroCoreRow(
         SlotKind.TILE, 0, None, None, None, None, None, Scope.ACTIVE, None, None, None
     )
     path = tmp_path / "macro_core.parquet"
-    with pytest.raises(ValueError, match="SlotKind.TILE"):
+    with pytest.raises(ValueError, match=r"SlotKind\.TILE"):
         write_macro_core_parquet([valid_row, tile_row], path)
     # File must not be created on failed write.
     assert not path.exists()
@@ -310,9 +331,7 @@ def test_read_helpers_round_trip(tmp_path: Path):
     """read_*_parquet returns the rows as dataclasses, byte-stable."""
     macro_rows = [
         MacroCoreRow(SlotKind.CELL, 0, 0, 0, None, None, None, Scope.ACTIVE, 0, 0, None),
-        MacroCoreRow(
-            SlotKind.INTERNAL_EDGE, 0, None, None, 0, 0, 0, Scope.ACTIVE, None, None, 0
-        ),
+        MacroCoreRow(SlotKind.INTERNAL_EDGE, 0, None, None, 0, 0, 0, Scope.ACTIVE, None, None, 0),
     ]
     evid_rows = [
         DerivationEvidenceRow(

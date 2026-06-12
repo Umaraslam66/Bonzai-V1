@@ -17,10 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 # Test inputs at exact bin-edge values per BP5 plan-write refinement: constructed,
 # not real-data-derived. round() round-half-to-even should produce specific outputs.
 TEST_CASES = [
-    (0.5, 0),    # banker's rounding rounds 0.5 to 0
-    (1.5, 2),    # 1.5 to 2 (even)
-    (2.5, 2),    # 2.5 to 2 (even)
-    (3.5, 4),    # 3.5 to 4 (even)
+    (0.5, 0),  # banker's rounding rounds 0.5 to 0
+    (1.5, 2),  # 1.5 to 2 (even)
+    (2.5, 2),  # 2.5 to 2 (even)
+    (3.5, 4),  # 3.5 to 4 (even)
     (-0.5, 0),
     (-1.5, -2),
 ]
@@ -41,10 +41,13 @@ def main() -> int:
         "python_round_is_banker": is_banker,
         "sub_d_io_uses_round": uses_round,
         "sub_d_io_uses_int_cast": uses_int_cast,
-        "test_cases": [{"input": x, "round_output": round(x), "expected_banker": e} for x, e in TEST_CASES],
+        "test_cases": [
+            {"input": x, "round_output": round(x), "expected_banker": e} for x, e in TEST_CASES
+        ],
         "recommendation": (
             "LOCK Python round() round-half-to-even (PEP 3141 default) for sub-F"
-            if is_banker else "ESCALATE: Python round() does not match banker's expectation in this env"
+            if is_banker
+            else "ESCALATE: Python round() does not match banker's expectation in this env"
         ),
         "_status": "PROPOSED — pending Halt 5 reviewer approval per spec §10.3.",
     }

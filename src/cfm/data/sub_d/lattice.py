@@ -129,24 +129,16 @@ def iter_external_edge_slots() -> list[EdgeSlot]:
     slots: list[EdgeSlot] = []
     # axis=0, lower_i=-1: interior at (0, lower_j).
     for lower_j in range(CELL_GRID_SIZE):
-        slots.append(
-            EdgeSlot(slot_index=len(slots), lower_cell_i=-1, lower_cell_j=lower_j, axis=0)
-        )
+        slots.append(EdgeSlot(slot_index=len(slots), lower_cell_i=-1, lower_cell_j=lower_j, axis=0))
     # axis=0, lower_i=7: interior at (7, lower_j); off-grid neighbour at i=8.
     for lower_j in range(CELL_GRID_SIZE):
-        slots.append(
-            EdgeSlot(slot_index=len(slots), lower_cell_i=7, lower_cell_j=lower_j, axis=0)
-        )
+        slots.append(EdgeSlot(slot_index=len(slots), lower_cell_i=7, lower_cell_j=lower_j, axis=0))
     # axis=1, lower_j=-1: interior at (lower_i, 0).
     for lower_i in range(CELL_GRID_SIZE):
-        slots.append(
-            EdgeSlot(slot_index=len(slots), lower_cell_i=lower_i, lower_cell_j=-1, axis=1)
-        )
+        slots.append(EdgeSlot(slot_index=len(slots), lower_cell_i=lower_i, lower_cell_j=-1, axis=1))
     # axis=1, lower_j=7: interior at (lower_i, 7); off-grid neighbour at j=8.
     for lower_i in range(CELL_GRID_SIZE):
-        slots.append(
-            EdgeSlot(slot_index=len(slots), lower_cell_i=lower_i, lower_cell_j=7, axis=1)
-        )
+        slots.append(EdgeSlot(slot_index=len(slots), lower_cell_i=lower_i, lower_cell_j=7, axis=1))
     return slots
 
 

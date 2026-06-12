@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 
 from cfm.data.io import canonicalize_yaml
 from cfm.data.sub_d.errors import SubDValidationError
@@ -14,7 +13,6 @@ from cfm.data.sub_d.macro_vocab import (
     load_macro_vocab,
     token_id_to_name,
     token_name_to_id,
-    validate_macro_vocab,
 )
 
 # Promote-script entry points (imported at function call time to avoid
@@ -77,8 +75,18 @@ def _build_minimal_proposal(status: str = "proposal") -> dict:
                 },
             ],
             "road_skeleton": [
-                {"token_id": 0, "token_name": "bucket_0", "lower_inclusive": 0, "upper_exclusive": 1},
-                {"token_id": 1, "token_name": "bucket_1", "lower_inclusive": 1, "upper_exclusive": None},
+                {
+                    "token_id": 0,
+                    "token_name": "bucket_0",
+                    "lower_inclusive": 0,
+                    "upper_exclusive": 1,
+                },
+                {
+                    "token_id": 1,
+                    "token_name": "bucket_1",
+                    "lower_inclusive": 1,
+                    "upper_exclusive": None,
+                },
             ],
         },
         "locked_proxy": {
@@ -261,9 +269,7 @@ def test_promote_macro_vocab_diff_is_status_marker_only(tmp_path: Path):
     tampered = locked_bytes.replace(b"bucket_0", b"bucket_X", 1)
     output_path.write_bytes(tampered)
     locked_bytes_tampered = output_path.read_bytes()
-    normalized_tampered = locked_bytes_tampered.replace(
-        LOCKED_STATUS_LINE, PROPOSAL_STATUS_LINE, 1
-    )
+    normalized_tampered = locked_bytes_tampered.replace(LOCKED_STATUS_LINE, PROPOSAL_STATUS_LINE, 1)
     assert proposal_bytes != normalized_tampered, (
         "byte-identity test must catch tampering beyond the status line"
     )
