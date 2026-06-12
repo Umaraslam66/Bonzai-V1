@@ -55,7 +55,7 @@ from cfm.data.sub_g.seam_decodability import _has_outbound_bref
 # (significance is BH-based), so the only effect is reported floors shifting
 # ~0.15%; the frozen floor artifact's 1.36-era values stay valid (nothing
 # consumes that field on the verified-read path).
-from cfm.eval.feature_resolution import _KS_C_ALPHA_05
+from cfm.eval.feature_resolution import KS_C_ALPHA_05
 from cfm.eval.geometry import promote_building_rings
 from cfm.eval.holdout.labels import read_tile_labels
 from cfm.eval.holdout.paths import (
@@ -83,7 +83,7 @@ DEFAULT_CITIES: tuple[str, ...] = ("eisenhuttenstadt", "glasgow", "krakow", "mun
 # --------------------------------------------------------------------------- #
 
 
-def noise_floor(n1: int, n2: int, *, c: float = _KS_C_ALPHA_05) -> float:
+def noise_floor(n1: int, n2: int, *, c: float = KS_C_ALPHA_05) -> float:
     """alpha=0.05 two-sample KS critical value: ``c * sqrt((n1+n2)/(n1*n2))``.
 
     The per-comparison threshold PAIRED to the exact n that produced the KS

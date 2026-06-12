@@ -32,6 +32,7 @@ import yaml
 from cfm.data.sub_d.enums import SlotKind
 from cfm.data.sub_d.io import read_macro_core_parquet
 from cfm.data.sub_g.readers import read_sub_f_cells
+from cfm.eval.feature_resolution import KS_C_ALPHA_05
 from cfm.eval.holdout import baselines, manifest, paths, selector
 from cfm.eval.holdout.bref_rate import bref_placeholder_rate
 from cfm.eval.holdout.labels import TileLabels, read_tile_labels
@@ -78,7 +79,7 @@ _DEFAULT_N_CAP_FRACTION: float = 0.5
 
 def _gap_from_cells(cells: int) -> float:
     """Finest KS two-sample gap resolvable from ``cells`` (inverse of the KS floor)."""
-    return 1.358 * math.sqrt(2.0 / cells) if cells > 0 else float("inf")
+    return KS_C_ALPHA_05 * math.sqrt(2.0 / cells) if cells > 0 else float("inf")
 
 
 @dataclass

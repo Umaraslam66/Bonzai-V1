@@ -28,6 +28,8 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum
 
+from cfm.eval.feature_resolution import KS_C_ALPHA_05
+
 #: z for a two-sided 95% interval (one-source for both floors below).
 _Z_0975: float = 1.95996
 
@@ -79,7 +81,8 @@ def rate_detection_floor(*, p: float, delta: float) -> int:
 def ks_two_sample_floor(*, effect: float, alpha: float = 0.05) -> int:
     """v1 KS two-sample sample-size approximation (equal n).
 
-    The alpha-critical statistic for equal n is c(alpha)*sqrt(2/n) with c(0.05)=1.358;
+    The alpha-critical statistic for equal n is c(alpha)*sqrt(2/n); c(0.05) is
+    one-sourced at feature_resolution.KS_C_ALPHA_05;
     to resolve a true distributional gap ``effect``, n ~ ceil(2*(c(alpha)/effect)^2).
     This is a sizing FLOOR only; the KS/Wasserstein DISTANCE against model output is
     deferred (spec §7). v1 supports alpha=0.05 only (DECISION: revisit if another alpha
@@ -89,8 +92,7 @@ def ks_two_sample_floor(*, effect: float, alpha: float = 0.05) -> int:
         raise ValueError("effect must be > 0")
     if abs(alpha - 0.05) > 1e-9:
         raise ValueError("v1 KS floor supports alpha=0.05 only")
-    c_alpha = 1.358  # KS two-sample critical coefficient at alpha=0.05
-    return math.ceil(2.0 * (c_alpha / effect) ** 2)
+    return math.ceil(2.0 * (KS_C_ALPHA_05 / effect) ** 2)
 
 
 def relaxed_rho_is_legitimate(*, relaxed: float) -> bool:
