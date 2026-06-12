@@ -43,10 +43,10 @@ from shapely.geometry import shape
 
 from cfm.data.sub_g.readers import read_sub_f_cells
 
-# Private import sanctioned by the Task-22 plan: _has_outbound_bref is the
+# has_outbound_bref (public since W7; formerly a sanctioned private import) is the
 # construction-identity AUTHORITY for the v1 outbound-bref artifact (token-structure
 # fact, never an error-magnitude or zero-length test) — one source, not a copy.
-from cfm.data.sub_g.seam_decodability import _has_outbound_bref
+from cfm.data.sub_g.seam_decodability import has_outbound_bref
 
 # ONE source for the two-sample KS alpha=0.05 coefficient (Task 26 (g)): the
 # EXACT 1.358 (~1.3581) from feature_resolution wins over this module's old
@@ -361,7 +361,7 @@ def _tile_features(
     closed roundabouts) are NOT promoted and stay road_length.
 
     Outbound-bref roads are EXCLUDED from ``road_length_m`` BY CONSTRUCTION IDENTITY
-    (``_has_outbound_bref`` on the ORIGINAL token block, never a zero-length symptom):
+    (``has_outbound_bref`` on the ORIGINAL token block, never a zero-length symptom):
     the v1 encoder replaces the last real vertex with a bref token and the decoder
     appends a placeholder, corrupting the decoded length. Excluded features are
     COUNTED, never silently dropped. Promoted building polygons are never bref-excluded.
@@ -374,7 +374,7 @@ def _tile_features(
         if g.geom_type in _POLYGON_TYPES:
             out.append((FeatureMetric.BUILDING_AREA.value, float(g.area), int(density)))
         elif g.geom_type in _LINE_TYPES:
-            if _has_outbound_bref(block):
+            if has_outbound_bref(block):
                 n_bref_excluded += 1
                 continue
             out.append((FeatureMetric.ROAD_LENGTH.value, float(g.length), int(density)))

@@ -482,7 +482,7 @@ def test_bref_features_excluded_from_road_length_by_construction_identity_and_co
     from cfm.eval.emergence import building_token_ids
 
     _BREF = 1500  # BP7 boundary-reference token band is 1500..1507 (sub-F decoder)
-    # Authority anchor: the SAME predicate _has_outbound_bref ultimately uses
+    # Authority anchor: the SAME predicate has_outbound_bref ultimately uses
     # (cfm.data.sub_f.decoder._is_bref_token) must recognize the fixture token —
     # a band move becomes a loud fixture error, not a silent out-of-regime pass.
     assert _is_bref_token(_BREF), "fixture out of regime: _BREF not in decoder bref band"

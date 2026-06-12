@@ -52,7 +52,7 @@ sys.path.insert(0, str(_REPO / "src"))
 import yaml  # noqa: E402
 
 # _validated_inventory private import SANCTIONED (stage-2 integration fix, Slurm
-# job 45835276; the _has_outbound_bref / _verify_manifest_integrity precedent):
+# job 45835276; the has_outbound_bref / _verify_manifest_integrity precedent):
 # it is the ONE source of a training city's tile inventory — the sub-D manifest
 # tiles[] the training data itself walks (build_train_city_shards; a train city
 # has no tile-level holdout, see compute_training_tile_ids). Reusing it means the
@@ -64,8 +64,8 @@ from cfm.data.training.build_shards import (  # noqa: E402
     verify_union_manifests,
 )
 
-# Private import SANCTIONED (Task-25 quality review #2; the _has_outbound_bref
-# precedent): _verify_manifest_integrity is the ONE F9 authority for "this
+# Private import SANCTIONED (Task-25 quality review #2; the has_outbound_bref
+# precedent — that one since promoted public at W7): _verify_manifest_integrity is the ONE F9 authority for "this
 # holdout manifest is sealed and untampered" (sha + _EVAL_SET_LOCKED) — reusing
 # it here means the D-vs-T boundary the floor artifact freezes is defined by
 # the same verifier training uses, never a second hand-rolled copy.
