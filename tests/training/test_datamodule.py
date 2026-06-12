@@ -577,3 +577,120 @@ def test_setup_runs_the_city_identity_guard_on_the_union(tmp_path, monkeypatch):
     )
     with pytest.raises(CityIdentityError, match="almere"):
         dm.setup("fit")
+
+
+# ----- W3 shard cache: the datamodule integration (verified cache, NO fallback) -----
+
+
+def _build_cache_for(tmp_path, monkeypatch, shards, manifest_path):
+    """Seal a REAL little cache for the clean-fixture manifest (sha keyed on the
+    LIVE manifest file bytes, exactly as setup() recomputes it)."""
+    import cfm.data.training.shard_cache as sc
+    from cfm.data.determinism import compute_sha256
+
+    src = tmp_path / "data" / _REGION / "src.bin"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_bytes(b"abc")
+    rec = [{"path": f"{_REGION}/src.bin", "size": 3, "sha256": compute_sha256(b"abc")}]
+    monkeypatch.setattr(sc, "source_file_records", lambda *a, **k: rec)
+    monkeypatch.setattr(
+        sc, "build_shards_in_memory", lambda release, region, *, tile_ids=None: list(shards)
+    )
+    root = tmp_path / "cache"
+    sc.build_shard_cache(
+        release="2026-04-15.0",
+        cities=[_REGION],
+        tile_ids_by_city={_REGION: [(0, 1), (0, 2), (0, 3)]},
+        cache_root=root,
+        manifest_sha_by_city={_REGION: compute_sha256(manifest_path.read_bytes())},
+        sample_cells_per_city=1,
+        data_root=tmp_path / "data",
+    )
+    return root
+
+
+def _no_walk(*a, **k):
+    raise AssertionError("the features walk was taken despite a shard cache")
+
+
+def test_setup_with_cache_never_walks(tmp_path, monkeypatch):
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    root = _build_cache_for(tmp_path, monkeypatch, _clean_synthetic_shards(), clean)
+    monkeypatch.setattr(DM, "build_shards_in_memory", _no_walk)  # poisoned walk
+    dm = DM.CellDataModule(
+        training_manifest=clean,
+        holdout_manifest=_write_holdout(tmp_path),
+        seed=7,
+        shard_cache_dir=root,
+        shard_cache_data_root=tmp_path / "data",
+    )
+    dm.setup("fit")  # must not raise -> the walk was never taken
+    assert len(dm.train_cells) + len(dm.val_cells) > 0
+
+
+def test_setup_with_stale_cache_halts_never_falls_back(tmp_path, monkeypatch):
+    """THE critical tooth: a stale cache HALTS; it must never silently fall back
+    to the walk (the poisoned walk proves no fallback path executes)."""
+    from cfm.data.training.shard_cache import ShardCacheStale
+
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    root = _build_cache_for(tmp_path, monkeypatch, _clean_synthetic_shards(), clean)
+    cells = root / "2026-04-15.0" / _REGION / "cells.parquet"
+    cells.write_bytes(cells.read_bytes() + b"x")  # tamper
+    monkeypatch.setattr(DM, "build_shards_in_memory", _no_walk)
+    dm = DM.CellDataModule(
+        training_manifest=clean,
+        holdout_manifest=_write_holdout(tmp_path),
+        seed=7,
+        shard_cache_dir=root,
+        shard_cache_data_root=tmp_path / "data",
+    )
+    with pytest.raises(ShardCacheStale, match="cache file"):
+        dm.setup("fit")
+    assert dm._batches_yielded == 0
+
+
+def test_cache_path_and_walk_path_build_identical_examples(tmp_path, monkeypatch):
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    hp = _write_holdout(tmp_path)
+    root = _build_cache_for(tmp_path, monkeypatch, _clean_synthetic_shards(), clean)
+
+    monkeypatch.setattr(DM, "build_shards_in_memory", lambda *a, **k: _clean_synthetic_shards())
+    walk = DM.CellDataModule(training_manifest=clean, holdout_manifest=hp, seed=7)
+    walk.setup("fit")
+
+    monkeypatch.setattr(DM, "build_shards_in_memory", _no_walk)
+    cached = DM.CellDataModule(
+        training_manifest=clean,
+        holdout_manifest=hp,
+        seed=7,
+        shard_cache_dir=root,
+        shard_cache_data_root=tmp_path / "data",
+    )
+    cached.setup("fit")
+    assert cached.train_cells == walk.train_cells
+    assert cached.val_cells == walk.val_cells
+
+
+def test_guards_stay_live_on_cached_cells(tmp_path, monkeypatch):
+    """The character-stats wiring guard must fire on CACHED cells exactly as on
+    walked cells — caching must not retire a tooth."""
+    from cfm.data.training.build_shards import CharacterStatsError
+
+    all_absent = [
+        _shard(0, 1, [_cell(1, 1, 30, character_stats=(0.0,) * 7)]),
+        _shard(0, 2, [_cell(2, 2, 40, character_stats=(0.0,) * 7)]),
+        _shard(0, 3, [_cell(3, 3, 20, character_stats=(0.0,) * 7)]),
+    ]
+    clean = _write_training_manifest(tmp_path, lineage_for_2_2=[(_REGION, 2, 2)])
+    root = _build_cache_for(tmp_path, monkeypatch, all_absent, clean)
+    monkeypatch.setattr(DM, "build_shards_in_memory", _no_walk)
+    dm = DM.CellDataModule(
+        training_manifest=clean,
+        holdout_manifest=_write_holdout(tmp_path),
+        seed=7,
+        shard_cache_dir=root,
+        shard_cache_data_root=tmp_path / "data",
+    )
+    with pytest.raises(CharacterStatsError, match="all-absent"):
+        dm.setup("fit")

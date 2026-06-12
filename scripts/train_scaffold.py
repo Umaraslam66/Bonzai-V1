@@ -32,6 +32,7 @@ from cfm.data.training.build_shards import (
 )
 from cfm.data.training.datamodule import DEFAULT_MAX_CELL_TOKENS, CellDataModule
 from cfm.data.training.paths import training_manifest_path
+from cfm.data.training.shard_cache import default_cache_data_root
 from cfm.eval.holdout.paths import (
     eval_set_locked_marker,
     expected_holdout_schema_for_region,
@@ -139,6 +140,8 @@ def _union_datamodule(cfg: ScaffoldConfig) -> CellDataModule:
         max_cell_tokens=cfg.max_len,
         expected_holdout_schema="2.0",
         conditioning_ablation=cfg.conditioning_ablation,  # Task 24a: Lane-S instrument
+        shard_cache_dir=Path(cfg.shard_cache) if cfg.shard_cache else None,
+        shard_cache_data_root=default_cache_data_root() if cfg.shard_cache else None,
     )
 
 
@@ -164,6 +167,8 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
         max_cell_tokens=cfg.max_len,
         expected_holdout_schema=expected_holdout_schema_for_region(cfg.region),
         conditioning_ablation=cfg.conditioning_ablation,  # Task 24a: Lane-S instrument
+        shard_cache_dir=Path(cfg.shard_cache) if cfg.shard_cache else None,
+        shard_cache_data_root=default_cache_data_root() if cfg.shard_cache else None,
     )
 
 
@@ -582,6 +587,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-steps", type=int, default=None, help="override ScaffoldConfig.max_steps"
     )
     parser.add_argument("--max-len", type=int, default=None, help="override cell-token budget")
+    parser.add_argument(
+        "--shard-cache",
+        default=None,
+        help="sealed shard-cache root (scripts/build_shard_cache.py); verified "
+        "fail-closed at setup — stale HALTS, never a silent walk fallback",
+    )
     parser.add_argument("--d-model", type=int, default=None, help="scale-up: model width")
     parser.add_argument("--n-layers", type=int, default=None, help="scale-up: depth")
     parser.add_argument("--n-heads", type=int, default=None, help="scale-up: attention heads")
@@ -704,6 +715,7 @@ def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
         ("train_set", "train_set"),
         ("eval_cells", "eval_cells"),
         ("eval_max_new", "eval_max_new"),
+        ("shard_cache", "shard_cache"),
     ]:
         val = getattr(args, flag)
         if val is not None:

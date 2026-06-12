@@ -1,0 +1,199 @@
+measurement: shard-cache tier-(b') stat-walk cost (stat ALL keyed files, no hashing)
+release: 2026-04-15.0
+n_cities: 38
+total_files: 88076
+total_small_files_le_64k: 71355
+total_gib: 5.88
+total_seconds: 59.0
+total_minutes: 0.98
+per_city:
+  a_coruna:
+    files: 2780
+    bytes: 88901011
+    small_files: 2445
+    seconds: 1.83
+  almere:
+    files: 2372
+    bytes: 258416235
+    small_files: 1850
+    seconds: 1.34
+  amsterdam:
+    files: 3860
+    bytes: 584475497
+    small_files: 2737
+    seconds: 2.75
+  barcelona:
+    files: 288
+    bytes: 69689123
+    small_files: 185
+    seconds: 0.2
+  bologna:
+    files: 2740
+    bytes: 89420872
+    small_files: 2426
+    seconds: 1.68
+  bruges:
+    files: 720
+    bytes: 67767342
+    small_files: 528
+    seconds: 0.45
+  budapest:
+    files: 4312
+    bytes: 278589591
+    small_files: 3546
+    seconds: 2.66
+  cergy:
+    files: 2532
+    bytes: 306447631
+    small_files: 1894
+    seconds: 1.82
+  copenhagen:
+    files: 3612
+    bytes: 210598095
+    small_files: 3100
+    seconds: 1.7
+  debrecen:
+    files: 2636
+    bytes: 56284547
+    small_files: 2498
+    seconds: 1.16
+  edinburgh:
+    files: 2240
+    bytes: 112436589
+    small_files: 1981
+    seconds: 1.1
+  eindhoven:
+    files: 2444
+    bytes: 260476158
+    small_files: 1815
+    seconds: 1.63
+  espoo:
+    files: 600
+    bytes: 42993046
+    small_files: 462
+    seconds: 0.4
+  hamburg:
+    files: 3800
+    bytes: 291539181
+    small_files: 2927
+    seconds: 1.59
+  helsinki:
+    files: 1988
+    bytes: 122575479
+    small_files: 1657
+    seconds: 0.98
+  karlsruhe:
+    files: 2508
+    bytes: 175822290
+    small_files: 1959
+    seconds: 1.51
+  linz:
+    files: 2484
+    bytes: 124150184
+    small_files: 1966
+    seconds: 1.55
+  lisbon:
+    files: 3024
+    bytes: 216984859
+    small_files: 2440
+    seconds: 1.57
+  ljubljana:
+    files: 2688
+    bytes: 103133603
+    small_files: 2272
+    seconds: 1.9
+  lodz:
+    files: 2436
+    bytes: 133666019
+    small_files: 2013
+    seconds: 1.42
+  malmo:
+    files: 2212
+    bytes: 70484439
+    small_files: 2010
+    seconds: 1.3
+  manchester:
+    files: 2344
+    bytes: 264874925
+    small_files: 1701
+    seconds: 1.68
+  mannheim:
+    files: 2544
+    bytes: 209985128
+    small_files: 1913
+    seconds: 1.5
+  milton_keynes:
+    files: 168
+    bytes: 18783629
+    small_files: 122
+    seconds: 0.12
+  prague:
+    files: 1012
+    bytes: 120680137
+    small_files: 686
+    seconds: 0.4
+  rotterdam:
+    files: 2396
+    bytes: 426910300
+    small_files: 1636
+    seconds: 1.27
+  szczecin:
+    files: 2356
+    bytes: 76361387
+    small_files: 2153
+    seconds: 0.9
+  tallinn:
+    files: 1984
+    bytes: 61036740
+    small_files: 1805
+    seconds: 0.82
+  telford:
+    files: 2348
+    bytes: 83849284
+    small_files: 2092
+    seconds: 1.44
+  tilburg:
+    files: 2456
+    bytes: 243498750
+    small_files: 1841
+    seconds: 1.5
+  toledo:
+    files: 840
+    bytes: 22525310
+    small_files: 774
+    seconds: 0.52
+  turin:
+    files: 2784
+    bytes: 121834723
+    small_files: 2324
+    seconds: 1.26
+  tychy:
+    files: 2464
+    bytes: 216960038
+    small_files: 1795
+    seconds: 1.17
+  umea:
+    files: 144
+    bytes: 8160432
+    small_files: 119
+    seconds: 0.07
+  valencia:
+    files: 2984
+    bytes: 167830952
+    small_files: 2504
+    seconds: 1.79
+  vienna:
+    files: 2604
+    bytes: 187081812
+    small_files: 2093
+    seconds: 1.78
+  warsaw:
+    files: 3992
+    bytes: 331682564
+    small_files: 3018
+    seconds: 2.04
+  wolfsburg:
+    files: 2380
+    bytes: 91256386
+    small_files: 2068
+    seconds: 1.36
