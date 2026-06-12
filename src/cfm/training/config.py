@@ -59,6 +59,12 @@ class ScaffoldConfig(BaseModel):
     #: -- see models/backbone.py.
     max_len: int = 13_312
 
+    #: W3 shard cache: path to a SEALED shard-cache root (data/processed/
+    #: training_cache). When set, the datamodule loads shards via the verified
+    #: cache (component-keyed staleness, fail-closed — a stale cache HALTS,
+    #: never silently falls back to the ~40-min features walk). None = walk.
+    shard_cache: str | None = None
+
     # optimisation
     lr: float = 3e-4
     batch_size: int = 8

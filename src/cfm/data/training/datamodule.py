@@ -34,6 +34,7 @@ import torch.distributed as dist
 import yaml
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
+from cfm.data.determinism import compute_sha256
 from cfm.data.training.build_shards import (
     build_shards_in_memory,
     guard_character_stats,
@@ -45,6 +46,7 @@ from cfm.data.training.holdout_guard import (
     manifest_to_reachable,
     run_holdout_audit,
 )
+from cfm.data.training.shard_cache import iter_verified_shard_cache
 from cfm.data.training.shard_schema import TrainingShard
 
 logger = logging.getLogger(__name__)
@@ -330,6 +332,8 @@ class CellDataModule(L.LightningDataModule):
         max_cell_tokens: int = DEFAULT_MAX_CELL_TOKENS,
         expected_holdout_schema: str = "2.0",
         conditioning_ablation: str = "full",
+        shard_cache_dir: Path | None = None,
+        shard_cache_data_root: Path | None = None,
     ) -> None:
         """Two construction modes, ONE audit-then-build-then-split pipeline:
 
@@ -362,6 +366,13 @@ class CellDataModule(L.LightningDataModule):
         # Task 24a (spec §8): "full" | "no_city" | "no_character"; applied to EVERY
         # prefix this module builds (train + val => generation-side too, by construction)
         self._conditioning_ablation = conditioning_ablation
+        # W3 shard cache: when set, setup() loads shards via the VERIFIED cache and
+        # NEVER falls back to the features walk — a stale cache HALTS (ShardCacheStale);
+        # a silent fallback would mask exactly the staleness the cache key exists to catch.
+        self._shard_cache_dir = Path(shard_cache_dir) if shard_cache_dir is not None else None
+        self._shard_cache_data_root = (
+            Path(shard_cache_data_root) if shard_cache_data_root is not None else None
+        )
         self._train: list[CellExample] = []
         self._val: list[CellExample] = []
         self._batches_yielded = 0
@@ -385,15 +396,54 @@ class CellDataModule(L.LightningDataModule):
         # lists (the manifest is the authoritative per-city training inventory), UNION
         # the cells across cities, then split. Per-city manifests stay schema 1.0; the
         # union lives here, not in a new manifest schema.
+        # W3: with a cache dir, shards come from the VERIFIED cache (sealed manifest,
+        # component-keyed staleness, fail-closed). STREAMED one city at a time —
+        # holding the whole union's shards at once peaks >25 GB in Python objects
+        # (measured: serial jobs 46065304/46068302 OOMed), so the cache path matches
+        # the walk path's one-city-resident memory profile. NO fallback path exists
+        # by design: a stale cache HALTS here.
+        if self._shard_cache_dir is not None:
+            releases = {m["release"] for m in manifests}
+            if len(releases) != 1:
+                raise ValueError(
+                    f"shard cache requires ONE release across the union, got {sorted(releases)}"
+                )
+            manifest_by_region = {m["region"]: m for m in manifests}
+            shard_stream = (
+                (manifest_by_region[city], shards)
+                for city, shards in iter_verified_shard_cache(
+                    self._shard_cache_dir,
+                    release=next(iter(releases)),
+                    cities=[m["region"] for m in manifests],
+                    training_manifest_sha_by_city={
+                        m["region"]: compute_sha256(p.read_bytes())
+                        for m, p in zip(manifests, self._train_manifests, strict=True)
+                    },
+                    data_root=self._shard_cache_data_root,
+                )
+            )
+        else:
+            # the walk: examples.sort() below makes processing order immaterial,
+            # so both branches share ONE consumption loop
+            shard_stream = (
+                (
+                    manifest,
+                    build_shards_in_memory(
+                        manifest["release"],
+                        manifest["region"],
+                        tile_ids=[
+                            (int(t["tile_i"]), int(t["tile_j"])) for t in manifest.get("tiles", [])
+                        ],
+                    ),
+                )
+                for manifest in manifests
+            )
+
         examples: list[CellExample] = []
         total_dropped = {"empty": 0, "too_long": 0}
         carried_by_source: dict[str, list[str | None]] = {}
         stats_by_source: dict[str, list[tuple[float, ...]]] = {}
-        for manifest in manifests:
-            tile_ids = [(int(t["tile_i"]), int(t["tile_j"])) for t in manifest.get("tiles", [])]
-            shards = build_shards_in_memory(
-                manifest["release"], manifest["region"], tile_ids=tile_ids
-            )
+        for manifest, shards in shard_stream:
             # Task-24a city-identity guard input: the carried TrainingShard.region per
             # DECLARED manifest region (the value the city_identity field will encode).
             carried_by_source.setdefault(manifest["region"], []).extend(s.region for s in shards)
