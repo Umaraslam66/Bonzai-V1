@@ -43,10 +43,10 @@ from shapely.geometry import shape
 
 from cfm.data.sub_g.readers import read_sub_f_cells
 
-# Private import sanctioned by the Task-22 plan: _has_outbound_bref is the
+# has_outbound_bref (public since W7; formerly a sanctioned private import) is the
 # construction-identity AUTHORITY for the v1 outbound-bref artifact (token-structure
 # fact, never an error-magnitude or zero-length test) — one source, not a copy.
-from cfm.data.sub_g.seam_decodability import _has_outbound_bref
+from cfm.data.sub_g.seam_decodability import has_outbound_bref
 
 # ONE source for the two-sample KS alpha=0.05 coefficient (Task 26 (g)): the
 # EXACT 1.358 (~1.3581) from feature_resolution wins over this module's old
@@ -55,7 +55,7 @@ from cfm.data.sub_g.seam_decodability import _has_outbound_bref
 # (significance is BH-based), so the only effect is reported floors shifting
 # ~0.15%; the frozen floor artifact's 1.36-era values stay valid (nothing
 # consumes that field on the verified-read path).
-from cfm.eval.feature_resolution import _KS_C_ALPHA_05
+from cfm.eval.feature_resolution import KS_C_ALPHA_05
 from cfm.eval.geometry import promote_building_rings
 from cfm.eval.holdout.labels import read_tile_labels
 from cfm.eval.holdout.paths import (
@@ -83,7 +83,7 @@ DEFAULT_CITIES: tuple[str, ...] = ("eisenhuttenstadt", "glasgow", "krakow", "mun
 # --------------------------------------------------------------------------- #
 
 
-def noise_floor(n1: int, n2: int, *, c: float = _KS_C_ALPHA_05) -> float:
+def noise_floor(n1: int, n2: int, *, c: float = KS_C_ALPHA_05) -> float:
     """alpha=0.05 two-sample KS critical value: ``c * sqrt((n1+n2)/(n1*n2))``.
 
     The per-comparison threshold PAIRED to the exact n that produced the KS
@@ -361,7 +361,7 @@ def _tile_features(
     closed roundabouts) are NOT promoted and stay road_length.
 
     Outbound-bref roads are EXCLUDED from ``road_length_m`` BY CONSTRUCTION IDENTITY
-    (``_has_outbound_bref`` on the ORIGINAL token block, never a zero-length symptom):
+    (``has_outbound_bref`` on the ORIGINAL token block, never a zero-length symptom):
     the v1 encoder replaces the last real vertex with a bref token and the decoder
     appends a placeholder, corrupting the decoded length. Excluded features are
     COUNTED, never silently dropped. Promoted building polygons are never bref-excluded.
@@ -374,7 +374,7 @@ def _tile_features(
         if g.geom_type in _POLYGON_TYPES:
             out.append((FeatureMetric.BUILDING_AREA.value, float(g.area), int(density)))
         elif g.geom_type in _LINE_TYPES:
-            if _has_outbound_bref(block):
+            if has_outbound_bref(block):
                 n_bref_excluded += 1
                 continue
             out.append((FeatureMetric.ROAD_LENGTH.value, float(g.length), int(density)))
@@ -382,7 +382,9 @@ def _tile_features(
 
 
 #: Silent-shrinkage ceiling (readiness F3): the max tolerated fraction of a city's
-#: held-out tiles missing ``cells.parquet`` before extraction HALTs (strict >).
+#: manifest tiles missing ``cells.parquet`` before extraction HALTs (strict >).
+#: "manifest", not "held-out": this extraction is SHARED — the conditioning-floor
+#: runner walks TRAINING cities through the same loop (W6 wording fix).
 _SHRINKAGE_CEILING: float = 0.1
 
 
@@ -483,7 +485,7 @@ def extract_features_by_city_stratum_metric(
         if frac > _SHRINKAGE_CEILING:
             raise RuntimeError(
                 f"gate-(i) extraction: city '{city}' skipped "
-                f"{cov.n_tiles_skipped}/{cov.n_tiles_expected} held-out tiles "
+                f"{cov.n_tiles_skipped}/{cov.n_tiles_expected} manifest tiles "
                 f"(missing cells.parquet; fraction {frac:.3f} > silent-shrinkage "
                 f"ceiling {_SHRINKAGE_CEILING}). A partial city must be re-extracted "
                 "or explicitly excluded, never quietly thinned (readiness F3)."

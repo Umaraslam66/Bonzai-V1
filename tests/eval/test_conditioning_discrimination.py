@@ -44,7 +44,7 @@ def _gauss(rng: random.Random, *, mu: float, sigma: float, n: int) -> list[float
 def test_noise_floor_matches_ks_critical_value_formula() -> None:
     # REVERSE-LOCK (Task 26 (g), deliberate): this pin was 1.36 — the ROUNDED
     # two-sample KS alpha=0.05 coefficient. The exact value is 1.358 (one source:
-    # feature_resolution._KS_C_ALPHA_05, matching holdout/sizing.py); per the
+    # feature_resolution.KS_C_ALPHA_05, matching holdout/sizing.py); per the
     # plan's Gate-2 rule the EXACT one wins, so noise_floor's default changed
     # and this guard is re-pinned WITH it (lock and guards travel together).
     assert noise_floor(50, 50) == 1.358 * math.sqrt(100 / 2500)
@@ -52,7 +52,7 @@ def test_noise_floor_matches_ks_critical_value_formula() -> None:
 
 
 def test_ks_coefficient_is_one_sourced_across_modules() -> None:
-    """Task 26 (g) cross-guard: feature_resolution._KS_C_ALPHA_05 (1.358, exact)
+    """Task 26 (g) cross-guard: feature_resolution.KS_C_ALPHA_05 (1.358, exact)
     IS noise_floor's default c — imported, never a second literal, so the two
     modules cannot drift apart again.
 
@@ -63,13 +63,13 @@ def test_ks_coefficient_is_one_sourced_across_modules() -> None:
     its noise_floor field (the sha-verified reader never recomputes it)."""
     import inspect
 
-    from cfm.eval.feature_resolution import _KS_C_ALPHA_05
+    from cfm.eval.feature_resolution import KS_C_ALPHA_05
 
-    assert _KS_C_ALPHA_05 == 1.358
+    assert KS_C_ALPHA_05 == 1.358
     default_c = inspect.signature(noise_floor).parameters["c"].default
-    assert default_c == _KS_C_ALPHA_05
+    assert default_c == KS_C_ALPHA_05
     # one SOURCE, not one value: the module binds the imported constant itself
-    assert CD._KS_C_ALPHA_05 is _KS_C_ALPHA_05
+    assert CD.KS_C_ALPHA_05 is KS_C_ALPHA_05
 
 
 def test_ks_pvalue_identical_samples_is_one() -> None:
@@ -363,6 +363,10 @@ def test_extraction_halts_above_silent_shrinkage_ceiling(tmp_path, monkeypatch) 
     assert "testcity" in msg
     assert "1/3" in msg
     assert "0.1" in msg
+    # W6: the extraction is SHARED (training cities too, since the floor runs) —
+    # the halt must speak of manifest tiles, never "held-out" tiles
+    assert "manifest tiles" in msg
+    assert "held-out tiles" not in msg
 
 
 def test_extraction_no_halt_at_exact_ceiling(tmp_path, monkeypatch) -> None:
@@ -478,7 +482,7 @@ def test_bref_features_excluded_from_road_length_by_construction_identity_and_co
     from cfm.eval.emergence import building_token_ids
 
     _BREF = 1500  # BP7 boundary-reference token band is 1500..1507 (sub-F decoder)
-    # Authority anchor: the SAME predicate _has_outbound_bref ultimately uses
+    # Authority anchor: the SAME predicate has_outbound_bref ultimately uses
     # (cfm.data.sub_f.decoder._is_bref_token) must recognize the fixture token —
     # a band move becomes a loud fixture error, not a silent out-of-regime pass.
     assert _is_bref_token(_BREF), "fixture out of regime: _BREF not in decoder bref band"

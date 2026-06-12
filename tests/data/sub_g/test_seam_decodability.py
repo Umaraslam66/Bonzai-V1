@@ -6,8 +6,8 @@ from shapely.wkb import dumps as wkb_dumps
 from cfm.data.sub_f.encoder import encode_cell, encode_feature
 from cfm.data.sub_g.seam_decodability import (
     _feature_accuracy,
-    _has_outbound_bref,
     check_decodability,
+    has_outbound_bref,
     split_cell_into_features,
 )
 
@@ -60,21 +60,21 @@ def test_check_decodability_measures_core_position_error_against_canonical_origi
 # ---- construction-identity bref detection (encoder.py:438-456 + decoder.py:104-134) ----
 
 
-def test_has_outbound_bref_true_for_case_b():
+def testhas_outbound_bref_true_for_case_b():
     # Case B: outbound crossing -> last body token is a bref (1500..1507).
     block = [509, 7, 300, 301, 302, 303, 444, 1502, 510]
-    assert _has_outbound_bref(block) is True
+    assert has_outbound_bref(block) is True
 
 
-def test_has_outbound_bref_false_for_inbound_only_case_c():
+def testhas_outbound_bref_false_for_inbound_only_case_c():
     # Case C: inbound bref right after the semantic tag; body does NOT end in a bref.
     block = [509, 7, 1500, 300, 301, 302, 303, 444, 445, 510]
-    assert _has_outbound_bref(block) is False
+    assert has_outbound_bref(block) is False
 
 
 def test_has_outbound_bref_false_for_case_a():
     block = [509, 7, 300, 301, 302, 303, 444, 445, 510]
-    assert _has_outbound_bref(block) is False
+    assert has_outbound_bref(block) is False
 
 
 # ---- core/full split + the reviewer-mandated floor-still-fires GUARD ----
@@ -221,3 +221,12 @@ def test_is_bref_placeholder_collapse_predicate_is_construction_identity():
     # bref present but geom is non-degenerate (>=2 distinct) -> NOT excluded (tightness).
     two_distinct = {"type": "LineString", "coordinates": [[0.0, 195.5], [10.0, 195.5]]}
     assert _is_bref_placeholder_collapse(_BREF_COLLAPSE_BLOCK, two_distinct) is False
+
+
+def test_has_outbound_bref_is_public_and_private_name_is_gone():
+    """W7: four sanctioned-private import sites earned the public re-export;
+    the private name is fully migrated (no half-public split surface)."""
+    import cfm.data.sub_g.seam_decodability as sd
+
+    assert callable(sd.has_outbound_bref)
+    assert not hasattr(sd, "_" + "has_outbound_bref")

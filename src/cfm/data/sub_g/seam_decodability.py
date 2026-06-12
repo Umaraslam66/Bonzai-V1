@@ -28,7 +28,7 @@ position numbers per feature:
                      info-loss with "broken encode/decode" and fire on every real
                      region forever. The exclusion is by CONSTRUCTION IDENTITY
                      (the token body ends in a bref -> Case B/D outbound), NEVER
-                     by error magnitude — see _has_outbound_bref.
+                     by error magnitude — see has_outbound_bref.
 
   angle_core_deg   — max segment-bearing error vs the canonical original, defined
                      ONLY where decoded and canonical vertex counts match (no
@@ -129,7 +129,7 @@ def _sym_hausdorff(a: BaseGeometry, b: BaseGeometry) -> float:
     return max(a.hausdorff_distance(b), b.hausdorff_distance(a))
 
 
-def _has_outbound_bref(block: list[int]) -> bool:
+def has_outbound_bref(block: list[int]) -> bool:
     """True iff this feature's token BODY ends in a bref token (Case B/D outbound).
 
     Construction identity (encoder.py:438-456 + decoder.py:104-134): the ONLY
@@ -161,7 +161,7 @@ def _is_bref_placeholder_collapse(block: list[int], geom: dict) -> bool:
     genuine decode defect -> it is NOT excluded; the gate still quarantines it
     (guard: test_check_decodability_GATE_FIRES_on_degenerate_without_outbound_bref).
     """
-    if not _has_outbound_bref(block):
+    if not has_outbound_bref(block):
         return False
     return len(set(_decoded_coords(geom))) < 2
 
@@ -320,7 +320,7 @@ def check_decodability(
         errors.append(
             _feature_accuracy(
                 grp_decoded,
-                [_has_outbound_bref(b) for b in grp_blocks],
+                [has_outbound_bref(b) for b in grp_blocks],
                 parts,
             )
         )

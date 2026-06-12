@@ -24,8 +24,9 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 
-# KS two-sample critical coefficient at alpha=0.05 (matches holdout/sizing.py).
-_KS_C_ALPHA_05 = 1.358
+#: KS two-sample critical coefficient at alpha=0.05 — THE one source (W5):
+#: holdout/sizing.py and holdout/pipeline.py import this, never a literal.
+KS_C_ALPHA_05 = 1.358
 
 
 class DecisionUnresolvable(Exception):
@@ -46,7 +47,7 @@ def per_feature_resolved_gap(*, n_features: int) -> float:
     """
     if n_features <= 0:
         return float("inf")
-    return _KS_C_ALPHA_05 * math.sqrt(2.0 / n_features)
+    return KS_C_ALPHA_05 * math.sqrt(2.0 / n_features)
 
 
 def single_region_floor_gap(*, n_reference_features: int) -> float:
@@ -58,7 +59,7 @@ def single_region_floor_gap(*, n_reference_features: int) -> float:
     """
     if n_reference_features <= 0:
         return float("inf")
-    return _KS_C_ALPHA_05 / math.sqrt(n_reference_features)
+    return KS_C_ALPHA_05 / math.sqrt(n_reference_features)
 
 
 @dataclass(frozen=True)
@@ -122,5 +123,5 @@ def cells_to_resolve(*, target_gap: float, features_per_cell: float) -> int:
     """
     if target_gap <= 0 or features_per_cell <= 0:
         raise ValueError("target_gap and features_per_cell must be positive")
-    n_features = math.ceil(2.0 * (_KS_C_ALPHA_05 / target_gap) ** 2)
+    n_features = math.ceil(2.0 * (KS_C_ALPHA_05 / target_gap) ** 2)
     return math.ceil(n_features / features_per_cell)

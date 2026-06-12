@@ -89,12 +89,12 @@ from cfm.data.sub_d.lattice import CELL_GRID_SIZE  # noqa: E402
 from cfm.data.sub_f.decoder import decode_feature  # noqa: E402
 from cfm.data.sub_g.readers import read_sub_f_cells  # noqa: E402
 
-# Private imports sanctioned by the Task-22/23 plan: _has_outbound_bref is the
-# construction-identity AUTHORITY for the v1 outbound-bref artifact, and
+# has_outbound_bref (public since W7) is the construction-identity AUTHORITY for
+# the v1 outbound-bref artifact; the remaining private imports stay sanctioned:
 # _SHRINKAGE_CEILING / _cell_density_by_cell keep this walk one-sourced with the
 # gate-(i) reference extraction it must reproduce at V0.
 from cfm.data.sub_g.seam_decodability import (  # noqa: E402
-    _has_outbound_bref,
+    has_outbound_bref,
     split_cell_into_features,
 )
 from cfm.eval.conditioning_discrimination import (  # noqa: E402
@@ -392,7 +392,7 @@ def _tile_cell_features(
     cell_density_bucket is SKIPPED, not bucketed as 0 — so V0 reproduces the
     gate-(i) feature counts) and the gate-(i) ``_tile_features`` classification:
     building closed rings promoted to Polygon (construction identity) before
-    typing; outbound-bref line features EXCLUDED by ``_has_outbound_bref`` on the
+    typing; outbound-bref line features EXCLUDED by ``has_outbound_bref`` on the
     ORIGINAL token block and COUNTED, never silently dropped.
     """
     blocks: list[list[int]] = []
@@ -414,7 +414,7 @@ def _tile_cell_features(
         if g.geom_type in _POLYGON_TYPES:
             out.append((FeatureMetric.BUILDING_AREA.value, float(g.area), cell))
         elif g.geom_type in _LINE_TYPES:
-            if _has_outbound_bref(block):
+            if has_outbound_bref(block):
                 n_bref_excluded += 1
                 continue
             out.append((FeatureMetric.ROAD_LENGTH.value, float(g.length), cell))
@@ -714,7 +714,7 @@ def _methodology(
         "effect_size_floor": effect_size_floor,
         "bref_exclusion": (
             "outbound-bref line features excluded by construction identity "
-            "(_has_outbound_bref on the ORIGINAL token block), counted per city, "
+            "(has_outbound_bref on the ORIGINAL token block), counted per city, "
             "applied ONCE so every variant sees the SAME feature pool"
         ),
         "rate_criterion": (
