@@ -511,8 +511,8 @@ def run_short(
         emergence_floor_provenance=emergence_provenance,
         # F15 commensurability: the generation's per-cell budget vs the floor's
         # derivation regime. The floor regime is a property of the HOLDOUT derivation
-        # (derivation_regime.cell_length: "full" => the locked P99.9 cell budget,
-        # DEFAULT_MAX_CELL_TOKENS=5760), NOT of this run's cfg.max_len — a short-
+        # (derivation_regime.cell_length: "full" => the locked p99.9-cover budget,
+        # DEFAULT_MAX_CELL_TOKENS), NOT of this run's cfg.max_len — a short-
         # context run does not shrink what the floor was measured against.
         generated_length_cap=cfg.eval_max_new,
         floor_regime_cell_length=DEFAULT_MAX_CELL_TOKENS,
@@ -540,9 +540,38 @@ def run_short(
     }
 
 
+def assert_scored_commensurate(cfg: ScaffoldConfig) -> None:
+    """The scored-run commensurability gate (token-budget coupled decision §4,
+    locked 2026-06-11): a SCORED bake-off run must train at the ONE authoritative
+    window AND give eval generation at least that budget — a scored run must never
+    train short or evaluate capped (the 2048 opt-down entry points stay legal for
+    NON-scored jobs only; they simply never pass --scored-run)."""
+    if cfg.max_len != DEFAULT_MAX_CELL_TOKENS:
+        raise ValueError(
+            f"scored run refused: cfg.max_len={cfg.max_len} != the locked budget "
+            f"DEFAULT_MAX_CELL_TOKENS={DEFAULT_MAX_CELL_TOKENS} — a scored run at an "
+            f"opt-down window would train short / score incommensurate (memo §4; "
+            f"drop --scored-run for diagnostics/smoke)."
+        )
+    if cfg.eval_max_new < DEFAULT_MAX_CELL_TOKENS:
+        raise ValueError(
+            f"scored run refused: cfg.eval_max_new={cfg.eval_max_new} < the locked "
+            f"budget {DEFAULT_MAX_CELL_TOKENS} — a capped generation never gets the "
+            f"budget to emit what the floor counts (F15 would refuse the verdict as "
+            f"INCOMMENSURATE; raise eval_max_new or drop --scored-run)."
+        )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Phase-1 training scaffold runner")
     parser.add_argument("--smoke", action="store_true", help="tiny loop-closing smoke")
+    parser.add_argument(
+        "--scored-run",
+        action="store_true",
+        help="this run's report feeds the bake-off decision: enforce the locked "
+        "budget (max_len == DEFAULT_MAX_CELL_TOKENS, eval_max_new >= it) at the "
+        "entrypoint; omit for diagnostics/smoke/opt-down jobs",
+    )
     parser.add_argument("--devices", type=int, default=4, help="DDP devices (Leonardo node = 4)")
     parser.add_argument(
         "--backbone",
@@ -684,9 +713,13 @@ def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
     return ScaffoldConfig(**overrides)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO)
-    args = _build_parser().parse_args()
+    args = _build_parser().parse_args(argv)
+    if args.scored_run:
+        # The gate fires BEFORE any smoke/training path executes: a scored run at
+        # an opt-down window must die here, named, not after hours of training.
+        assert_scored_commensurate(build_config_from_args(args))
     if args.smoke:
         print(json.dumps(run_smoke(devices=args.devices)))
         return

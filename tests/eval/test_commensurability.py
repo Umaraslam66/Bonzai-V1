@@ -215,7 +215,9 @@ def test_generate_and_score_passes_lengths_to_slice_eval(monkeypatch) -> None:
         floor_regime_cell_length=DEFAULT_MAX_CELL_TOKENS,
     )
     assert captured["generated_length_cap"] == 4
-    assert captured["floor_regime_cell_length"] == DEFAULT_MAX_CELL_TOKENS == 5760
+    # W1 lock-and-guards: the floor regime follows the LOCKED budget (13,312;
+    # token-budget coupled decision 2026-06-11).
+    assert captured["floor_regime_cell_length"] == DEFAULT_MAX_CELL_TOKENS == 13_312
 
 
 # --- the refuse rule NESTS inside "a verdict was requested" (Task 14 follow-up) -------

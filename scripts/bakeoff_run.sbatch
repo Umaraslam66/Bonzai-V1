@@ -149,8 +149,11 @@ build_backbone(cfg.backbone, cfg)
 print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={cfg.n_layers}')
 "
 
+# --scored-run: this entry point feeds the bake-off decision, so the W1
+# commensurability gate (max_len == locked budget, eval_max_new >= it) fires at
+# the entrypoint — an opt-down recipe dies named, before any GPU-hour burns.
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
-  --devices 4 --no-build --backbone "$BACKBONE" \
+  --devices 4 --no-build --scored-run --backbone "$BACKBONE" \
   --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" \
   --config "$RUN_CONFIG" &
 SRUN_PID=$!

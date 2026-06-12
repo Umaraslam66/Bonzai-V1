@@ -147,6 +147,18 @@ def test_flatten_drops_empty_and_overlength_cells():
     # 6 cells total; 1 empty + 1 over-length dropped => 4 examples
     assert len(examples) == 4
     assert dropped == {"empty": 1, "too_long": 1}
+
+
+def test_overlength_at_old_budget_flows_at_the_locked_default():
+    """W1 memo obligation #4: a cell in the newly admitted window (5760, 13312] —
+    the fixture's 10,000-token cell — must FLOW at the locked default budget
+    (kept; only the empty cell drops). The explicit-5760 test above keeps the
+    old regime covered, so this pair distinguishes the regimes by construction."""
+    examples, dropped = DM.flatten_shards_to_cells(_synthetic_shards())
+    assert dropped == {"empty": 1, "too_long": 0}
+    assert len(examples) == 5
+    kept = next(e for e in examples if (e.cell_i, e.cell_j) == (0, 1))
+    assert len(kept.tokens) == 10_000
     # every example carries the conditioning prefix + its cell tokens (Task 24b:
     # the 9 id positions + the character placeholder => prefix_len 10)
     ex = next(e for e in examples if (e.tile_i, e.tile_j, e.cell_i, e.cell_j) == (0, 0, 0, 2))

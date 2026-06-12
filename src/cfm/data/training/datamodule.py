@@ -49,9 +49,16 @@ from cfm.data.training.shard_schema import TrainingShard
 
 logger = logging.getLogger(__name__)
 
-#: sub-F P99.9 cell-token length lock (spec §7). Longer cells (~0.1% of Singapore)
-#: are dropped rather than truncated (truncation would cut a feature mid-grammar).
-DEFAULT_MAX_CELL_TOKENS = 5760
+#: EU p99.9-cover cell-token budget — the LOCKED token-budget coupled decision
+#: (Umar, 2026-06-11; reports/2026-06-11-token-budget-coupled-decision-memo.md):
+#: the smallest window covering every training city's p99.9 (worst: valencia
+#: 13,268), superseding the original Singapore-p99.9 5760 after the 15.5 gate
+#: proved genuine density (union drop at 5760 was 0.92% > the 0.005 contract).
+#: Longer cells (the five densest cities' extreme max-tails, ~0.02% of the
+#: union) are still dropped rather than truncated (truncation would cut a
+#: feature mid-grammar). Runnability verified: flash-attention engages at this
+#: window on A100 (reports/2026-06-11-sdpa-window-probe.yaml, PASS).
+DEFAULT_MAX_CELL_TOKENS = 13_312
 
 #: id for right-padding (a valid sub-F id; padded targets are masked in the loss).
 PAD_ID = 0
@@ -66,9 +73,11 @@ CHARACTER_PLACEHOLDER_ID = PAD_ID
 
 #: F13 action contract (readiness-closure Task 15): ceiling on the fraction of
 #: NON-EMPTY cells dropped for exceeding max_cell_tokens, checked over the whole
-#: manifest union in ``setup``. 0.005 = 5x the Singapore P99.9 design point behind
-#: DEFAULT_MAX_CELL_TOKENS (~0.1% of SG cells exceed the lock). Above this the drop
-#: is no longer a tail trim — the budget assumption itself has failed for the corpus.
+#: manifest union in ``setup``. 0.005 = 5x the per-city p99.9 design point behind
+#: DEFAULT_MAX_CELL_TOKENS (originally SG p99.9; the calibration carries over
+#: verbatim to the 13,312 EU p99.9-cover lock — per-city drop at the design point
+#: is <= 0.1% by construction). Above this the drop is no longer a tail trim —
+#: the budget assumption itself has failed for the corpus.
 MAX_TOO_LONG_DROP_RATE = 0.005
 
 
@@ -426,8 +435,9 @@ class CellDataModule(L.LightningDataModule):
         # and the F13 escalation ('raise DEFAULT_MAX_CELL_TOKENS') is the wrong action
         # for a conscious opt-down — so the enforcement boundary is deliberate.
         # Visibility there comes from the unconditional INFO log below (counts + rate
-        # + budget land in every job log). Revisit if a sub-design budget ever appears
-        # in a SCORED bake-off run (those run at the 5760 default).
+        # + budget land in every job log). Scored runs are additionally gated at the
+        # entrypoint (train_scaffold --scored-run asserts max_len == the locked
+        # default AND eval_max_new >= it; W1 of the 2026-06-11 budget decision).
         too_long = total_dropped["too_long"]
         total_nonempty = len(examples) + too_long
         logger.info(

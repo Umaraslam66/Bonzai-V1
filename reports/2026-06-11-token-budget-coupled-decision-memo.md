@@ -18,8 +18,19 @@ deliberately, not forgotten** (recorded on Umar's word, 2026-06-11). It ships at
 scored-run-planning execution as ONE commit: the 13,312 constants + the §4
 entrypoint commensurability assert (`eval_max_new >= budget`) + the
 lock-and-guards test sweep (grep tests for assertions pinned to 5760; update in
-the same commit). Until then the tree deliberately still reads 5760/0.005/512
-everywhere.
+the same commit).
+
+**UPDATE 2026-06-12 — EXECUTED as W1 of the GPU-wait CPU drain (pulled forward
+on Umar's word with the approved worklist).** One commit on branch
+`phase-2-w1-budget-13312`: `DEFAULT_MAX_CELL_TOKENS = 13_312`,
+`ScaffoldConfig.max_len = 13_312`, the `--scored-run` entrypoint gate
+(`assert_scored_commensurate`: max_len == the lock AND eval_max_new >= it;
+wired into `bakeoff_run.sbatch`), `--budget` flag on the measure script, the
+lock-and-guards sweep (test pins updated; the sub-F alpha-drop band's 5760 is
+anchored to the sub-F PADDED budget 6016-256 — a different, unmoved lock — and
+deliberately untouched), obligation #4's regime-pair test (a 10,000-token cell
+flows at the lock, drops at 5760), and the recorded per-city tail-drop
+measurement at 13,312 (obligation #1; first real post-lapse CPU job).
 
 This is backlog #1 / resume-gate #3: the decision deferred from gated step 15.5
 ("resolved-direction, number deferred-by-design"). Direction already recorded by Umar

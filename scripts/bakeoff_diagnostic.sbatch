@@ -74,14 +74,15 @@ python -c "from cfm.data.training.build_shards import build_training_shards as b
 # run scripts/measure_emergence_floor.py first). --ckpt-every-n-steps 25000 -> step
 # checkpoints for the trajectory follow-on. --eval-max-new 2048 generous (truncation control).
 #
-# F15 COMMENSURABILITY NOTE (readiness Task 14): --eval-max-new 2048 < the floor's 5760
-# derivation regime, so a run of THIS script renders emergence_verdict=INCOMMENSURATE by
+# F15 COMMENSURABILITY NOTE (readiness Task 14): --eval-max-new 2048 < the floor's
+# locked-budget derivation regime (13,312 since the 2026-06-11 decision; was 5760), so
+# a run of THIS script renders emergence_verdict=INCOMMENSURATE by
 # construction. That is HONEST, not a bug. Positional capacity = max_len +
 # CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS = 2048 + 9 + 1 = 2058 POSITIONS
 # since Task 24b (n_cond=576 is embedding-table rows on the token-id axis, NOT
 # positions). --eval-max-new 2048 yields (9 ids + 1 character placeholder) + 2048 =
 # 2058 tokens — exactly fills capacity, zero headroom, fits by construction (boundary pinned
-# in tests/models/test_micro_ar.py); bumping it toward 5760 would CRASH generation, not
+# in tests/models/test_micro_ar.py); bumping it toward the budget would CRASH generation, not
 # fix the verdict. Making the verdict scoreable requires max_len >= the floor regime —
 # a re-planned model budget, i.e. a Phase-6 / PI decision; do NOT silently edit these
 # numbers.

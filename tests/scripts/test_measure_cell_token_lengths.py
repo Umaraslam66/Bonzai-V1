@@ -177,3 +177,23 @@ def test_cli_clean_corpus_exits_zero(sub_f_tree, tmp_path: Path, monkeypatch) ->
     rc = mod.main(["--release", _RELEASE, "--regions", "ddd", "--out", str(out)])
     assert rc == 0
     assert yaml.safe_load(out.read_text())["cities"]["ddd"]["n_cells"] == 2
+
+
+def test_cli_budget_flag_threads_to_measurement(tmp_path: Path, monkeypatch) -> None:
+    """W1: the recorded-tail-drop measurement must be runnable at an EXPLICIT budget
+    (--budget; default stays DEFAULT_MAX_CELL_TOKENS), so the tail-drop at a locked
+    number is measured by flag, never by editing a constant for a one-off run."""
+    mod = _load_module()
+    base = tmp_path / "budget_tree"
+    _write_tile(base / _RELEASE / "eee" / "tile=EPSG3414_i0_j0", [100, 6000])
+    monkeypatch.setattr(mod, "sub_f_region_dir", lambda release, region: base / release / region)
+    monkeypatch.setattr(mod, "_git_sha", lambda: "clisha")
+    out = tmp_path / "out.yaml"
+    rc = mod.main(
+        ["--release", _RELEASE, "--regions", "eee", "--out", str(out), "--budget", "13312"]
+    )
+    assert rc == 0
+    data = yaml.safe_load(out.read_text())
+    assert data["budget"] == 13312
+    # the 6000-token cell is NOT over a 13,312 budget (it would be over 5760)
+    assert data["cities"]["eee"]["frac_over_budget"] == 0.0

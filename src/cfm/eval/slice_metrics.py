@@ -37,7 +37,7 @@ class EmergenceVerdict(Enum):
 
     INCOMMENSURATE (F15) means the §2 verdict was REFUSED before it ever ran: the
     generation's length cap is below the floor's derivation regime (e.g. a 512-cap
-    generation scored against a full-cell 5760-regime floor), so neither SCOREABLE
+    generation scored against a full-cell locked-budget-regime floor), so neither SCOREABLE
     nor ROADS_ONLY would mean anything. Loud and distinct from the legacy None
     (= "no floor inputs given, verdict never requested").
     """
