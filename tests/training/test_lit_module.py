@@ -17,7 +17,16 @@ from cfm.training.lit_module import ScaffoldLit
 
 
 def _cfg(**kw) -> ScaffoldConfig:
-    base = dict(d_model=64, n_layers=2, n_heads=2, max_len=128, accelerator="cpu", devices=1)
+    # region is REQUIRED (no default); SG keeps these vocab/loss tests region-agnostic
+    base = dict(
+        region="singapore",
+        d_model=64,
+        n_layers=2,
+        n_heads=2,
+        max_len=128,
+        accelerator="cpu",
+        devices=1,
+    )
     base.update(kw)
     return ScaffoldConfig(**base)
 

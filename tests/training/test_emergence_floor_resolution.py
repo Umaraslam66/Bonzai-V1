@@ -172,7 +172,7 @@ def test_generate_and_score_passes_floor_and_provenance_to_slice_eval(monkeypatc
         character_stats=(0.0,) * 7,  # Task 24b required field
     )
     dm = SimpleNamespace(val_cells=[example])
-    cfg = ScaffoldConfig(devices=1, accelerator="cpu")
+    cfg = ScaffoldConfig(region="singapore", devices=1, accelerator="cpu")
     model = SimpleNamespace(model=object())
     prov = {"region": "singapore", "floor": 1.96}
     ts._generate_and_score(

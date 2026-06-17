@@ -293,6 +293,7 @@ def run_smoke(devices: int = 4) -> dict:
     cfg = ScaffoldConfig(
         devices=devices,
         accelerator=accel,
+        region="singapore",  # region is now REQUIRED; the wiring smoke is the SG dev path
         d_model=64,
         n_layers=2,
         n_heads=2,
@@ -475,7 +476,11 @@ def run_short(
     fit, not at the post-train eval. ``cfg.eval_cells == 0`` generates nothing, so no
     floor is needed (run_smoke is likewise out of scope: it is the wiring smoke,
     verdict-None by design)."""
-    cfg = cfg or ScaffoldConfig()
+    # No bare ScaffoldConfig() fallback: region is REQUIRED, so a default-constructed
+    # config can no longer exist (and a region-less run must never silently start).
+    # run_short is always handed a real cfg by main(); a None here is a caller bug.
+    if cfg is None:
+        raise ValueError("run_short requires a ScaffoldConfig (region is mandatory; no default)")
     if cfg.accelerator == "gpu":
         assert_training_env_locked()
 
@@ -676,7 +681,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--region",
         default=None,
-        help="override ScaffoldConfig.region (e.g. krakow); default keeps the config value",
+        help="ScaffoldConfig.region (e.g. krakow) — REQUIRED unless supplied via --config; "
+        "there is NO default (a region-less run fails loudly, never silent singapore)",
     )
     parser.add_argument(
         "--release",
@@ -758,6 +764,17 @@ def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
             overrides[key] = val
     if args.no_compile:
         overrides["compile"] = False
+    # Fail-closed: ScaffoldConfig.region is REQUIRED (no silent singapore default).
+    # Raise a NAMED error here rather than let pydantic surface an opaque
+    # "field required" ValidationError — and NEVER pick a region implicitly. A
+    # region reaches `overrides` only from --region or the --config YAML; absent
+    # both, the run has not named its corpus and must not start.
+    if "region" not in overrides:
+        raise SystemExit(
+            "region is required: pass --region <city> (e.g. --region krakow) or set "
+            "`region:` in the --config YAML. There is no default — a run must name its "
+            "corpus (the retired Phase-1 singapore default is gone)."
+        )
     return ScaffoldConfig(**overrides)
 
 

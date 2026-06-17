@@ -9,7 +9,7 @@ from cfm.training.train import build_trainer
 
 
 def test_holdout_eval_is_not_a_lightning_val_metric():
-    trainer = build_trainer(ScaffoldConfig(devices=1, accelerator="cpu"))
+    trainer = build_trainer(ScaffoldConfig(region="singapore", devices=1, accelerator="cpu"))
     monitored = {c.monitor for c in trainer.callbacks if getattr(c, "monitor", None)}
     assert all("holdout" not in (m or "") for m in monitored)  # holdout never monitored
     assert "val_loss" in monitored  # the internal val split IS the selection signal
@@ -20,7 +20,7 @@ def test_checkpoint_callback_has_30min_interval_and_save_last():
 
     from lightning.pytorch.callbacks import ModelCheckpoint
 
-    trainer = build_trainer(ScaffoldConfig(devices=1, accelerator="cpu"))
+    trainer = build_trainer(ScaffoldConfig(region="singapore", devices=1, accelerator="cpu"))
     ckpts = [c for c in trainer.callbacks if isinstance(c, ModelCheckpoint)]
     assert ckpts, "a ModelCheckpoint callback must be configured (mandatory cadence)"
     ck = ckpts[0]

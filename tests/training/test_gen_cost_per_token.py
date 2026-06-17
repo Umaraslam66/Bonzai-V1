@@ -86,7 +86,7 @@ def capture(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 
 def test_metrics_carry_gen_seconds_and_token_count(capture):
-    cfg = ScaffoldConfig(devices=1, accelerator="cpu")
+    cfg = ScaffoldConfig(region="singapore", devices=1, accelerator="cpu")
     dm = _FakeDM([_example(0), _example(1)])
     model = SimpleNamespace(model=object())
     metrics = ts._generate_and_score(model, dm, cfg, n_cells=4, max_new=16)

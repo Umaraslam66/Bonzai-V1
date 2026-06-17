@@ -46,6 +46,7 @@ _RELEASE, _REGION = "2026-04-15.0", "singapore"
 
 def _cfg() -> ScaffoldConfig:
     return ScaffoldConfig(
+        region=_REGION,  # region is REQUIRED (no default); this check uses the SG dev corpus
         devices=4,
         accelerator="gpu",
         d_model=128,

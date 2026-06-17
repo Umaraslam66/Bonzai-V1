@@ -17,7 +17,13 @@ from cfm.training.config import ScaffoldConfig
 
 def _tiny_cfg() -> ScaffoldConfig:
     return ScaffoldConfig(
-        backbone="transformer-ar", d_model=32, n_layers=2, n_heads=2, max_len=64, accelerator="cpu"
+        region="singapore",  # region REQUIRED (no default); backbone build is region-agnostic
+        backbone="transformer-ar",
+        d_model=32,
+        n_layers=2,
+        n_heads=2,
+        max_len=64,
+        accelerator="cpu",
     )
 
 

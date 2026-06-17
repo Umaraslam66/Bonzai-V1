@@ -152,7 +152,13 @@ def test_generation_at_exact_positional_capacity_through_production_build():
     from cfm.training.config import ScaffoldConfig
 
     cfg = ScaffoldConfig(
-        d_model=32, n_layers=1, n_heads=2, max_len=32, accelerator="cpu", devices=1
+        region="singapore",
+        d_model=32,
+        n_layers=1,
+        n_heads=2,
+        max_len=32,
+        accelerator="cpu",
+        devices=1,
     )
     model = build_backbone("transformer-ar", cfg)
     capacity = cfg.max_len + CONDITIONING_PREFIX_LEN + CHARACTER_PREFIX_POSITIONS

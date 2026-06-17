@@ -15,7 +15,12 @@ from pydantic import BaseModel
 class ScaffoldConfig(BaseModel):
     # data snapshot
     release: str = "2026-04-15.0"
-    region: str = "singapore"
+    #: REQUIRED, fail-closed: there is NO default. The retired Phase-1 "singapore"
+    #: default once let a run silently train/eval the wrong region; every run now
+    #: names its region explicitly (reproducibility — the region is part of the
+    #: experiment record, never an unstated assumption). A construction omitting
+    #: ``region`` raises at build time, before any GPU-hour burns.
+    region: str
     seed: int = 7
 
     #: Which training corpus the datamodule consumes (F7). "single" = the per-region

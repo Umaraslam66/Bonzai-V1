@@ -85,7 +85,13 @@ def _make_batch(n_subf_vocab: int, batch: int, device: str) -> dict[str, torch.T
 
 
 def _make_model(d_model: int, n_layers: int, n_heads: int, device: str) -> torch.nn.Module:
-    cfg = ScaffoldConfig(max_len=LOCKED_WINDOW, d_model=d_model, n_layers=n_layers, n_heads=n_heads)
+    cfg = ScaffoldConfig(
+        region="singapore",  # region REQUIRED (no default); SDPA-window probe is region-agnostic
+        max_len=LOCKED_WINDOW,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+    )
     return build_backbone("transformer-ar", cfg).to(device)
 
 

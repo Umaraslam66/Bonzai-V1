@@ -20,6 +20,7 @@ from cfm.training.lit_module import ScaffoldLit
 from cfm.training.train import maybe_compile
 
 _TINY = dict(
+    region="singapore",  # region is REQUIRED (no default); SG keeps these tests region-agnostic
     devices=1,
     accelerator="cpu",
     d_model=64,

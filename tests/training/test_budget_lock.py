@@ -45,7 +45,7 @@ def test_default_max_cell_tokens_is_the_locked_13312():
 def test_scaffold_max_len_default_equals_the_budget_lock():
     # ONE authoritative number (memo section 4): the data-side drop threshold and the
     # model-side window must never drift apart silently.
-    assert ScaffoldConfig().max_len == DEFAULT_MAX_CELL_TOKENS
+    assert ScaffoldConfig(region="singapore").max_len == DEFAULT_MAX_CELL_TOKENS
 
 
 def test_drop_rate_contract_is_unchanged():
@@ -59,14 +59,18 @@ def test_drop_rate_contract_is_unchanged():
 
 def test_scored_gate_refuses_max_len_below_the_budget():
     mod = _load_scaffold()
-    cfg = ScaffoldConfig(max_len=2048, eval_max_new=DEFAULT_MAX_CELL_TOKENS, accelerator="cpu")
+    cfg = ScaffoldConfig(
+        region="singapore", max_len=2048, eval_max_new=DEFAULT_MAX_CELL_TOKENS, accelerator="cpu"
+    )
     with pytest.raises(ValueError, match=r"2048.*13312|13312.*2048"):
         mod.assert_scored_commensurate(cfg)
 
 
 def test_scored_gate_refuses_eval_max_new_below_the_budget():
     mod = _load_scaffold()
-    cfg = ScaffoldConfig(max_len=DEFAULT_MAX_CELL_TOKENS, eval_max_new=512, accelerator="cpu")
+    cfg = ScaffoldConfig(
+        region="singapore", max_len=DEFAULT_MAX_CELL_TOKENS, eval_max_new=512, accelerator="cpu"
+    )
     with pytest.raises(ValueError, match=r"eval_max_new"):
         mod.assert_scored_commensurate(cfg)
 
@@ -74,6 +78,7 @@ def test_scored_gate_refuses_eval_max_new_below_the_budget():
 def test_scored_gate_passes_a_compliant_config():
     mod = _load_scaffold()
     cfg = ScaffoldConfig(
+        region="singapore",
         max_len=DEFAULT_MAX_CELL_TOKENS,
         eval_max_new=DEFAULT_MAX_CELL_TOKENS,
         accelerator="cpu",
@@ -91,5 +96,7 @@ def test_main_refuses_a_scored_run_at_an_optdown_window():
     # The wiring tooth: --scored-run + --max-len 2048 must die at the gate, BEFORE
     # any training/smoke executes (the gate is the first thing after config build).
     mod = _load_scaffold()
+    # --region supplied (now REQUIRED) so the run reaches the scored-commensurability
+    # gate — the subject under test — rather than the earlier region-required guard.
     with pytest.raises(ValueError, match=r"scored"):
-        mod.main(["--scored-run", "--max-len", "2048", "--devices", "1"])
+        mod.main(["--scored-run", "--region", "singapore", "--max-len", "2048", "--devices", "1"])

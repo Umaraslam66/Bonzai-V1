@@ -482,7 +482,10 @@ def test_shard_cache_cli_flag_threads_to_config():
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    args = mod._build_parser().parse_args(["--shard-cache", "/x/cache", "--devices", "1"])
+    # --region supplied (now REQUIRED); this test's subject is the --shard-cache flag
+    args = mod._build_parser().parse_args(
+        ["--region", "singapore", "--shard-cache", "/x/cache", "--devices", "1"]
+    )
     cfg = mod.build_config_from_args(args)
     assert cfg.shard_cache == "/x/cache"
     assert mod._build_parser().parse_args([]).shard_cache is None
