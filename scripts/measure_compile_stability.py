@@ -65,17 +65,27 @@ def _dynamo_recompile_count() -> int | None:
 
 
 def measure(
-    *, region: str, release: str, shard_cache: str | None, steps: int, batch_size: int, scale: str
+    *,
+    region: str,
+    release: str,
+    train_set: str,
+    shard_cache: str | None,
+    steps: int,
+    batch_size: int,
+    scale: str,
 ) -> dict:
     assert_mamba_env_locked()
     if not torch.cuda.is_available():  # the probe is meaningless without the real kernels
         raise RuntimeError("measure_compile_stability requires CUDA (mamba kernels)")
     device = torch.device("cuda")
 
+    # train_set="eu-train-union" loads the sealed EU cache (the real variable-length cell
+    # distribution the scored runs see); the probe needs that distribution, not singapore.
     cfg = ScaffoldConfig(
         backbone="mamba-hybrid",
         region=region,
         release=release,
+        train_set=train_set,
         shard_cache=shard_cache,
         batch_size=batch_size,
         accelerator="gpu",
@@ -147,8 +157,9 @@ def _verdict(times: list[float], *, n_steps: int) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Compile-stability probe (spec §5).")
-    ap.add_argument("--region", default="singapore")
+    ap.add_argument("--region", default="krakow")  # a held-out EU city (light); NOT singapore
     ap.add_argument("--release", default="2026-04-15.0")
+    ap.add_argument("--train-set", dest="train_set", default="eu-train-union")
     ap.add_argument("--shard-cache", default=None)
     ap.add_argument("--steps", type=int, default=250)
     ap.add_argument("--batch-size", type=int, default=4)
@@ -159,6 +170,7 @@ def main() -> None:
     verdict = measure(
         region=args.region,
         release=args.release,
+        train_set=args.train_set,
         shard_cache=args.shard_cache,
         steps=args.steps,
         batch_size=args.batch_size,

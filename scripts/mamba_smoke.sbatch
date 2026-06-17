@@ -32,21 +32,29 @@ export LD_PRELOAD="$(dirname "$($CC -print-file-name=libstdc++.so.6)")/libstdc++
 source .venv/bin/activate
 mkdir -p logs reports
 
-: "${REGION:=singapore}"
+# EU multiregion bake-off data: train on the eu-train-union (the sealed EU cache, fast),
+# eval against a held-out EU city's floor. REGION=krakow (a held-out EU city, LIGHT enough
+# to fit the 30min dbg window — NOT dense munich, whose core would burn the budget; the
+# smoke is path-validation, not cost measurement). singapore was Phase-1 de-risking and is
+# NOT in the corpus.
+: "${REGION:=krakow}"
 : "${RELEASE:=2026-04-15.0}"
+: "${TRAIN_SET:=eu-train-union}"
+: "${SHARD_CACHE:=data/processed/training_cache}"
 SHARD_CACHE_ARG=""
 [ -n "${SHARD_CACHE:-}" ] && SHARD_CACHE_ARG="--shard-cache ${SHARD_CACHE}"
 
 echo "=== context ==="
-echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) region=$REGION release=$RELEASE shard_cache=${SHARD_CACHE:-<none>}"
+echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) region=$REGION release=$RELEASE train_set=$TRAIN_SET shard_cache=${SHARD_CACHE:-<none>}"
 echo "toolchain: gcc=$($CC --version | head -1)  LD_PRELOAD=$LD_PRELOAD"
 nvidia-smi -L
 
-# Without a sealed cache, pre-build the training manifest ONCE (single process; the DDP
-# ranks then only read it — no write race). With --shard-cache the cache IS the source
-# (fail-closed, no walk), so no pre-build.
-if [ -z "${SHARD_CACHE:-}" ]; then
-  echo "=== pre-build manifest (no shard cache) ==="
+# eu-train-union NEVER rebuilds — the per-city manifests are built by the dedicated Task-8
+# sbatch and the union path reads them (a missing one fails loud in setup). Only the
+# single-region, no-cache path pre-builds the manifest once (single process, no DDP write
+# race). The smoke's default (eu-train-union + cache) skips this entirely.
+if [ "$TRAIN_SET" = "single" ] && [ -z "${SHARD_CACHE:-}" ]; then
+  echo "=== pre-build manifest (single-region, no shard cache) ==="
   python -c "from cfm.data.training.build_shards import build_training_shards as b; b('${RELEASE}','${REGION}'); print('manifest built')"
 fi
 
@@ -58,7 +66,7 @@ fi
 echo "=== smoke train+eval (mamba-hybrid, compiled, 30M, short) ==="
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --backbone mamba-hybrid \
-  --region "$REGION" --release "$RELEASE" $SHARD_CACHE_ARG \
+  --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" $SHARD_CACHE_ARG \
   --d-model 512 --n-layers 12 --n-heads 8 --max-len 2048 --batch-size 4 \
   --max-steps 100 --eval-cells 4 --eval-max-new 64
 
@@ -67,7 +75,7 @@ srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
 # scored regime). Emits the compile-on/off verdict JSON.
 echo "=== compile-stability probe (spec §5) ==="
 CUDA_VISIBLE_DEVICES=0 python scripts/measure_compile_stability.py \
-  --region "$REGION" --release "$RELEASE" $SHARD_CACHE_ARG \
+  --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" $SHARD_CACHE_ARG \
   --steps 250 --batch-size 4 --scale 30M \
   --out reports/2026-06-17-mamba-smoke-compile.json
 
