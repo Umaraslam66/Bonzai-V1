@@ -63,8 +63,11 @@ The scored T10 scales are the param-matched table `{30/100/300M/1B}` (`src/cfm/m
   build_backbone mamba branch; T7 mamba smoke PASS + `--no-compile` verdict; T8 per-token gen cost.
 - Unified Leonardo `.venv`: torch 2.5.1+cu121 (untouched) + mamba-ssm 2.3.1 + causal-conv1d
   1.6.2.post1 + einops/hf_hub/transformers/ninja (`--no-deps`); env-lock passes.
-- item-3: `ScaffoldConfig.region` REQUIRED (fail-closed; `dbdf3d5`) — full-suite green verification
-  in flight (job-less login-node pytest).
+- item-3: `ScaffoldConfig.region` REQUIRED (fail-closed; `dbdf3d5`) — DONE, **full suite GREEN
+  (1782 passed, 1 skipped, 1 xfail)** on the unified Leonardo `.venv`. A no-region run now raises
+  a named error; bare `ScaffoldConfig()` raises (tests pass explicit `region=`). Also fixed a T8
+  robustness gap (`adddb4c`): `gen_seconds_per_token` uses `.get` defaults (no KeyError on a
+  no-eval/empty-metrics run) — caught by the full suite that T8's targeted verify hadn't run.
 - Deploy: git bundle to the SHARED `/leonardo_work/AIFAC_P02_222/<name>.bundle` (NOT `/tmp` —
   per-login-node, dies on socket/node switch). Compute=548, repo/data/venv on the 222 tree (RW),
   `/leonardo_work/AIFAC_P02_548/Bonzai-OSM` is an empty stub.
