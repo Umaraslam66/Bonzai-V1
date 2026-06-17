@@ -60,10 +60,26 @@ def test_embedding_covers_the_value_bearing_conditioning_id_span() -> None:
     assert out.shape == (1, len(prefix), subf_vocab_size())
 
 
-def test_gated_backbones_raise_until_task5() -> None:
-    for name in ("mamba-hybrid", "discrete-diffusion"):
-        with pytest.raises(BackboneNotYetBuilt):
-            build_backbone(name, _tiny_cfg())
+def test_mamba_hybrid_asserts_mamba_env_lock_then_gates(monkeypatch) -> None:
+    """build_backbone('mamba-hybrid') enforces the mamba env-lock (GPU verify-before-lock
+    PASS 2026-06-17) at the construction site, AHEAD of the not-built gate. With the lock
+    satisfied it still raises BackboneNotYetBuilt — the kernel is verified, the backbone
+    module is the downstream build. (Lock mocked so this is env-independent.)"""
+    called: list[bool] = []
+    monkeypatch.setattr("cfm.models.backbone.assert_mamba_env_locked", lambda: called.append(True))
+    with pytest.raises(BackboneNotYetBuilt):
+        build_backbone("mamba-hybrid", _tiny_cfg())
+    assert called == [True], "the mamba env-lock must fire at mamba-backbone construction"
+
+
+def test_discrete_diffusion_gates_without_the_mamba_lock(monkeypatch) -> None:
+    """discrete-diffusion has no mamba dependency: it gates directly, never invoking the
+    mamba env-lock."""
+    called: list[bool] = []
+    monkeypatch.setattr("cfm.models.backbone.assert_mamba_env_locked", lambda: called.append(True))
+    with pytest.raises(BackboneNotYetBuilt):
+        build_backbone("discrete-diffusion", _tiny_cfg())
+    assert called == [], "discrete-diffusion must not invoke the mamba env-lock"
 
 
 def test_unknown_backbone_raises_value_error() -> None:

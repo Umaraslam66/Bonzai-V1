@@ -6,12 +6,16 @@ and SHARE the embedding / value-bearing conditioning builder / sub-F vocab head 
 content -- by IDENTITY, not "equal output today". This module is the shared factory and
 the identity anchors a Gate-6 test asserts against.
 
-mamba-hybrid and discrete-diffusion are built BEHIND the Task-5 mamba-ssm
-verify-before-lock gate: their imports may not survive the locked torch stack, so
-``build_backbone`` raises ``BackboneNotYetBuilt`` for them until Task 5 settles. The
-transformer-ar backbone (``MicroAR``) exists today and is sized here to cover the
-value-bearing conditioning id span (Task 6 integration: the embedding must span
-``n_subf_vocab + conditioning_id_span()``).
+mamba-hybrid and discrete-diffusion are still gated: ``build_backbone`` raises
+``BackboneNotYetBuilt`` because the backbone MODULES are not implemented yet. The
+Task-5 mamba-ssm verify-before-lock SETTLED on 2026-06-17 (GPU fwd/bwd kernel
+numerics PASS on A100; reports/2026-06-17-mamba-gpu-half-probe.json), so the mamba
+stack is locked (env_lock.py); ``build_backbone`` now asserts that mamba env-lock at
+the mamba-hybrid construction site (``assert_mamba_env_locked``) ahead of the gate,
+so the lock is in place when MambaHybrid lands. discrete-diffusion has no mamba
+dependency and gates directly. The transformer-ar backbone (``MicroAR``) exists today
+and is sized here to cover the value-bearing conditioning id span (Task 6 integration:
+the embedding must span ``n_subf_vocab + conditioning_id_span()``).
 """
 
 from __future__ import annotations
@@ -29,9 +33,12 @@ from cfm.data.training.conditioning import (
     conditioning_id_span,
 )
 from cfm.models.micro_ar import MicroAR, MicroARConfig
+from cfm.training.env_lock import assert_mamba_env_locked
 
 _AR_FAMILY = ("transformer-ar",)
-_GATED = ("mamba-hybrid", "discrete-diffusion")
+_MAMBA_FAMILY = ("mamba-hybrid",)
+_DIFFUSION_FAMILY = ("discrete-diffusion",)
+_GATED = _MAMBA_FAMILY + _DIFFUSION_FAMILY
 
 
 class BackboneNotYetBuilt(NotImplementedError):
@@ -74,9 +81,18 @@ def build_backbone(name: str, cfg: object) -> nn.Module:
                 char_position=CONDITIONING_PREFIX_LEN,
             )
         )
-    if name in _GATED:
+    if name in _MAMBA_FAMILY:
+        # GPU verify-before-lock PASSED 2026-06-17 (A100; fused kernel numerics vs the
+        # pure-PyTorch reference, fwd+bwd; reports/2026-06-17-mamba-gpu-half-probe.json).
+        # The mamba env-lock now guards mamba-backbone construction; the backbone MODULE
+        # is the downstream build — this raise lifts when MambaHybrid lands.
+        assert_mamba_env_locked()
         raise BackboneNotYetBuilt(
-            f"{name!r} is built behind the Task-5 mamba-ssm verify-before-lock gate "
-            f"(its import may not survive the locked torch stack)"
+            f"{name!r}: mamba-ssm kernel lock VERIFIED on A100 (2026-06-17); the backbone "
+            f"module is the downstream build (mamba env-lock enforced above)"
+        )
+    if name in _DIFFUSION_FAMILY:
+        raise BackboneNotYetBuilt(
+            f"{name!r} is built behind the Task-5 gate (no mamba dependency)"
         )
     raise ValueError(f"unknown backbone {name!r}; expected one of {_AR_FAMILY + _GATED}")
