@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_dbg
-#SBATCH --account=AIFAC_P02_222
+#SBATCH --account=AIFAC_P02_548
 #SBATCH --job-name=scaffold-ddp-validate
 #SBATCH --time=00:30:00
 #SBATCH --nodes=1

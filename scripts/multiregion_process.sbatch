@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=lrd_all_serial
-#SBATCH --account=AIFAC_P02_222
+#SBATCH --account=AIFAC_P02_548
 #SBATCH --job-name=mr-process
 #SBATCH --time=04:00:00
 #SBATCH --nodes=1

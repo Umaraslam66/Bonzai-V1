@@ -20,7 +20,7 @@
 # Only if buildings do NOT clear the floor by r~=40 do we build value-bearing (stage 3).
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_lprod
-#SBATCH --account=AIFAC_P02_222
+#SBATCH --account=AIFAC_P02_548
 #SBATCH --job-name=bakeoff-diagnostic-90m
 #SBATCH --time=08:00:00
 #SBATCH --nodes=1
