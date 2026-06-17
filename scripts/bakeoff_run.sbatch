@@ -31,7 +31,15 @@
 #SBATCH --error=logs/%x-%j.err
 set -euo pipefail
 cd /leonardo_work/AIFAC_P02_222/Bonzai-OSM
-module load python/3.11.7 cuda/12.2
+# gcc/12.2.0 toolchain (spec §4.1): the RHEL-8 gcc-8.5 crashed torch.compile inductor CPU
+# codegen in eval at Step 18.5; 12.2.0 is the newest module CUDA 12.2 supports. The same
+# load satisfies the mamba run's gcc-12 libstdc++ (GLIBCXX_3.4.29) precondition #3 — the
+# LD_PRELOAD is REQUIRED for the mamba_ssm/causal_conv1d import and HARMLESS for
+# transformer-ar, so it rides this shared entry unconditionally (mirrors the GPU-verified
+# scripts/probe_mamba_gpu_half.sh). Verified by `sbatch --test-only` on AIFAC_P02_548.
+module load python/3.11.7 cuda/12.2 gcc/12.2.0
+export CC=$(command -v gcc) CXX=$(command -v g++) CUDAHOSTCXX=$(command -v g++)
+export LD_PRELOAD="$(dirname "$($CC -print-file-name=libstdc++.so.6)")/libstdc++.so.6"
 source .venv/bin/activate
 mkdir -p logs
 

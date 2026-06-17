@@ -347,3 +347,17 @@ def test_diagnostic_sbatch_missing_report_fails_loudly() -> None:
     # job; a missing report must fail the job loudly (verify_endstate + set -euo pipefail).
     text = (_REPO / "scripts" / "bakeoff_diagnostic.sbatch").read_text(encoding="utf-8")
     assert "(report not found)" not in text, "missing-report masking is still present (F8)"
+
+
+# --- Phase-2 bake-off Task 1: gcc/12.2.0 toolchain on the compiled scored path ---
+
+
+def test_bakeoff_run_sbatch_loads_gcc12_and_preloads_libstdcxx() -> None:
+    """The compiled scored path (torch.compile inductor CPU codegen) needs gcc/12.2.0,
+    not the RHEL-8 gcc-8.5 that crashed eval at Step 18.5; and the mamba run needs the
+    gcc-12 libstdc++ at import. Shared run sbatch (parameterized by --backbone), so one
+    fix serves both backbones; the LD_PRELOAD is harmless for transformer-ar."""
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    assert "module load python/3.11.7 cuda/12.2 gcc/12.2.0" in text
+    assert "export CC=" in text and "CXX=" in text and "CUDAHOSTCXX=" in text
+    assert "LD_PRELOAD" in text and "libstdc++.so.6" in text
