@@ -53,8 +53,10 @@ class ScaffoldBackbone(nn.Module):
         max_len: int,
         n_char_stats: int = 0,
         char_position: int | None = None,
-        dropout: float = 0.0,
     ) -> None:
+        # NOTE: dropout is intentionally NOT a base parameter — it is a mixer concern.
+        # Each subclass threads its own dropout into its mixer layers (the scaffold has
+        # no dropout-bearing layers). A future backbone owns dropout in its own __init__.
         super().__init__()
         # RNG-order contract: draw embed -> pos -> char_proj here; the head is built
         # LATER by the subclass (via _build_head) AFTER its mixer, so the head's init
@@ -67,7 +69,7 @@ class ScaffoldBackbone(nn.Module):
         if n_char_stats > 0:
             if char_position is None:
                 raise ValueError(
-                    "MicroARConfig: n_char_stats > 0 requires char_position (the prefix "
+                    "ScaffoldBackbone: n_char_stats > 0 requires char_position (the prefix "
                     "position the projection overwrites)"
                 )
             self.char_proj: nn.Linear | None = nn.Linear(n_char_stats, d_model)

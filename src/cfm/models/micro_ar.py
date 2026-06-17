@@ -68,7 +68,10 @@ class MicroARConfig:
 
     def __post_init__(self) -> None:
         # Cross-check both directions: char_position without a carrier would be
-        # silently ignored (the carrier never builds) — loud, never silent.
+        # silently ignored (the carrier never builds) — loud, never silent. (The OTHER
+        # direction — a carrier WITHOUT char_position — is enforced in
+        # ScaffoldBackbone.__init__, which takes raw kwargs; a future *Config that wires
+        # a carrier should keep this config-side half so the early error stays.)
         if self.n_char_stats == 0 and self.char_position is not None:
             raise ValueError(
                 f"MicroARConfig: char_position={self.char_position} set while "
@@ -92,7 +95,6 @@ class MicroAR(ScaffoldBackbone):
             max_len=cfg.max_len,
             n_char_stats=cfg.n_char_stats,
             char_position=cfg.char_position,
-            dropout=cfg.dropout,
         )
         self.cfg = cfg
         # Mixer built AFTER the base's embed/pos/char_proj draws — then the head is
