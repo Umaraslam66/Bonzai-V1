@@ -103,11 +103,18 @@ fi
 # fix the verdict. Making the verdict scoreable requires max_len >= the floor regime —
 # a re-planned model budget, i.e. a Phase-6 / PI decision; do NOT silently edit these
 # numbers.
+# --max-time bounds TRAINING so fit stops GRACEFULLY before the 8h Slurm wall, leaving room
+# for the post-train eval to RUN — the eval is where gen_seconds_per_token (the §6 budget
+# input) and the emergence verdict are produced. Without it, an 8h-wall SIGTERM mid-training
+# would skip the eval (no per-token cost) AND fail verify_endstate (no report). r is read
+# from the loss CSV up to the stop, so a graceful stop short of --max-steps still yields r
+# (or, if loss hasn't flattened, the FIXED_SCALE_PLUS_S13 ladder-collapse verdict). 7h30m
+# train + ~20min eval (transformer-ar 90M, 64x2048 batch-1) fits the 8h wall.
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --no-compile --backbone transformer-ar \
   --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" $SHARD_CACHE_ARG \
   --d-model 768 --n-layers 12 --n-heads 12 --max-len 2048 --batch-size 4 \
-  --max-steps 110000 --ckpt-every-n-steps 25000 \
+  --max-steps 110000 --ckpt-every-n-steps 25000 --max-time 00:07:30:00 \
   --eval-cells 64 --eval-max-new 2048
 
 verify_endstate
