@@ -564,8 +564,13 @@ def run_short(
     # what the §6 13,312-token scored-eval budget projection extrapolates from — the
     # diagnostic gens eval_max_new (2048) tokens/cell, so eval_seconds alone can't be
     # scaled to the 13,312 regime; the per-token rate can (AR cost ~linear in tokens).
+    # .get with 0 defaults: a no-eval run (eval_cells=0) or any metrics without the gen
+    # fields yields a 0.0 per-token cost (the _gen_seconds_per_token guard), never a KeyError.
     cost["gen_seconds_per_token"] = round(
-        _gen_seconds_per_token(metrics["gen_seconds"], metrics["n_tokens_generated"]), 6
+        _gen_seconds_per_token(
+            metrics.get("gen_seconds", 0.0), metrics.get("n_tokens_generated", 0)
+        ),
+        6,
     )
     report = _write_report(
         cfg,
