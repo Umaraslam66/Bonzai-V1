@@ -6,28 +6,27 @@ verify-before-lock verdict: do the fused CUDA kernels (``selective_scan_fn``,
 forward AND backward? "It ran" is not the verdict — fused-kernel numerics can be
 silently wrong, which would corrupt a whole bake-off backbone.
 
-CORRECTNESS CRITERION — the fp64 ground-truth ratio test (mamba-ssm's own test
-methodology). A fused kernel run in fp32/bf16 cannot be bit-identical to a PyTorch
-reference: both accumulate float error over the (here 2048-step) scan, just in
-different orders. So an absolute tolerance is the WRONG instrument. Instead, for
-each output/gradient:
+CORRECTNESS CRITERION. A fused kernel in fp32/bf16 cannot be bit-identical to a
+PyTorch reference: both accumulate float error over the (2048-step) scan in
+different orders, so an absolute tolerance is the wrong instrument. The reference
+ops (``selective_scan_ref``, ``causal_conv1d_ref``) have internal fp32 assumptions
+and do NOT run in fp64 — so fp32 is the ground truth, exactly as in mamba-ssm's own
+test suite. Two regimes:
 
-  truth  = pure-PyTorch reference in **fp64**            (high-precision ground truth)
-  naive  = pure-PyTorch reference in the **test dtype**  (the honest same-dtype baseline)
-  fused  = the **CUDA fused kernel** in the test dtype
+- **bf16 (the TRAINING dtype — the verdict that matters): the ratio test.**
+    truth = reference in fp32; naive = reference in bf16; fused = CUDA kernel in bf16.
+    PASS iff  ||fused-truth||inf <= K*||naive-truth||inf + floor  (fused no less
+    accurate than the naive same-dtype reference). A correct kernel passes; a wrong
+    one (error orders of magnitude larger than naive) fails hard. The fused kernel
+    accumulates internally in fp32 so it is typically BETTER than the bf16 naive.
 
-  PASS iff  ||fused - truth||_inf  <=  K * ||naive - truth||_inf  + floor
+- **fp32: a direct generous relative tolerance** (rtol/atol 2e-2). No higher-
+    precision reference exists for the ratio test; this is a sanity bound (a wrong
+    fp32 kernel would be orders of magnitude off, not ~1%).
 
-i.e. the fused kernel is NO LESS ACCURATE than the reference math against the fp64
-truth. A correct kernel passes at any dtype/length; a genuinely wrong kernel has an
-error orders of magnitude larger than naive and fails hard. (K=3 slack absorbs the
-benign reduction-order difference; the fused kernel often does BETTER than naive in
-bf16 because it accumulates internally in fp32.)
-
-References (the package's own): ``selective_scan_ref`` (mamba_ssm.ops.selective_scan_interface),
-``causal_conv1d_ref`` (causal_conv1d.causal_conv1d_interface). Also asserts torch is
-STILL 2.5.1+cu121 at runtime (the W4 torch_matches_lock tooth). Run under the locked
-probe venv with the three candidate-pin preconditions — see scripts/probe_mamba_gpu_half.sh.
+Also asserts torch is STILL 2.5.1+cu121 at runtime (the W4 torch_matches_lock tooth).
+Run under the locked probe venv with the three candidate-pin preconditions — see
+scripts/probe_mamba_gpu_half.sh.
 """
 
 from __future__ import annotations
@@ -40,7 +39,9 @@ from pathlib import Path
 import torch
 
 LOCKED_TORCH = "2.5.1+cu121"
-K_SLACK = 3.0  # fused error may be up to K x the naive reference error vs fp64 truth
+K_SLACK = 3.0          # bf16: fused error may be up to K x the naive reference error vs fp32 truth
+BF16_FLOOR = 1e-2      # absorbs near-zero naive_err in the bf16 ratio test
+FP32_RTOL, FP32_ATOL = 2e-2, 2e-2  # fp32 direct sanity bound (2048-step accumulation)
 
 # Representative mamba-hybrid shape at the scaffold scale (ScaffoldConfig d_model=256,
 # mamba expand=2 -> d_inner=512; d_state=16 standard; seqlen 2048 a real cell length;
@@ -48,6 +49,7 @@ K_SLACK = 3.0  # fused error may be up to K x the naive reference error vs fp64 
 BATCH, D_INNER, SEQLEN, D_STATE, D_CONV = 2, 512, 2048, 16, 4
 D_MODEL = 256
 DEV = "cuda"
+SEED_IN, SEED_G = 0, 100  # identical across truth/naive/fused so only the kernel-vs-ref differs
 
 
 def _version(dist: str) -> str:
@@ -59,110 +61,92 @@ def _version(dist: str) -> str:
         return f"ABSENT ({type(e).__name__})"
 
 
-def _err_vs(a: torch.Tensor, truth: torch.Tensor) -> float:
+def _grad(t: torch.Tensor):
+    return t.grad.detach().double() if (t is not None and t.grad is not None) else None
+
+
+def _err(a, truth) -> float | None:
+    if a is None or truth is None:
+        return None
     return (a.double() - truth).abs().max().item()
 
 
-def _ratio_ok(fused_err: float, naive_err: float, floor: float) -> bool:
-    return fused_err <= K_SLACK * naive_err + floor
+def _verdict(truth, naive, fused, *, ratio: bool, floor: float) -> dict:
+    """One tensor (forward output or a gradient): ratio test (bf16) or relative tol (fp32)."""
+    if truth is None and naive is None and fused is None:
+        return {"ok": True, "note": "no grad on any path (input not differentiated)"}
+    fe, ne = _err(fused, truth), _err(naive, truth)
+    rec = {"fused_err": fe, "naive_err": ne, "truth_absmax": (truth.abs().max().item() if truth is not None else None)}
+    if fe is None:
+        rec["ok"] = False
+        rec["note"] = "fused grad missing"
+        return rec
+    if ratio:
+        rec["ok"] = bool(fe <= K_SLACK * (ne or 0.0) + floor)
+    else:  # fp32 direct relative tolerance vs the (fp32) truth
+        rec["ok"] = bool(torch.allclose(fused.double(), truth.double(), rtol=FP32_RTOL, atol=FP32_ATOL))
+    return rec
 
 
-def _compare(label: str, truth, naive, fused, floor: float) -> dict:
-    """Per-tensor fp64-ground-truth ratio verdict, carrying the raw magnitudes."""
-    fe, ne = _err_vs(fused, truth), _err_vs(naive, truth)
-    return {label: {"ok": _ratio_ok(fe, ne, floor), "fused_err": fe, "naive_err": ne,
-                    "truth_absmax": truth.abs().max().item()}}
-
-
-# ---- selective_scan: fp64 truth vs naive(dtype) vs fused(dtype) ----------------------
-def _scan_run(param_dtype: torch.dtype, use_fused: bool, base: dict, g_up: torch.Tensor):
+# ---- selective_scan -----------------------------------------------------------------
+def _scan_run(io_dtype: torch.dtype, use_fused: bool):
     from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref
 
     fn = selective_scan_fn if use_fused else selective_scan_ref
-    # A/D/delta_bias stay fp32 in real mamba usage (S4D-real params) unless fp64 truth.
-    pf = torch.float64 if param_dtype == torch.float64 else torch.float32
-    leaf = {
-        "u": base["u"].to(param_dtype), "delta": base["delta"].to(param_dtype),
-        "A": base["A"].to(pf), "B": base["B"].to(param_dtype), "C": base["C"].to(param_dtype),
-        "D": base["D"].to(pf), "z": base["z"].to(param_dtype), "delta_bias": base["delta_bias"].to(pf),
-    }
-    for t in leaf.values():
-        t.requires_grad_(True)
-    out = fn(leaf["u"], leaf["delta"], leaf["A"], leaf["B"], leaf["C"], leaf["D"],
-             z=leaf["z"], delta_bias=leaf["delta_bias"], delta_softplus=True)
-    out.backward(g_up.to(out.dtype))
-    return out.detach(), {k: v.grad.detach() for k, v in leaf.items()}
+    torch.manual_seed(SEED_IN)  # identical values across runs; only dtype / fn differs
+    u = torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=io_dtype, requires_grad=True)
+    delta = torch.rand(BATCH, D_INNER, SEQLEN, device=DEV, dtype=io_dtype, requires_grad=True)
+    A = torch.empty(D_INNER, D_STATE, device=DEV, dtype=torch.float32).uniform_(-1.0, 0.0).requires_grad_(True)
+    Bm = torch.randn(BATCH, D_STATE, SEQLEN, device=DEV, dtype=io_dtype, requires_grad=True)
+    Cm = torch.randn(BATCH, D_STATE, SEQLEN, device=DEV, dtype=io_dtype, requires_grad=True)
+    Dm = torch.randn(D_INNER, device=DEV, dtype=torch.float32, requires_grad=True)
+    z = torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=io_dtype, requires_grad=True)
+    db = torch.randn(D_INNER, device=DEV, dtype=torch.float32, requires_grad=True)
+    leaves = {"u": u, "delta": delta, "A": A, "B": Bm, "C": Cm, "D": Dm, "z": z, "delta_bias": db}
+    out = fn(u, delta, A, Bm, Cm, Dm, z=z, delta_bias=db, delta_softplus=True)
+    torch.manual_seed(SEED_G)
+    out.backward(torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=out.dtype))
+    return out.detach(), {k: _grad(v) for k, v in leaves.items()}
 
 
-def selective_scan_check(dtype: torch.dtype, floor: float) -> dict:
-    torch.manual_seed(0)
-    base = {
-        "u": torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=torch.float64),
-        "delta": torch.rand(BATCH, D_INNER, SEQLEN, device=DEV, dtype=torch.float64),
-        "A": -torch.rand(D_INNER, D_STATE, device=DEV, dtype=torch.float64),  # S4D-real: A<0
-        "B": torch.randn(BATCH, D_STATE, SEQLEN, device=DEV, dtype=torch.float64),
-        "C": torch.randn(BATCH, D_STATE, SEQLEN, device=DEV, dtype=torch.float64),
-        "D": torch.randn(D_INNER, device=DEV, dtype=torch.float64),
-        "z": torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=torch.float64),
-        "delta_bias": torch.randn(D_INNER, device=DEV, dtype=torch.float64),
-    }
-    g_up = torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=torch.float64)
-
-    t_out, t_grad = _scan_run(torch.float64, False, base, g_up)  # truth
-    n_out, n_grad = _scan_run(dtype, False, base, g_up)  # naive (ref @ dtype)
-    f_out, f_grad = _scan_run(dtype, True, base, g_up)  # fused kernel @ dtype
-
-    out = {"dtype": str(dtype), "K_slack": K_SLACK, "floor": floor}
-    out.update(_compare("forward", t_out, n_out, f_out, floor))
-    grads, grad_all_ok = {}, True
-    for name in ("u", "delta", "A", "B", "C", "D", "z", "delta_bias"):
-        c = _compare(name, t_grad[name], n_grad[name], f_grad[name], floor)
-        grads.update(c)
-        grad_all_ok = grad_all_ok and c[name]["ok"]
-    out["backward"] = grads
-    out["ok"] = bool(out["forward"]["ok"] and grad_all_ok)
-    return out
-
-
-# ---- causal_conv1d: fp64 truth vs naive(dtype) vs fused(dtype) ------------------------
-def _conv_run(dtype: torch.dtype, use_fused: bool, base: dict, g_up: torch.Tensor):
+def _conv_run(io_dtype: torch.dtype, use_fused: bool):
     from causal_conv1d import causal_conv1d_fn
     from causal_conv1d.causal_conv1d_interface import causal_conv1d_ref
 
     fn = causal_conv1d_fn if use_fused else causal_conv1d_ref
-    leaf = {k: base[k].to(dtype).requires_grad_(True) for k in ("x", "w", "b")}
-    out = fn(leaf["x"], leaf["w"], leaf["b"], activation="silu")
-    out.backward(g_up.to(out.dtype))
-    return out.detach(), {k: v.grad.detach() for k, v in leaf.items()}
+    torch.manual_seed(SEED_IN)
+    x = torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=io_dtype, requires_grad=True)
+    w = torch.randn(D_INNER, D_CONV, device=DEV, dtype=io_dtype, requires_grad=True)
+    b = torch.randn(D_INNER, device=DEV, dtype=io_dtype, requires_grad=True)
+    out = fn(x, w, b, activation="silu")
+    torch.manual_seed(SEED_G)
+    out.backward(torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=out.dtype))
+    return out.detach(), {"x": _grad(x), "weight": _grad(w), "bias": _grad(b)}
 
 
-def causal_conv1d_check(dtype: torch.dtype, floor: float) -> dict:
-    torch.manual_seed(1)
-    base = {
-        "x": torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=torch.float64),
-        "w": torch.randn(D_INNER, D_CONV, device=DEV, dtype=torch.float64),
-        "b": torch.randn(D_INNER, device=DEV, dtype=torch.float64),
-    }
-    g_up = torch.randn(BATCH, D_INNER, SEQLEN, device=DEV, dtype=torch.float64)
-    t_out, t_grad = _conv_run(torch.float64, False, base, g_up)
-    n_out, n_grad = _conv_run(dtype, False, base, g_up)
-    f_out, f_grad = _conv_run(dtype, True, base, g_up)
-
-    out = {"dtype": str(dtype), "K_slack": K_SLACK, "floor": floor}
-    out.update(_compare("forward", t_out, n_out, f_out, floor))
-    grads, grad_all_ok = {}, True
-    for name, leaf in (("x", "x"), ("weight", "w"), ("bias", "b")):
-        c = _compare(name, t_grad[leaf], n_grad[leaf], f_grad[leaf], floor)
-        grads.update(c)
-        grad_all_ok = grad_all_ok and c[name]["ok"]
+def _kernel_check(runner, grad_names: tuple[str, ...], io_dtype: torch.dtype, *, ratio: bool, floor: float) -> dict:
+    t_out, t_grad = runner(torch.float32, False)  # truth: reference in fp32
+    n_out, n_grad = runner(io_dtype, False)  # naive: reference in io_dtype
+    f_out, f_grad = runner(io_dtype, True)  # fused: CUDA kernel in io_dtype
+    out = {"io_dtype": str(io_dtype), "mode": "ratio(K=3,fp32-truth)" if ratio else "relative-tol",
+           "forward": _verdict(t_out, n_out, f_out, ratio=ratio, floor=floor)}
+    grads, all_ok = {}, True
+    for name in grad_names:
+        v = _verdict(t_grad[name], n_grad[name], f_grad[name], ratio=ratio, floor=floor)
+        grads[name] = v
+        all_ok = all_ok and v["ok"]
     out["backward"] = grads
-    out["ok"] = bool(out["forward"]["ok"] and grad_all_ok)
+    out["ok"] = bool(out["forward"]["ok"] and all_ok)
     return out
 
 
+_SCAN_GRADS = ("u", "delta", "A", "B", "C", "D", "z", "delta_bias")
+_CONV_GRADS = ("x", "weight", "bias")
+
+
 def mamba_module_check(dtype: torch.dtype) -> dict:
-    """The full Mamba block at the scaffold width: forward + backward run, all grads
-    finite — the block the bake-off would actually train, end to end on A100."""
+    """The full Mamba block at the scaffold width: fwd+bwd run, all grads finite — the
+    block the bake-off would actually train, end to end on A100."""
     from mamba_ssm.modules.mamba_simple import Mamba
 
     torch.manual_seed(2)
@@ -181,9 +165,9 @@ def mamba_module_check(dtype: torch.dtype) -> dict:
     }
 
 
-def _guarded(fn, *args) -> dict:
+def _guarded(fn, *args, **kw) -> dict:
     try:
-        return fn(*args)
+        return fn(*args, **kw)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": f"{type(e).__name__}: {e}", "tb": traceback.format_exc()[-1800:]}
 
@@ -192,8 +176,8 @@ def main() -> None:
     report_path = sys.argv[1] if len(sys.argv) > 1 else "mamba-gpu-half-probe.json"
     rep: dict = {
         "probe": "mamba-gpu-half verify-before-lock (step b)",
-        "scope": "fused CUDA kernel numerics vs fp64 ground-truth (ratio test), fwd+bwd, A100",
-        "criterion": "fused_err <= K*naive_err + floor vs fp64 reference truth (K=3)",
+        "scope": "fused CUDA kernel numerics vs fp32 reference, fwd+bwd, A100",
+        "criterion": "bf16: fused_err <= 3*naive_err+floor vs fp32 truth; fp32: relative tol 2e-2",
         "locked_torch_required": LOCKED_TORCH,
         "torch_version": torch.__version__,
         "torch_matches_lock": torch.__version__ == LOCKED_TORCH,
@@ -204,20 +188,19 @@ def main() -> None:
                   "d_conv": D_CONV, "d_model": D_MODEL},
     }
 
-    # fp32: tight floor; bf16 (the training dtype): coarser floor (bf16 ~3 sig digits).
-    rep["selective_scan_fp32"] = _guarded(selective_scan_check, torch.float32, 1e-4)
-    rep["selective_scan_bf16"] = _guarded(selective_scan_check, torch.bfloat16, 5e-2)
-    rep["causal_conv1d_fp32"] = _guarded(causal_conv1d_check, torch.float32, 1e-4)
-    rep["causal_conv1d_bf16"] = _guarded(causal_conv1d_check, torch.bfloat16, 5e-2)
+    rep["selective_scan_bf16"] = _guarded(_kernel_check, _scan_run, _SCAN_GRADS, torch.bfloat16, ratio=True, floor=BF16_FLOOR)
+    rep["selective_scan_fp32"] = _guarded(_kernel_check, _scan_run, _SCAN_GRADS, torch.float32, ratio=False, floor=0.0)
+    rep["causal_conv1d_bf16"] = _guarded(_kernel_check, _conv_run, _CONV_GRADS, torch.bfloat16, ratio=True, floor=BF16_FLOOR)
+    rep["causal_conv1d_fp32"] = _guarded(_kernel_check, _conv_run, _CONV_GRADS, torch.float32, ratio=False, floor=0.0)
     rep["mamba_module_bf16"] = _guarded(mamba_module_check, torch.bfloat16)
 
     rep["verdict_PASS"] = bool(
         rep["torch_matches_lock"]
         and rep["cuda_available"]
-        and rep["selective_scan_fp32"].get("ok")
         and rep["selective_scan_bf16"].get("ok")
-        and rep["causal_conv1d_fp32"].get("ok")
+        and rep["selective_scan_fp32"].get("ok")
         and rep["causal_conv1d_bf16"].get("ok")
+        and rep["causal_conv1d_fp32"].get("ok")
         and rep["mamba_module_bf16"].get("ok")
     )
 
