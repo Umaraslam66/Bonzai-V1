@@ -38,7 +38,10 @@ set -euo pipefail
 : "${RELEASE:?set RELEASE (e.g. 2026-04-15.0)}"
 
 cd /leonardo_work/AIFAC_P02_222/Bonzai-OSM
-module load python/3.11.7 cuda/12.2
+# gcc/12.2.0 is PRECAUTIONARY (toolchain consistency only): this job runs --no-compile,
+# so it cannot hit the torch.inductor crash that needs gcc. No CC/CXX/LD_PRELOAD exports
+# here — this job needs neither mamba nor compile.
+module load python/3.11.7 cuda/12.2 gcc/12.2.0
 source .venv/bin/activate
 mkdir -p logs
 echo "=== job context ==="

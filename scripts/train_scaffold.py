@@ -96,6 +96,14 @@ def _resolve_emergence_floor(region: str) -> tuple[float, dict]:
     return float(entry["floor"]), {"region": region, **entry}
 
 
+def _gen_seconds_per_token(gen_seconds: float, n_tokens: int) -> float:
+    """Per-generated-token wall cost — the quantity the §6 13,312-token eval-budget
+    projection extrapolates from (AR generation is one sequential forward per token,
+    so cost scales ~linearly in tokens). Guards divide-by-zero: when nothing was
+    generated (e.g. cfg.eval_cells == 0) the per-token cost is 0.0, not an error."""
+    return gen_seconds / n_tokens if n_tokens else 0.0
+
+
 def _accelerator_for(devices: int) -> str:
     """GPU for multi-device (Leonardo) or when CUDA is present; CPU otherwise (the
     login-node / Mac smoke). bf16 + the env lock apply only on GPU."""
@@ -226,7 +234,15 @@ def _generate_and_score(
     strata: list[int] = []
     n_attempted = 0
     n_cells_with_building_tokens = 0
+    # Bake-off Task 8: price GENERATION (the binding scored-eval cost) on its own —
+    # accumulate ONLY the wall-clock inside generate_cell_tokens (not the decode/score
+    # that follows) and the number of tokens actually GENERATED. generate_cell_tokens
+    # returns the prefix-stripped tail, so len(tokens) counts generated tokens, never
+    # the conditioning prefix. perf_counter is monotonic (don't reuse outer time.time()).
+    gen_seconds = 0.0
+    n_tokens_generated = 0
     for i, example in enumerate(sampled):
+        _g0 = time.perf_counter()
         tokens = generate_cell_tokens(
             model.model,
             prefix=list(example.prefix_ids),
@@ -236,6 +252,8 @@ def _generate_and_score(
             # datamodule (train/gen identity by construction, like the prefix ids).
             char_stats=list(example.character_stats),
         )
+        gen_seconds += time.perf_counter() - _g0
+        n_tokens_generated += len(tokens)  # prefix-stripped tail = generated tokens
         if sequence_has_building_tokens(tokens):
             n_cells_with_building_tokens += 1
         cell_blocks = split_cell_into_features(tokens)
@@ -261,6 +279,10 @@ def _generate_and_score(
     # building tokens present but n_polygons low => didn't close (a different cause).
     metrics["n_cells_generated"] = n_cells
     metrics["n_cells_with_building_tokens"] = n_cells_with_building_tokens
+    # Task 8: generation-only timing + generated-token count, so run_short can derive
+    # the per-token cost the §6 13,312-budget projection extrapolates from.
+    metrics["gen_seconds"] = gen_seconds
+    metrics["n_tokens_generated"] = n_tokens_generated
     return metrics
 
 
@@ -526,6 +548,13 @@ def run_short(
     cost["eval_seconds"] = round(eval_seconds, 1)
     cost["eval_node_h"] = round(eval_seconds / 3600.0, 4)
     cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, cfg.eval_cells), 6)
+    # Task 8: per-GENERATED-token cost (generation only, decode/score excluded). This is
+    # what the §6 13,312-token scored-eval budget projection extrapolates from — the
+    # diagnostic gens eval_max_new (2048) tokens/cell, so eval_seconds alone can't be
+    # scaled to the 13,312 regime; the per-token rate can (AR cost ~linear in tokens).
+    cost["gen_seconds_per_token"] = round(
+        _gen_seconds_per_token(metrics["gen_seconds"], metrics["n_tokens_generated"]), 6
+    )
     report = _write_report(
         cfg,
         metrics,
