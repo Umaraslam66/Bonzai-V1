@@ -80,7 +80,18 @@ head / mask (causal) / AR loss / AR generation.
   transformer layer per ~7 Mamba layers; **at small layer counts keep ≥1 transformer
   layer** (so attention is never absent); record the exact per-scale layer composition in
   the run config. Concrete mapping is a plan-time table, derived from each scale's
-  `n_layers`, not improvised per run.
+  capacity target, not improvised per run.
+- **Param-matched, NOT layer-matched — a VERIFIED gate (locked spec §8).** The per-scale
+  table must land `transformer-ar` and `mamba-hybrid` at the **same parameter count** at
+  each scale {30/100/300M/1B}, **not the same layer count.** A Jamba 7:1 interleave has
+  different per-layer params than a pure-transformer layer, so **equal-depth = unequal-
+  capacity**, which **confounds architecture with capacity and breaks the bake-off's
+  validity condition** — a transformer-at-90M vs mamba-at-110M comparison measures
+  capacity, not architecture. Param-matching is what isolates the variable. This is
+  teeth-bearing: the plan's table is a gate that **counts the actual built model's
+  parameters** (`_param_count` on the constructed module — never the eyeballed mapping) and
+  asserts each backbone-pair's counts match **within a stated tolerance per scale**; the
+  mixer's width/depth knobs are tuned to hit the param target at each scale.
 
 ### 3.4 Gate-6 identity test (trivial by construction)
 
