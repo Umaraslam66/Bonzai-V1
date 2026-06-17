@@ -91,6 +91,34 @@ def _interleave_positions(n_layers: int, every: int) -> list[bool]:
     return is_tf
 
 
+class _MambaResidualBlock(nn.Module):
+    """Pre-norm residual wrapper around a Mamba mixer.
+
+    Raw ``mamba_ssm`` ``Mamba.forward`` returns ONLY the mixer output — no residual and
+    no norm (mamba_ssm keeps the residual stream in its separate ``Block``). The
+    interleave's transformer layers (``TransformerEncoderLayer(norm_first=True)``) already
+    carry their own pre-norm + residual internally, so without this wrapper the mamba
+    layers would be bare transforms (``x = mamba(x)``, no residual, no norm) — inconsistent
+    with the transformer layers and poor for training, and NOT the Jamba structure (Jamba
+    wraps every layer in residual + norm). This applies the SAME pre-norm residual form the
+    transformer layers use (``x + mamba(norm(x))``) with LayerNorm, to match them. The
+    LayerNorm draws no RNG at init (weight=1/bias=0), so it does not perturb construction
+    order. (No final norm before the head — transformer-ar omits it too, so the backbones
+    stay matched everywhere but the mixer.)"""
+
+    def __init__(self, *, d_model: int, d_state: int, d_conv: int, expand: int) -> None:
+        super().__init__()
+        # Import inside __init__: mamba_ssm is env-gated (the default repo env has no
+        # CUDA/mamba). Constructing a MambaHybrid is what requires the package present.
+        from mamba_ssm.modules.mamba_simple import Mamba
+
+        self.norm = nn.LayerNorm(d_model)
+        self.mamba = Mamba(d_model=d_model, d_state=d_state, d_conv=d_conv, expand=expand)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.mamba(self.norm(x))
+
+
 class MambaHybrid(ScaffoldBackbone):
     """The ``mamba-hybrid`` backbone: a 7:1 Jamba interleave of Mamba SSM blocks and
     causal self-attention blocks on the shared scaffold. The shared parts (embedding =
@@ -109,13 +137,11 @@ class MambaHybrid(ScaffoldBackbone):
             char_position=cfg.char_position,
         )
         self.cfg = cfg
-        # Import inside __init__: mamba_ssm is env-gated (the default repo env has no
-        # CUDA/mamba). Constructing a MambaHybrid is what requires the package present.
-        from mamba_ssm.modules.mamba_simple import Mamba
-
         # Mixer built AFTER the base's embed/pos/char_proj draws — then the head is
         # built LAST (below) to preserve the RNG draw order embed -> pos -> char_proj
-        # -> mixer -> head (inherited bit-identity contract).
+        # -> mixer -> head (inherited bit-identity contract). Transformer layers carry
+        # their own pre-norm+residual; mamba layers are wrapped in _MambaResidualBlock to
+        # match (raw Mamba has neither) — so every sublayer is a residual block.
         layout = _interleave_positions(cfg.n_layers, cfg.transformer_every)
         self._is_tf = layout
         self.n_transformer_layers = sum(layout)
@@ -135,7 +161,7 @@ class MambaHybrid(ScaffoldBackbone):
                 )
             else:
                 blocks.append(
-                    Mamba(
+                    _MambaResidualBlock(
                         d_model=cfg.d_model,
                         d_state=cfg.d_state,
                         d_conv=cfg.d_conv,
@@ -149,7 +175,8 @@ class MambaHybrid(ScaffoldBackbone):
 
     def _mix(self, x: torch.Tensor, causal: torch.Tensor) -> torch.Tensor:
         for blk, is_tf in zip(self.blocks, self._is_tf, strict=True):
-            # Mamba is causal by construction (left-to-right scan); the interleaved
-            # transformer layer needs the explicit causal mask to stay AR-correct.
+            # The mamba block (_MambaResidualBlock) is causal by construction (left-to-right
+            # scan) and takes only x; the interleaved transformer layer needs the explicit
+            # causal mask to stay AR-correct.
             x = blk(x, src_mask=causal, is_causal=True) if is_tf else blk(x)
         return x
