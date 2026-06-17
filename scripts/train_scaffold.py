@@ -524,6 +524,13 @@ def run_short(
     # is representative, and only one process must write the report file.
     if not trainer.is_global_zero:
         return {"trained_steps": int(trainer.global_step)}
+    # Eval generation must run on the GPU: mamba-hybrid's kernels (causal_conv1d /
+    # selective_scan) are CUDA-only and RAISE on a CPU tensor. Lightning's DDP teardown
+    # moves the model to CPU after fit, so re-place it on the training device before the
+    # rank-0 generation. transformer-ar tolerated CPU eval (slow but worked, masking this);
+    # mamba does not. Guarded on cfg.accelerator so the CPU test path stays CPU.
+    if cfg.accelerator == "gpu" and torch.cuda.is_available():
+        lit.to("cuda")
     cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step), params_m=params_m)
     # Time the eval EXPLICITLY: autoregressive generation is the binding bake-off cost,
     # so price it rather than assume it is free (the eval-cost reframe).
