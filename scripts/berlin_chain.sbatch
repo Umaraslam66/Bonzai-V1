@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_lprod
-#SBATCH --account=AIFAC_P02_222
+#SBATCH --account=AIFAC_P02_548
 #SBATCH --job-name=berlin-chain
 #SBATCH --time=02:30:00
 #SBATCH --nodes=1

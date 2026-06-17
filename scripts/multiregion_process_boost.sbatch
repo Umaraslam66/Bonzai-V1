@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=boost_usr_prod
-#SBATCH --account=AIFAC_P02_222
+#SBATCH --account=AIFAC_P02_548
 #SBATCH --job-name=mr-proc-boost
 #SBATCH --time=08:00:00
 #SBATCH --nodes=1

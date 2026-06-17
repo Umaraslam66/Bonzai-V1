@@ -18,7 +18,7 @@
 # NEVER rebuilds them -- the preamble only asserts they exist.
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_lprod
-#SBATCH --account=AIFAC_P02_222
+#SBATCH --account=AIFAC_P02_548
 #SBATCH --job-name=bakeoff-run
 #SBATCH --time=24:00:00
 #SBATCH --signal=B:USR1@120

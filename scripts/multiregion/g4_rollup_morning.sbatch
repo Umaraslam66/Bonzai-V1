@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=lrd_all_serial
-#SBATCH --account=AIFAC_P02_222
+#SBATCH --account=AIFAC_P02_548
 #SBATCH --job-name=g4-morning
 #SBATCH --time=01:00:00
 #SBATCH --cpus-per-task=8
