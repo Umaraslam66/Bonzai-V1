@@ -28,9 +28,14 @@ echo "ntasks=$SLURM_NTASKS gpus=$(nvidia-smi -L | wc -l)"
 echo "=== pre-build training manifest (single process) ==="
 python -c "from cfm.data.training.build_shards import build_training_shards as b; s=b('2026-04-15.0','singapore'); print('built', len(s), 'shards')"
 
-echo "=== short run (4-GPU DDP; world_size==4 guard; report on rank 0) ==="
+echo "=== F8 across-job resume proof (Step 18.5): 4-GPU DDP, ckpt every 25 steps ==="
+# Step 18.5 resume-proof config: --ckpt-every-n-steps 25 lands a step-keyed
+# checkpoint early (well before the manual kill); --max-steps 5000 guarantees the
+# job is still running at scancel time so the kill window is governed by us, not by
+# the job finishing. CANONICAL loop-closing short run uses --max-steps 500 and no
+# --ckpt-every-n-steps flag — restore those before this file is used for that purpose.
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
-  --devices 4 --max-steps 500 --max-len 2048 --no-build
+  --devices 4 --max-steps 5000 --max-len 2048 --ckpt-every-n-steps 25 --no-build
 
 echo "=== report ==="
 # F17 run-keyed report name: {release}-{region}-{backbone}-{params}M-seed{seed}-loop-closed.md
