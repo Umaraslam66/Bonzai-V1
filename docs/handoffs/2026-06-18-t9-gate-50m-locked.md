@@ -2,7 +2,10 @@
 
 This is the current boot doc for the Phase-2 bake-off. It supersedes the archived
 `docs/handoffs/archive/2026-06-17-t9-diagnostic-running.md` (+ the older bake-off start/resume
-chain in `archive/`). Branch **`phase-2-bakeoff-2backbone`**, tip **`350f373`**, UNMERGED.
+chain in `archive/`). Branch **`phase-2-bakeoff-2backbone`**, UNMERGED. The substantive session
+work ends at commit **`350f373`** (§4); the branch **tip is this doc's own refresh commit** — the
+latest commit per `git log --oneline -1` is a docs/handoff update, NOT a code change, so a tip
+that is a `docs(handoff)` commit on top of `350f373` is expected, not drift.
 **Do NOT merge and do NOT submit scored runs without Umar's word.**
 
 ## 0. CONSULT FIRST (in this order)

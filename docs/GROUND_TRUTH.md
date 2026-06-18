@@ -30,7 +30,9 @@ Last reconciled: 2026-06-18.
 - The **548 tree** (`/leonardo_work/AIFAC_P02_548/Bonzai-OSM`) is an **empty stub**.
 - **Durability risk:** the 222 *compute* allocation expired **2026-06-11**; the 222 *filesystem*
   tree still holds repo/data/venv but is at risk post-expiry. `chprj` switches the active project.
-  Source: memory `project_bakeoff_data_is_eu_multiregion`, `project_allocation`.
+  Source: **`saldo -b`** — the `AIFAC_P02_222` row's `start … end` = `20260311 … 20260611`, and the
+  `AIFAC_P02_548` row = `20260617 … 20260917` (where the §2 "548 ends 2026-09-17" also comes from).
+  (Re-run `saldo -b` to re-confirm; memory `project_allocation` echoes it.)
 - Drive Leonardo from the Mac via the SSH ControlMaster socket (`Host leonardo`, user `uaslam00`).
   Source: memory `reference_leonardo_claude_ssh_socket`.
 
