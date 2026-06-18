@@ -1,3 +1,5 @@
+> SUPERSEDED — live boot doc is docs/handoffs/2026-06-18-t9-gate-50m-locked.md (canon: docs/GROUND_TRUTH.md). Archived 2026-06-18.
+
 # Handoff — START of bake-off EXECUTION (2026-06-09)
 
 You are a fresh, context-free agent about to **execute** the Phase-2 bake-off delta-reconciliation plan. The brainstorm → spec → plan is **DONE and signed off**; nothing has been executed. This file is forward-looking: what's on disk, how to run it, the gates that can rewrite the work, and what you must NOT relitigate.

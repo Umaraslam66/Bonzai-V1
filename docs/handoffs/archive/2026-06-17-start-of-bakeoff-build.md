@@ -1,3 +1,5 @@
+> SUPERSEDED — live boot doc is docs/handoffs/2026-06-18-t9-gate-50m-locked.md (canon: docs/GROUND_TRUTH.md). Archived 2026-06-18.
+
 # START OF 2-BACKBONE BAKE-OFF BUILD — boot here (2026-06-17)
 
 Thin handoff. Pointers, not summaries — read the spec + plan, don't re-derive them.

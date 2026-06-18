@@ -18,6 +18,77 @@ CPU drain then intervened. Four things now differ from the locked spec: a **scop
 narrowing** (2 backbones) and **three reconciliations** (the 13,312 eval-budget lock, the
 env-lock extension, the gcc/compile eval-path fix). This delta absorbs them.
 
+## 1A. LOCKED DECISION (2026-06-18) — single fixed scale, N = 50M (supersedes the scale ladder)
+
+**Umar's word, 2026-06-18.** Phase 2 is a **SINGLE fixed-scale bake-off, NOT a scaling
+curve.** One rung: **N = 50M**, both backbones (`transformer-ar`, `mamba-hybrid`),
+**`--no-compile`** (T7 verdict). There is no ladder: `feasible_ladder` / `decision_basis`
+and the "drop 1B / the top rung" language below (§6, §8, §11) are **superseded** — the
+decision basis is fixed-scale **by choice** (the `FIXED_SCALE_PLUS_S13` family: decide at the
+single scale + §13), not by ladder collapse.
+
+**Why 50M (rationale to preserve):** Chinchilla ≈ 20 tok/param puts the fully-trained optimum
+near **30M** for our **~624M unique EU train tokens** (`TRAIN_TOKENS = 623,900,790`). **100M**
+was the measured diagnostic rung. **50M is the chosen middle**: r≈20 → ~1B training tokens →
+**~1.6× data reuse** to its flattening horizon, inside the safe ≤~4× reuse band → **nearly
+fully-cooked**, while **more meaningful than 30M**. The T9 diagnostic loss curve (110k steps,
+r≈40 via ~5.8× reuse) **flattened** (mean train_loss 2.60→2.09; last 30k steps moved ~0.026
+nats), confirming the data saturates well before r=40 — so a 50M rung at r≈20 is well-cooked,
+not data-starved.
+
+**50M is a NEW param-matched rung — NOT in the locked table {30/100/300M/1B}.** It carries the
+FULL §3.3 param-match discipline (a VERIFIED gate): derive transformer-ar AND mamba-hybrid 50M
+configs, **count ACTUAL built params**, assert **≤2%** — never eyeballed (equal-depth ≠
+equal-capacity). Append it to `bakeoff_scales.py` (append-only; the existing rungs stay).
+
+**PROVISIONAL configs (analytic estimate, 2026-06-18 — actual-build verification BLOCKED by the
+CINECA `$WORK` storage outage; see handoff `2026-06-18-t9-gate-50m-locked.md`):**
+- transformer-ar: **`d_model=640, n_layers=8, n_heads=10` → 50,219,748** (+0.44% from 50M).
+  HIGH confidence — derived from the EXACT transformer param law (`12·d²+13·d` per layer +
+  linear shared scaffold) that reproduces both known actual rungs (30M, 100M) to the digit.
+- mamba-hybrid: **`d_model=640, n_layers≈14, transformer_every=7`** (1 tf + 13 mamba) →
+  ≈49,966,948 (≈0.5% vs tf). **SEED ONLY** — Mamba's internal param count is not captured
+  exactly by the analytic formula; the actual-build search MUST decide n_layers ∈ {13,14,15}.
+- **OBLIGATION (do NOT skip on $WORK recovery):** run the actual-count derivation
+  (`scripts/tune_bakeoff_scales.py` extended with the 50M seed) on the unified Leonardo env,
+  lock the verified pair into `bakeoff_scales.py`, and pass `test_bakeoff_param_match` at 50M
+  (≤2%). Only then is the rung locked. **Do NOT lock provisional numbers into the table.**
+
+**UNITS (confirmed 2026-06-18 against `saldo -b` + `scontrol show node`):** the grant
+(AIFAC_P02_548) is **40,000 core-h** (`saldo` "local h"); a Booster node = **32 cores + 4×A100**
+(`CPUTot=32, Gres=gpu:a100:4`, full node bills `billing=32`). So **40,000 core-h = 1,250 node-h
+= 5,000 GPU-h.** The "5,000" ceiling is **GPU-HOURS** (= the full 548 grant); earlier "5,000
+node-h" was a MISLABEL. `gen_seconds_per_token` is a **single-GPU** rate — post-train eval runs
+on **rank 0 only** (1 GPU works; the node's other 3 GPUs are allocated-and-billed but idle).
+
+**Budget re-scaled to 50M** (interpolation from the 100M diagnostic — NOT a direct 50M
+measurement): single-GPU per-token `0.026779 s/tok` (@100M) × 50M scale (≈0.47–0.51) × **13,312**
+full-cap × **Σ per-city held-out 1,859 cells** (523/579/156/601, glasgow/eisenhüttenstadt/
+munich/krakow) × **2 backbones**, with the transformer full-context correction (tf ~×2.7,
+mamba-hybrid ~×1.2 — attention/KV grows with the 13,312 context; an architecture-dependent
+eval-cost gap to carry into the verdict). **Per-seed eval ≈ 336 node-h wall-clock** (tf 233 +
+mamba 103):
+
+| seeds | AS-IS (rank-0 eval, 3 GPUs idle) | with 4-GPU eval sharding |
+|---|---|---|
+| 1 | 336 node-h = **1,344 GPU-h (27%)** | 84 node-h = 336 GPU-h (7%) |
+| 2 | 672 node-h = **2,688 GPU-h (54%)** | 168 node-h = 672 GPU-h (13%) |
+| 3 | 1,008 node-h = **4,032 GPU-h (81%)** | 252 node-h = 1,008 GPU-h (20%) |
+
+vs the **5,000 GPU-h (= 1,250 node-h)** grant. Training (r≈20 @50M ≈ 1B tokens) is small
+(~<15 node-h total; DDP uses all 4 GPUs, no waste). **AS-IS, 3 seeds eats 81% of the entire
+3-month grant** — the rank-0 eval wastes 3/4 of billed GPU-h, so **4-GPU eval sharding is the
+decisive ~4× lever** (and is what makes the 7/13/20% figures real). 1 seed AS-IS (27%) is
+comfortable; 2–3 seeds want the sharding.
+
+**Seeds + eval-sharding — LOCKED (Umar's word, 2026-06-18):** **3 seeds** per backbone +
+**4-GPU eval-sharding**. Rationale: the verdict needs seed-repeats to separate skill from
+luck on param-matched (near-tie) models; AS-IS rank-0 eval bills 4 GPUs for 1 GPU's work
+(3 seeds = 81% of the grant), and sharding recovers ~4× → 3 seeds ≈ 20%, leaving headroom
+for the eval-heavy held-out workload. The **seed→verdict combination rule** and the
+**sharding equivalence golden (2 teeth)** are specified in the plan's Task 10 / new
+eval-sharding task; `bakeoff_scales.py` stays untouched.
+
 ## 2. Scope — two backbones (the spec's own §9 fallback)
 
 **`transformer-ar` + `mamba-hybrid`.** `discrete-diffusion` is **DEFERRED, not dropped.**
@@ -174,6 +245,11 @@ verdict is data, not assumption.
 
 ## 6. Eval-dominated budget — the inversion (projected AT the diagnostic)
 
+> **Resolved (2026-06-18, §1A):** the diagnostic ran; the budget is re-scaled to the locked
+> **single 50M rung** (~336–1008 node-h eval for 2 backbones × {1,2,3} seeds, ≪ 5000). The
+> "feasible ladder / drop 1B" language below is the pre-diagnostic framing — superseded by the
+> fixed-scale decision. The per-token measurement + full-context caveat below still apply.
+
 The 2026-06-02 spec sized eval at `eval_max_new ≈ 2048` (~200 node-h, 3 backbones). W1
 (2026-06-11) locked **scored** eval at `eval_max_new ≥ 13,312` (full-cell generation for
 cross-backbone commensurability) — **~6.5× the AR-generation cost** (AR generation is one
@@ -213,7 +289,22 @@ verified-resubmit, end-state markers, buildability dry-run).
 
 Per locked spec §8: seed-repeats sized so **per-run score noise < the must-rank gap**. The
 concrete count is set at plan time from the diagnostic's measured per-run noise — not
-guessed here.
+guessed here. **LOCKED (2026-06-18): 3 seeds + 4-GPU eval-sharding.** Against the **5,000
+GPU-h (=1,250 node-h)** grant, AS-IS rank-0 eval costs 27/54/81% for {1,2,3} seeds; sharding
+(~4×) drops 3 seeds to **20%**, so 3 seeds is affordable WITH sharding. The seed-repeats are
+what let the power gate separate skill from luck on the near-tie param-matched models — the
+seed→verdict rule is in plan Task 10.
+
+**Two-floor closure (LOCKED 2026-06-18; the MIDDLE band is the likely near-tie outcome, not an
+edge case):** at each city the winner-vs-runner-up mean-KS gap must clear
+`effective_floor = max(C/√n, seed_noise)` — `C/√n` = statistical *resolvability*
+(`single_region_floor_gap`), `seed_noise` = *reproducibility* (max of the two backbones' seed-SEM).
+Three bands: **DECISIVE** (gap > both → crown), **LUCK** (gap ≤ seed_noise), **MIDDLE** (clears one
+floor but not the other). A winner is declared **ONLY** when DECISIVE; LUCK and MIDDLE are both
+non-decisive (demoted, worst-first per the #21 gate). **Neither floor dominates — the larger binds
+per-city; either failing alone blocks the crown.** If NO city is DECISIVE → **`NO_DECISIVE_WINNER`**
+(S13 / `FIXED_SCALE_PLUS_S13` family), a NAMED verdict — never improvised in a later session, never
+a bare exception.
 
 ## 10. Deferred — not dropped
 

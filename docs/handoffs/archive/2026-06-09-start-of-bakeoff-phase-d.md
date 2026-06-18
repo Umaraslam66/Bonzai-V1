@@ -1,3 +1,5 @@
+> SUPERSEDED — live boot doc is docs/handoffs/2026-06-18-t9-gate-50m-locked.md (canon: docs/GROUND_TRUTH.md). Archived 2026-06-18.
+
 # Handoff — START of bake-off PHASE D (2026-06-09)
 
 You are a fresh, context-free agent picking up the Phase-2 bake-off at the **Phase C/D boundary**. Phases A–C (all local) are **done, committed, and green**. Phase D (Tasks 8–12) is **all Leonardo** and is **parked on Umar's allocation word**. This is a thin **pointer** doc — the detail lives in the artifacts below; read them, don't reconstruct.

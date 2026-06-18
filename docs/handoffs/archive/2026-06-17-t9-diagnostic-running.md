@@ -1,3 +1,5 @@
+> SUPERSEDED — live boot doc is docs/handoffs/2026-06-18-t9-gate-50m-locked.md (canon: docs/GROUND_TRUTH.md). Archived 2026-06-18.
+
 # T9 diagnostic RUNNING — handoff (2026-06-17)
 
 The bake-off backbone build (T1–T8) is DONE on branch `phase-2-bakeoff-2backbone` (unmerged).

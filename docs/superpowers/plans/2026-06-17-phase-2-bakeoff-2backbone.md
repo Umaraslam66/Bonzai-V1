@@ -419,27 +419,73 @@ git commit -m "feat(bakeoff): mamba-hybrid non-scored GPU smoke + quantified com
 - [ ] **Step 4: Run, verify PASS.**
 - [ ] **Step 5: Commit** `feat(bakeoff): diagnostic captures per-token gen cost for the 13,312 eval-budget projection`.
 
-### Task 9: [GATED — Umar's word] Run the diagnostic → feasible ladder + budget projection
+### Task 9: [DONE 2026-06-18] Run the diagnostic → budget gate → fixed-scale decision
 
-- [ ] **Step 1: Submit `bakeoff_diagnostic.sbatch`** (transformer-ar, 90M, `--no-compile`) on Leonardo (account 548). It's the locked spec's HARD GATE before scored runs.
-- [ ] **Step 2: Analyze the output** — emergence floor, geometry-`r`, per-scale eval cost, `gen_seconds_per_token`. Compute the **feasible scale ladder** (`feasible_ladder`, `r·N ≤ 623.9M·E`) and **project the 13,312 scored-eval budget** for 2 backbones × feasible scales × seed-repeats vs **5000 node-h**, with `n_cells` minimized to the must-rank gap.
-- [ ] **Step 3: Write `reports/2026-06-17-bakeoff-diagnostic.md`** — the measured numbers, the feasible ladder, the decision basis (step-function), the revised eval-dominated budget, the seed count (from the measured per-run noise).
-- [ ] **Step 4: PRESENT to Umar for approval BEFORE any scored run** (spec §6). This is the Phase-4 re-plan checkpoint.
-- [ ] **Step 5: Commit** the report.
+- [x] **Step 1: Submitted `bakeoff_diagnostic.sbatch`** (transformer-ar, 89.4M = 100M mixer, `--no-compile`, eu-train-union, REGION=krakow) — job `47143523`, **COMPLETED 0:0**, full 110k steps, eval ran.
+- [x] **Step 2: Analyzed (artifact-verified, not squeue-trusted).** `gen_seconds_per_token=0.026779` (measured @100M, single-GPU); loss curve **flattened** (2.60→2.09; last 30k steps ~0.026 nats) → r≈40 horizon, not ladder-collapse. The full 4-rung ladder costs ~5,501 node-h in **eval alone** (2 bb, 1 seed) = **~22,000 GPU-h → 4.4× over the 5,000 GPU-h grant** (units: GROUND_TRUTH §1); data-feasibility (`r·N ≤ 623.9M·E`) is also starved at high r. **→ Umar locked a SINGLE fixed scale = 50M (spec §1A), not a ladder.**
+- [x] **Step 3: Budget re-scaled to 50M** (interpolation from the 100M measurement): per-seed eval ≈336 node-h wall-clock. AS-IS rank-0 eval = **1,344/2,688/4,032 GPU-h = 27/54/81%** of the 5,000 GPU-h grant for {1,2,3} seeds; **4-GPU eval-sharding → 7/13/20%** (Task 11). Units canon = GROUND_TRUTH §1. (Reports auto-generated, not hand-edited.)
+- [x] **Step 4: PRESENTED to Umar; decision locked** (50M single-scale, both backbones, `--no-compile`).
+- [ ] **Step 5 (BLOCKED on CINECA `$WORK` outage): param-match 50M on actual built counts** — extend `tune_bakeoff_scales.py` with the 50M seed, derive + lock the verified pair into `bakeoff_scales.py`, pass `test_bakeoff_param_match` at 50M (≤2%). Provisional analytic configs in spec §1A (tf `d640/8L/10H`≈50.2M HIGH-conf; mamba `d640/~14L/every7` SEED). **Do NOT lock provisional numbers.** Resume when `$WORK` recovers.
 
 ---
 
 ## Phase 4 — Scored runs → verdict (GATED; re-planned from Phase 3 output)
 
-> **This phase is intentionally NOT pre-pinned.** The feasible matrix (which scales, how many seeds), the eval-dominated budget, and the compile on/off decision are all OUTPUTS of Phase 2's smoke (Task 7) and Phase 3's diagnostic (Task 9). Per protocol §10.1 (never size a commitment by a provisional parameter) and spec §6, Phase 4's detailed task list is written **after** Task 9, from its measured numbers, and re-reviewed before any scored GPU-hour.
+> **RESOLVED by Task 9 + Umar's word (2026-06-18, spec §1A):** the matrix is a **SINGLE fixed
+> scale = 50M**, both backbones, `--no-compile`, **3 seeds per backbone, 4-GPU eval-sharding**.
+> NOT a scaling curve, NO ladder — `decision_basis` is fixed-scale by choice
+> (`FIXED_SCALE_PLUS_S13` family: decide at the single scale + §13). Matrix = **2 backbones ×
+> {50M} × 3 seeds = 6 runs**. **UNITS (confirmed):** grant = 5,000 GPU-h = 1,250 node-h
+> (40,000 core-h; node = 32 core / 4 GPU). 3 seeds AS-IS = 81% of grant, but **4-GPU eval-
+> sharding (Task 11) recovers ~4× → ~20%**. Two prerequisites before any scored run, both
+> BLOCKED on the `$WORK` outage: (a) 50M param-match VERIFIED on actual built counts (Task 9
+> Step 5); (b) the eval-sharding equivalence golden PASSES (Task 11).
 
-### Task 10: [GATED — re-plan after Task 9, then Umar's word] Scored matrix → decision
+### Task 10: [GATED — needs Task 9 Step 5 (param-match verify) + Umar's word] Scored 50M matrix → decision
 
-- [ ] **Step 1: Re-plan** — from Task 9's feasible ladder + budget + seed count + Task 7's compile decision, enumerate the exact scored matrix (2 backbones × feasible scales × seeds) and confirm it fits 5000 node-h. Bring the matrix for approval.
-- [ ] **Step 2: [GATED] Run the scored matrix** via `scripts/bakeoff_run.sbatch` per cell: `--scored-run` (asserts max_len == 13,312 ∧ eval_max_new ≥ 13,312) + `--shard-cache` + the gated config, against the frozen floor artifact (`reports/conditioning_floor/2026-04-15.0/`). USR1 verified-resubmit + end-state markers per cell.
-- [ ] **Step 3: Run the decision** — `scripts/run_bakeoff_decision.py` over the per-cell reports + real-features + the frozen floor: `decide()` 5 teeth → `pick_winner` (memorization-first hard-halt → structural → power-gated worst-case + munich→manchester). 
-- [ ] **Step 4: Write the verdict report** — the scaling curves (geometry-fidelity vs measured node-h), the winner (or the §13 tie-break / memorization-halt), the per-city worst-case, the binding-city power-gate result.
+- [ ] **Step 0 (prerequisite): 50M param-match VERIFIED** (Task 9 Step 5) — `bakeoff_scales.py`
+  carries the actual-count-locked 50M pair (≤2%), `test_bakeoff_param_match` green at 50M. Blocked
+  on `$WORK` recovery.
+- [ ] **Step 0b (prerequisite): eval-sharding golden PASSES** (Task 11) — both teeth green on `$WORK` recovery.
+- [ ] **Step 1: Emit the per-run YAMLs** `configs/experiments/bakeoff-{transformer-ar,mamba-hybrid}-50M.yaml`
+  from the verified 50M table + the locked recipe — each MUST carry `region` (item-3), r-derived
+  `max_steps` (r≈20 → ~1B tokens), and **`seeds: [s0,s1,s2]` (3 seeds)**. Add `--no-compile` to
+  `bakeoff_run.sbatch` and inject `'region': '${REGION}'` into its buildability dry-run (spec carry-forward).
+  Confirm the matrix (2 bb × 50M × 3 seeds) at **~1,008 GPU-h with sharding (20% of the 5,000 GPU-h grant)**.
+  Bring for approval.
+- [ ] **Step 2: [GATED] Run the scored matrix** via `scripts/bakeoff_run.sbatch` per (backbone, seed): `--scored-run` (asserts max_len == 13,312 ∧ eval_max_new ≥ 13,312) + **`--shard-eval` (4-GPU eval-sharding, Task 11)** + `--shard-cache` + the gated config, against the frozen floor artifact (`reports/conditioning_floor/2026-04-15.0/`). USR1 verified-resubmit + end-state markers per run.
+- [ ] **Step 3: Combine seeds → per-(backbone,city) KS, then decide.** **SEED→VERDICT RULE (LOCKED, never silent):** for each (backbone, city), the 3 seeds give 3 KS values; the **point estimate = mean KS** across seeds; the **seed-noise = std (SEM) across seeds**. Feed mean-KS as `PerCityKS.ks` into `binding_city_verdict`.
+  - **Effective floor (the two-floor closure):** at each city the winner-vs-runner-up **mean-KS gap** must clear `effective_floor = max(C/√n, seed_noise_band)`, where `C/√n = single_region_floor_gap(n_reference_features)` (statistical *resolvability*) and `seed_noise_band` = the larger of the two backbones' seed-SEM at that city (*reproducibility*). The two floors measure independent failure modes, so the binding bar is the **max**: **neither dominates categorically — the larger binds per-city, and EITHER floor failing alone blocks the crown.**
+  - **Three bands, no improvisation (the MIDDLE is the likely near-tie outcome, not an edge case):**
+    - **DECISIVE** — `gap > max(C/√n, seed_noise)` → crown the winner at this city.
+    - **LUCK** — `gap ≤ seed_noise` → not decisive.
+    - **MIDDLE** — clears one floor but not the other (`seed_noise < gap ≤ C/√n`, or the reverse) → **not decisive.** A win requires clearing BOTH; clearing only one is explicitly NOT a winner.
+  - A winner is declared **ONLY** for a DECISIVE city. Worst-first per the #21 gate: a non-decisive city (LUCK or MIDDLE) is demoted (under-powered) and the next-worst is tried. **If NO held-out city is DECISIVE → `NO_DECISIVE_WINNER`** (S13 / `FIXED_SCALE_PLUS_S13` family), emitted as a NAMED verdict — never resolved by improvisation in a later session, never a bare exception. Mean+std are seed-order-independent (commutative). Memorization-first hard-halt still precedes all of this. (Implementation: extend `city_aggregate`/`bakeoff_decision` to accept per-seed KS, compute `effective_floor = max(...)`, and return the `NO_DECISIVE_WINNER` verdict instead of today's `ValueError("no resolved binding city")` — a T10 code item; the RULE is locked here.)
+- [ ] **Step 4: Write the verdict report** — the per-city worst-case (mean KS ± seed band), the winner (or the §13 tie-break / memorization-halt / power-gate demotion), the binding-city + which floor bound (resolution vs seed-noise), and measured node-h/GPU-h.
 - [ ] **Step 5: Commit** the verdict; this closes the 2-backbone bake-off. (discrete-diffusion second wave re-opens as its own sub-project.)
+
+### Task 11: 4-GPU eval-sharding (the budget lever) — CPU-safe build NOW, GPU golden DEFERRED
+
+**Why:** post-train eval runs on rank 0 only (1 GPU works, 3 idle-but-billed → 4× waste). Sharding
+the per-run eval cells across the node's 4 GPUs recovers ~4×, making 3 seeds ≈ 20% of the grant.
+
+- [x] **Step 1 (CPU-safe, DONE during `$WORK` outage): pure partition + gather/conservation logic.**
+  `src/cfm/eval/shard.py` (torch-free): balanced ragged-safe partition of N cells across `world_size`,
+  count-conservation assertion (every cell exactly once — no drop/double-count), and a gather/merge that
+  returns results in canonical global-cell order (shard-order-independent → byte-deterministic).
+- [x] **Step 2 (CPU-safe, DONE): local non-vacuous unit tests** `tests/eval/test_shard.py` — ragged cities
+  (523/579/156/601 — 3 of 4 not divisible by 4), conservation, drop/double-count RAISES, merge
+  shard-order-independence. Run locally (no torch needed). Red-before/green-after recorded.
+- [ ] **Step 3 (code now, run on `$WORK`): distributed wrapper** — thin `all_gather_object` of per-cell
+  `(global_index, scored_result)` using the Step-1 merge; wire a `--shard-eval` path in the eval so each
+  rank generates only its partition. Lazy torch.distributed import (keeps `shard.py` torch-free).
+- [ ] **Step 4 (GPU EQUIVALENCE GOLDEN — DEFERRED to `$WORK` recovery, bundled with Task 9 Step 5):**
+  two teeth, proven non-vacuous (red-before/green-after):
+  1. **Per-cell scores from 4-GPU sharded eval bit-identical to the rank-0 baseline** on the same model.
+  2. **PAIRED structural check on the REAL distributed run:** every held-out cell scored exactly once
+     (count-conservation), INCLUDING a **ragged-partition city** (e.g. 523, not ÷4) — assert no boundary
+     cell dropped or double-counted. Aggregate-score equality alone is INSUFFICIENT.
+  Plus: **worst-case-city verdict byte-identical across re-runs** (shard-order independence end-to-end).
 
 ---
 
