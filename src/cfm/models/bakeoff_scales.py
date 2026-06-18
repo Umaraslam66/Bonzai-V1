@@ -18,6 +18,14 @@ counts (transformer-ar vs mamba-hybrid, rel):
     100M: 98,052,068 vs 98,849,252 (0.81%)   d_model 768  / 12L vs 21L (2 tf + 19 mamba)
     300M: 294,446,564 vs 294,436,324 (0.003%) d_model 1024 / 22L vs 38L (4 tf + 34 mamba)
     1B  : 1,041,823,204 vs 1,029,404,132 (1.19%) d_model 2048 / 20L vs 34L (4 tf + 30 mamba)
+    53M : 52,798,948 vs 53,733,348 (1.77%)   d_model 512  / 14L vs 24L (3 tf + 21 mamba)
+
+The 53M rung is the Phase-2 SINGLE-scale bake-off rung (spec §1A) and is ~53M, NOT 50M.
+Unlike the others (pure param-match), it carries an additional clean-1:7 Jamba-ratio
+constraint: the mamba layout is exactly 21 mamba + 3 transformer (tf at layers 8/16/24), the
+validated Jamba sweet spot. A pure param-match to 50M instead landed 1 tf + 13 mamba (13:1,
+attention-starved); a clean 1:7 within 2% is only reachable at ~53M. Derived (ratio-constrained)
+by scripts/rederive_53m_ratio.py; the {30,100,300M,1B} rungs by scripts/tune_bakeoff_scales.py.
 """
 
 from __future__ import annotations
@@ -33,8 +41,10 @@ from cfm.models.backbone import subf_vocab_size
 from cfm.models.mamba_hybrid import MambaHybridConfig
 from cfm.models.micro_ar import MicroARConfig
 
-#: The four bake-off scales (nominal labels; the actual counts are the table above).
-BAKEOFF_SCALES = ("30M", "100M", "300M", "1B")
+#: The bake-off scales (nominal labels; actual counts are in the table above). "53M" is the
+#: Phase-2 single-scale rung (~53M, clean-1:7 ratio-constrained); the rest are the historical
+#: ladder. Appended last (append-only — existing rungs are never reordered or rewritten).
+BAKEOFF_SCALES = ("30M", "100M", "300M", "1B", "53M")
 
 # Per-scale mixer knobs (the param-matched table — verified <=2% per scale). The shared
 # scaffold fields (vocab, conditioning span, positional capacity, char-carrier) come from
@@ -44,12 +54,15 @@ _TRANSFORMER_AR: dict[str, dict[str, int]] = {
     "100M": {"d_model": 768, "n_layers": 12, "n_heads": 12},
     "300M": {"d_model": 1024, "n_layers": 22, "n_heads": 16},
     "1B": {"d_model": 2048, "n_layers": 20, "n_heads": 32},
+    "53M": {"d_model": 512, "n_layers": 14, "n_heads": 8},  # Phase-2 rung; clean-1:7 partner
 }
 _MAMBA_HYBRID: dict[str, dict[str, int]] = {
     "30M": {"d_model": 512, "n_layers": 12, "n_heads": 8, "transformer_every": 7},
     "100M": {"d_model": 768, "n_layers": 21, "n_heads": 12, "transformer_every": 7},
     "300M": {"d_model": 1024, "n_layers": 38, "n_heads": 16, "transformer_every": 7},
     "1B": {"d_model": 2048, "n_layers": 34, "n_heads": 32, "transformer_every": 7},
+    # Phase-2 rung: clean 1:7 (24L = 21 mamba + 3 tf at 8/16/24); ~53M, ratio-constrained.
+    "53M": {"d_model": 512, "n_layers": 24, "n_heads": 8, "transformer_every": 7},
 }
 
 

@@ -47,11 +47,23 @@ Last reconciled: 2026-06-18.
   `src/cfm/training/config.py`.
 
 ## 4. Locked Phase-2 bake-off design (spec §1A/§9, plan Task 10/11)
-- **Single fixed-scale bake-off, N = 50M** — NOT a scaling curve, NO ladder. Decision basis =
+- **Single fixed-scale bake-off, N ≈ 53M** — NOT a scaling curve, NO ladder. Decision basis =
   fixed-scale by choice (`FIXED_SCALE_PLUS_S13` family). Rationale: Chinchilla ~20 tok/param →
-  optimum ~30M for 624M tokens; 100M was the measured diagnostic rung; 50M = the chosen middle.
-- **Two backbones:** `transformer-ar` vs `mamba-hybrid` (7:1 Jamba interleave), param-matched ≤2%.
-  **`--no-compile`** for both (T7 verdict). **3 seeds** per backbone. **4-GPU eval-sharding**.
+  optimum ~30M for 624M tokens; 100M was the measured diagnostic rung; ~50M was the chosen middle.
+  **The rung LANDED at ~53M, not 50M** (see next bullet): a clean Jamba 1:7 ratio param-matches
+  ≤2% only at ~53M. At N≈53M, r=20 → ~1.06B tokens → **~1.7× reuse** (still in the safe ≤~4× band);
+  eval ≈ **~21% of the grant** (3 seeds, 4-GPU sharding). Never label this rung "50M".
+- **Two backbones, shared `d_model=512`, param-matched ≤2% on ACTUAL built counts (locked 2026-06-18
+  in `src/cfm/models/bakeoff_scales.py` under the `"53M"` key, append-only):**
+  - `transformer-ar`: `d512 / 14L / 8H` = **52,798,948**
+  - `mamba-hybrid`: `d512 / 24L / transformer_every=7` = **53,733,348** — a **clean 1:7 Jamba**
+    interleave (21 mamba + 3 transformer, tf at layers 8/16/24). delta = **1.77% ≤ 2%**.
+  - **`--no-compile`** both (T7 verdict). **3 seeds** per backbone. **4-GPU eval-sharding**.
+  - WHY clean 1:7 (not the param-match optimum): the pure param-match to 50M picked `d640/14L` =
+    **1 tf + 13 mamba (13:1)** — attention-starved, below Jamba's validated 1:7. Clean 1:7 within 2%
+    is unreachable near 50M, so the rung moved to `d512`/~53M. Derived (ratio-constrained) by
+    `scripts/rederive_53m_ratio.py`; `tests/models/test_bakeoff_param_match.py` passes at 53M and is
+    non-vacuous (a >2% perturbation REDS it). Source: spec §1A.
 - **Seed→verdict rule:** per (backbone, city) the 3 seeds give mean KS (estimate) + std/SEM
   (seed-noise). A winner is crowned at a city ONLY if the winner-vs-runner-up mean-KS gap clears
   `effective_floor = max(C/√n resolvability, seed-noise reproducibility)`. Clearing one floor but
@@ -62,13 +74,19 @@ Last reconciled: 2026-06-18.
   (single-GPU, @100M mixer); loss flattened by r≈40. Source: report
   `reports/phase-1-training-scaffold/2026-04-15.0-krakow-transformer-ar-89M-seed7-loop-closed.md`.
 
-## 5. Open / deferred (both BLOCKED on the CINECA $WORK storage outage, 2026-06-18)
-1. **50M param-match on ACTUAL built counts** (≤2%): extend `scripts/tune_bakeoff_scales.py` with a
-   50M seed, lock the verified pair into `src/cfm/models/bakeoff_scales.py`, pass
-   `tests/models/test_bakeoff_param_match.py` at 50M. Provisional analytic (NOT locked):
-   transformer-ar `d640/8L/10H` ≈ 50.2M (high-confidence); mamba-hybrid `d640/~14L/every7` (seed).
-2. **Eval-sharding GPU equivalence golden** (plan Task 11 Step 4): per-cell scores 4-GPU-sharded ==
-   rank-0 baseline bit-identical, + count-conservation on the real distributed run incl. a ragged
-   city. CPU-safe core (`src/cfm/eval/shard.py`) + local tests are DONE.
+## 5. Open / deferred
+**The "`$WORK` outage" was a MISDIAGNOSIS (2026-06-18):** the "heavy `$WORK` I/O degraded" call
+rested on torch-import *speed* (~63s + a GPU-less interpreter-teardown hang), which is the NORMAL
+Leonardo login-node baseline — confirmed by ~81s on a provably-healthy `$SCRATCH` (different Lustre
+hardware). Direct throughput on the 222 tree is healthy: **1.6 GB/s write+fsync, 5.1 GB/s read**.
+Judge `$WORK` health with a 1 GB `dd` write+fsync vs the `$SCRATCH` baseline, **NOT** torch-import
+speed. (Also: anything importing `mamba_ssm` needs the gcc-12 `libstdc++` `LD_PRELOAD` from
+`scripts/rederive_53m_ratio.py`; capture counts then `os._exit(0)` to dodge the teardown hang.)
+1. **53M param-match — DONE (2026-06-18):** locked `"53M"` into `bakeoff_scales.py` (ratio-
+   constrained, clean 1:7 — see §4); real `test_bakeoff_param_match.py` green + non-vacuous proof.
+2. **Eval-sharding GPU equivalence golden** (plan Task 11 Step 4) — DEFERRED (held for Umar's word,
+   NOT blocked): per-cell scores 4-GPU-sharded == rank-0 baseline bit-identical + count-conservation
+   on a real distributed run incl. a ragged city. CPU-safe core (`src/cfm/eval/shard.py`) + local
+   tests DONE; run `sbatch scripts/eval_sharding_golden.sbatch`.
 
-Live boot doc: `docs/handoffs/2026-06-18-t9-gate-50m-locked.md`.
+Live boot doc: `docs/handoffs/2026-06-18-t9-gate-53m-locked.md`.

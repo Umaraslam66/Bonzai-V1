@@ -422,36 +422,37 @@ git commit -m "feat(bakeoff): mamba-hybrid non-scored GPU smoke + quantified com
 ### Task 9: [DONE 2026-06-18] Run the diagnostic → budget gate → fixed-scale decision
 
 - [x] **Step 1: Submitted `bakeoff_diagnostic.sbatch`** (transformer-ar, 89.4M = 100M mixer, `--no-compile`, eu-train-union, REGION=krakow) — job `47143523`, **COMPLETED 0:0**, full 110k steps, eval ran.
-- [x] **Step 2: Analyzed (artifact-verified, not squeue-trusted).** `gen_seconds_per_token=0.026779` (measured @100M, single-GPU); loss curve **flattened** (2.60→2.09; last 30k steps ~0.026 nats) → r≈40 horizon, not ladder-collapse. The full 4-rung ladder costs ~5,501 node-h in **eval alone** (2 bb, 1 seed) = **~22,000 GPU-h → 4.4× over the 5,000 GPU-h grant** (units: GROUND_TRUTH §1); data-feasibility (`r·N ≤ 623.9M·E`) is also starved at high r. **→ Umar locked a SINGLE fixed scale = 50M (spec §1A), not a ladder.**
-- [x] **Step 3: Budget re-scaled to 50M** (interpolation from the 100M measurement): per-seed eval ≈336 node-h wall-clock. AS-IS rank-0 eval = **1,344/2,688/4,032 GPU-h = 27/54/81%** of the 5,000 GPU-h grant for {1,2,3} seeds; **4-GPU eval-sharding → 7/13/20%** (Task 11). Units canon = GROUND_TRUTH §1. (Reports auto-generated, not hand-edited.)
-- [x] **Step 4: PRESENTED to Umar; decision locked** (50M single-scale, both backbones, `--no-compile`).
-- [ ] **Step 5 (BLOCKED on CINECA `$WORK` outage): param-match 50M on actual built counts** — extend `tune_bakeoff_scales.py` with the 50M seed, derive + lock the verified pair into `bakeoff_scales.py`, pass `test_bakeoff_param_match` at 50M (≤2%). Provisional analytic configs in spec §1A (tf `d640/8L/10H`≈50.2M HIGH-conf; mamba `d640/~14L/every7` SEED). **Do NOT lock provisional numbers.** Resume when `$WORK` recovers.
+- [x] **Step 2: Analyzed (artifact-verified, not squeue-trusted).** `gen_seconds_per_token=0.026779` (measured @100M, single-GPU); loss curve **flattened** (2.60→2.09; last 30k steps ~0.026 nats) → r≈40 horizon, not ladder-collapse. The full 4-rung ladder costs ~5,501 node-h in **eval alone** (2 bb, 1 seed) = **~22,000 GPU-h → 4.4× over the 5,000 GPU-h grant** (units: GROUND_TRUTH §1); data-feasibility (`r·N ≤ 623.9M·E`) is also starved at high r. **→ Umar locked a SINGLE fixed scale ≈ 53M (spec §1A), not a ladder.** (The original aim was a ~50M middle rung; the rung LANDED at ~53M because a clean Jamba 1:7 ratio param-matches ≤2% only at ~53M — see Step 5.)
+- [x] **Step 3: Budget re-scaled to ~53M** (interpolation from the 100M measurement): per-seed eval ≈336 node-h wall-clock. AS-IS rank-0 eval = **1,344/2,688/4,032 GPU-h = 27/54/81%** of the 5,000 GPU-h grant for {1,2,3} seeds; **4-GPU eval-sharding → 7/13/~21%** (Task 11). Units canon = GROUND_TRUTH §1. (Reports auto-generated, not hand-edited.)
+- [x] **Step 4: PRESENTED to Umar; decision locked** (~53M single-scale, both backbones, `--no-compile`).
+- [x] **Step 5: DONE (2026-06-18) — param-match LOCKED at ~53M on actual built counts** (NOT 50M). Shared `d_model=512`; derived ratio-constrained by `scripts/rederive_53m_ratio.py` and locked into `bakeoff_scales.py` under the `"53M"` key (append-only): `transformer-ar d512/14L/8H` = **52,798,948**; `mamba-hybrid d512/24L/transformer_every=7` = **53,733,348** (clean **1:7 Jamba**: 21 mamba + 3 transformer, tf at layers 8/16/24), delta = **1.77% ≤ 2%**. `tests/models/test_bakeoff_param_match.py` is green at 53M and **non-vacuous** (a >2% perturbation REDS it). **WHY ~53M (not the 50M param-match optimum):** a pure param-match to 50M picked `d640/14L` = **1 tf + 13 mamba (13:1)** — attention-starved, below Jamba's validated 1:7; a clean 1:7 within 2% is unreachable near 50M, so the rung moved to `d512`/~53M. The earlier "$WORK outage" blocker was a **misdiagnosis** (torch-import speed is the normal login-node baseline, not an I/O health signal; `$WORK` throughput is healthy — GROUND_TRUTH §5).
 
 ---
 
 ## Phase 4 — Scored runs → verdict (GATED; re-planned from Phase 3 output)
 
 > **RESOLVED by Task 9 + Umar's word (2026-06-18, spec §1A):** the matrix is a **SINGLE fixed
-> scale = 50M**, both backbones, `--no-compile`, **3 seeds per backbone, 4-GPU eval-sharding**.
+> scale ≈ 53M**, both backbones, `--no-compile`, **3 seeds per backbone, 4-GPU eval-sharding**.
 > NOT a scaling curve, NO ladder — `decision_basis` is fixed-scale by choice
 > (`FIXED_SCALE_PLUS_S13` family: decide at the single scale + §13). Matrix = **2 backbones ×
-> {50M} × 3 seeds = 6 runs**. **UNITS (confirmed):** grant = 5,000 GPU-h = 1,250 node-h
+> {53M} × 3 seeds = 6 runs**. **UNITS (confirmed):** grant = 5,000 GPU-h = 1,250 node-h
 > (40,000 core-h; node = 32 core / 4 GPU). 3 seeds AS-IS = 81% of grant, but **4-GPU eval-
-> sharding (Task 11) recovers ~4× → ~20%**. Two prerequisites before any scored run, both
-> BLOCKED on the `$WORK` outage: (a) 50M param-match VERIFIED on actual built counts (Task 9
-> Step 5); (b) the eval-sharding equivalence golden PASSES (Task 11).
+> sharding (Task 11) recovers ~4× → ~21%**. Two prerequisites before any scored run: (a) ~53M
+> param-match VERIFIED on actual built counts — **DONE** (Task 9 Step 5: `d512`, clean 1:7,
+> `test_bakeoff_param_match` green); (b) the eval-sharding equivalence golden PASSES (Task 11,
+> still deferred). The earlier "$WORK outage" blocker was a misdiagnosis (GROUND_TRUTH §5).
 
-### Task 10: [GATED — needs Task 9 Step 5 (param-match verify) + Umar's word] Scored 50M matrix → decision
+### Task 10: [GATED — needs Task 11 eval-sharding golden + Umar's word] Scored 53M matrix → decision
 
-- [ ] **Step 0 (prerequisite): 50M param-match VERIFIED** (Task 9 Step 5) — `bakeoff_scales.py`
-  carries the actual-count-locked 50M pair (≤2%), `test_bakeoff_param_match` green at 50M. Blocked
-  on `$WORK` recovery.
+- [x] **Step 0 (prerequisite): ~53M param-match VERIFIED — SATISFIED** (Task 9 Step 5, 2026-06-18) —
+  `bakeoff_scales.py` carries the actual-count-locked pair under the `"53M"` key (shared `d512`, clean
+  1:7 Jamba, delta 1.77% ≤ 2%); `test_bakeoff_param_match` green at 53M and non-vacuous.
 - [ ] **Step 0b (prerequisite): eval-sharding golden PASSES** (Task 11) — both teeth green on `$WORK` recovery.
-- [ ] **Step 1: Emit the per-run YAMLs** `configs/experiments/bakeoff-{transformer-ar,mamba-hybrid}-50M.yaml`
-  from the verified 50M table + the locked recipe — each MUST carry `region` (item-3), r-derived
+- [ ] **Step 1: Emit the per-run YAMLs** `configs/experiments/bakeoff-{transformer-ar,mamba-hybrid}-53M.yaml`
+  from the verified ~53M table + the locked recipe — each MUST carry `region` (item-3), r-derived
   `max_steps` (r≈20 → ~1B tokens), and **`seeds: [s0,s1,s2]` (3 seeds)**. Add `--no-compile` to
   `bakeoff_run.sbatch` and inject `'region': '${REGION}'` into its buildability dry-run (spec carry-forward).
-  Confirm the matrix (2 bb × 50M × 3 seeds) at **~1,008 GPU-h with sharding (20% of the 5,000 GPU-h grant)**.
+  Confirm the matrix (2 bb × ~53M × 3 seeds) at **~1,008 GPU-h with sharding (~21% of the 5,000 GPU-h grant)**.
   Bring for approval.
 - [ ] **Step 2: [GATED] Run the scored matrix** via `scripts/bakeoff_run.sbatch` per (backbone, seed): `--scored-run` (asserts max_len == 13,312 ∧ eval_max_new ≥ 13,312) + **`--shard-eval` (4-GPU eval-sharding, Task 11)** + `--shard-cache` + the gated config, against the frozen floor artifact (`reports/conditioning_floor/2026-04-15.0/`). USR1 verified-resubmit + end-state markers per run.
 - [ ] **Step 3: Combine seeds → per-(backbone,city) KS, then decide.** **SEED→VERDICT RULE (LOCKED, never silent):** for each (backbone, city), the 3 seeds give 3 KS values; the **point estimate = mean KS** across seeds; the **seed-noise = std (SEM) across seeds**. Feed mean-KS as `PerCityKS.ks` into `binding_city_verdict`.
@@ -467,7 +468,7 @@ git commit -m "feat(bakeoff): mamba-hybrid non-scored GPU smoke + quantified com
 ### Task 11: 4-GPU eval-sharding (the budget lever) — CPU-safe build NOW, GPU golden DEFERRED
 
 **Why:** post-train eval runs on rank 0 only (1 GPU works, 3 idle-but-billed → 4× waste). Sharding
-the per-run eval cells across the node's 4 GPUs recovers ~4×, making 3 seeds ≈ 20% of the grant.
+the per-run eval cells across the node's 4 GPUs recovers ~4×, making 3 seeds ≈ ~21% of the grant.
 
 - [x] **Step 1 (CPU-safe, DONE during `$WORK` outage): pure partition + gather/conservation logic.**
   `src/cfm/eval/shard.py` (torch-free): balanced ragged-safe partition of N cells across `world_size`,
