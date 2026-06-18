@@ -20,8 +20,8 @@
 set -euo pipefail
 cd /leonardo_work/AIFAC_P02_222/Bonzai-OSM
 # Same toolchain + libstdc++ preload as the verified bakeoff entry (gcc/12.2.0; the LD_PRELOAD is
-# REQUIRED for the mamba_ssm/causal_conv1d import and harmless for transformer-ar — this golden
-# builds transformer-ar but rides the shared preamble unchanged).
+# REQUIRED for the mamba_ssm/causal_conv1d import — this golden exercises mamba-hybrid FIRST (the
+# stateful, CUDA-kernel-sensitive backbone) and then transformer-ar, so it is never transformer-only).
 module load python/3.11.7 cuda/12.2 gcc/12.2.0
 export CC=$(command -v gcc) CXX=$(command -v g++) CUDAHOSTCXX=$(command -v g++)
 export LD_PRELOAD="$(dirname "$($CC -print-file-name=libstdc++.so.6)")/libstdc++.so.6"
