@@ -192,6 +192,27 @@ def test_bakeoff_run_sbatch_dry_run_vets_the_trained_backbone() -> None:
     )
 
 
+def test_bakeoff_run_sbatch_dry_run_injects_region() -> None:
+    """item-3 made ``ScaffoldConfig.region`` REQUIRED, so the CPU buildability dry-run must
+    carry region or ``ScaffoldConfig(**loaded)`` raises before the run even spins up. The
+    dry-run injects the env REGION (mirroring the backbone override) AND refuses a YAML region
+    that contradicts $REGION (a config/submission mismatch is a loud refusal, never a silent
+    stomp — same discipline as the backbone)."""
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    override = "'region': '${REGION}'"
+    assert override in text, (
+        "the dry-run does not inject the env REGION — with region REQUIRED (item-3), a YAML "
+        "omitting `region` makes the dry-run ScaffoldConfig(**loaded) raise spuriously"
+    )
+    assert text.index(override) < text.index("\nsrun "), (
+        "the region-injected dry-run must run in the preamble, before srun"
+    )
+    assert "CONFIG_REGION_MISMATCH" in text, (
+        "no loud refusal for a YAML region that contradicts $REGION — a config/submission "
+        "mismatch must refuse, never silently stomp the YAML"
+    )
+
+
 # --- Task 10 (readiness-closure): --region/--release CLI + sbatch de-Singaporization ---
 
 _SBATCH_NAMES = ["bakeoff_diagnostic.sbatch", "bakeoff_run.sbatch"]

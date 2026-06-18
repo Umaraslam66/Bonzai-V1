@@ -152,7 +152,17 @@ if declared is not None and declared != '${BACKBONE}':
         + ' but the job was submitted with BACKBONE=${BACKBONE} — a config/submission'
         + ' mismatch is a refusal, never a silent stomp; fix the YAML or the submit env.'
     )
-cfg = ScaffoldConfig(**{**loaded, 'backbone': '${BACKBONE}'})
+declared_region = loaded.get('region')
+if declared_region is not None and declared_region != '${REGION}':
+    raise SystemExit(
+        'CONFIG_REGION_MISMATCH: ${RUN_CONFIG} names region ' + repr(declared_region)
+        + ' but the job was submitted with REGION=${REGION} — a config/submission'
+        + ' mismatch is a refusal, never a silent stomp; fix the YAML or the submit env.'
+    )
+# item-3 made ScaffoldConfig.region REQUIRED, so the CPU dry-run must carry region — inject the
+# env REGION (mirrors the backbone override: supply the omitted case, refuse a contradicting one),
+# else ScaffoldConfig(**loaded) raises before the real run even spins up.
+cfg = ScaffoldConfig(**{**loaded, 'backbone': '${BACKBONE}', 'region': '${REGION}'})
 build_backbone(cfg.backbone, cfg)
 print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={cfg.n_layers}')
 "
@@ -160,8 +170,12 @@ print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={
 # --scored-run: this entry point feeds the bake-off decision, so the W1
 # commensurability gate (max_len == locked budget, eval_max_new >= it) fires at
 # the entrypoint — an opt-down recipe dies named, before any GPU-hour burns.
+# --no-compile (T7 verdict): torch.compile recompiled 22>10 with no plateau (62.6% overhead)
+# and graph-breaks on mamba's selective_scan/causal_conv1d — BOTH backbones run eager so the
+# (measured node-h, geometry-fidelity) comparison stays commensurable (architecture is the only
+# variable, never the compile path).
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
-  --devices 4 --no-build --scored-run --backbone "$BACKBONE" \
+  --devices 4 --no-build --no-compile --scored-run --backbone "$BACKBONE" \
   --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" \
   --config "$RUN_CONFIG" &
 SRUN_PID=$!
