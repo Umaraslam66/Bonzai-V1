@@ -45,6 +45,7 @@ from cfm.eval.bakeoff_decision import (
     CandidateScore,
     MemorizationCheck,
     MemorizationRefusal,
+    NoDecisiveWinnerRefusal,
     decide,
     decision_record,
     memorization_check,
@@ -176,6 +177,19 @@ def test_regurgitator_with_best_excess_is_refused_naming_memorization(tmp_path: 
     with pytest.raises(MemorizationRefusal, match="memoriz") as exc:
         pick_winner([memorizer, honest], n_reference_by_city=_N_REF)
     assert "memorizer" in str(exc.value)  # the refusal names the candidate
+
+
+def test_pick_winner_refuses_when_no_city_separates(tmp_path: Path) -> None:
+    """The S13 'doesn't separate' seam at pick_winner: two candidates with IDENTICAL generated
+    features score identical excess at every held-out city -> gap 0 everywhere -> no city clears
+    its floor -> pick_winner raises the NAMED NoDecisiveWinnerRefusal (route to §13), never
+    crowns one by accident."""
+    verified = load_verified_floor(_frozen_floor(tmp_path))
+    a = _candidate("a", _GEN_HONEST, verified)
+    b = _candidate("b", _GEN_HONEST, verified)  # same gen -> identical excess -> gap 0
+    with pytest.raises(NoDecisiveWinnerRefusal, match="no decisive winner") as exc:
+        pick_winner([a, b], n_reference_by_city=_N_REF)
+    assert exc.value.verdict.demoted  # the attached S13 verdict lists the demoted cities
 
 
 def test_inverted_pairing_mutation_would_crown_the_memorizer(tmp_path: Path) -> None:
