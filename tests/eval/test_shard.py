@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import pytest
 
-from cfm.eval.shard import assert_conservation, gather_in_order, partition_indices
+from cfm.eval.shard import (
+    assert_conservation,
+    gather_in_order,
+    indices_for_rank,
+    partition_indices,
+)
 
 # The real scored-eval per-city workloads (glasgow/eisenhuttenstadt/munich/krakow) + edges.
 CITY_COUNTS = [523, 579, 156, 601]
@@ -113,3 +118,18 @@ def test_gather_preserves_none_results() -> None:
 def test_partition_rejects_bad_world_size() -> None:
     with pytest.raises(ValueError, match="world_size"):
         partition_indices(10, 0)
+
+
+@pytest.mark.parametrize("n", [*CITY_COUNTS, 1859, 0, 7])
+def test_indices_for_rank_matches_partition_and_conserves(n: int) -> None:
+    # indices_for_rank(rank) must equal partition_indices()[rank], and the union over ranks
+    # must be the full conserved set (this is what the distributed sharded_eval relies on).
+    shards = partition_indices(n, WORLD)
+    rebuilt = [indices_for_rank(n, r, WORLD) for r in range(WORLD)]
+    assert rebuilt == shards
+    assert sorted(i for s in rebuilt for i in s) == list(range(n))
+
+
+def test_indices_for_rank_rejects_out_of_range_rank() -> None:
+    with pytest.raises(ValueError, match="rank"):
+        indices_for_rank(10, 4, 4)

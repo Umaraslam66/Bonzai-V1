@@ -21,6 +21,7 @@ a ragged-partition city) are deferred to $WORK recovery; the structural property
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -99,3 +100,48 @@ def gather_in_order(per_rank_results: list[list[tuple[int, T]]], n_items: int) -
     if missing:
         raise ValueError(f"gather: {len(missing)} cell(s) never reported, e.g. {missing[:8]}")
     return [s for s in slots]  # type: ignore[misc]  # all slots filled (checked above)
+
+
+def indices_for_rank(n_items: int, rank: int, world_size: int) -> list[int]:
+    """The global cell indices owned by ``rank`` (the round-robin shard ``rank``). Equivalent to
+    ``partition_indices(n_items, world_size)[rank]`` but without materializing the other shards."""
+    if not (0 <= rank < world_size):
+        raise ValueError(f"rank {rank} out of range [0, {world_size})")
+    return list(range(rank, n_items, world_size))
+
+
+def sharded_eval(
+    n_items: int,
+    score_one: Callable[[int], T],
+    *,
+    rank: int | None = None,
+    world_size: int | None = None,
+) -> list[T]:
+    """Run ``score_one(global_index)`` over all ``n_items`` cells, SHARDED across the active
+    ``torch.distributed`` group, and return the per-cell results in canonical global order on
+    EVERY rank.
+
+    Each rank scores only ``indices_for_rank(...)`` (so the node's 4 GPUs share the work, no
+    rank-0-only idle), then ``all_gather_object`` exchanges per-cell ``(global_index, result)``
+    pairs and :func:`gather_in_order` merges + enforces count-conservation (every cell exactly
+    once — the ragged-safe property the golden re-checks on the real run). Because the merge is
+    keyed on the GLOBAL index, the assembled sequence is identical regardless of how ranks
+    interleave — so downstream scores and the worst-case-city verdict are byte-deterministic.
+
+    ``torch.distributed`` is imported LAZILY here so this module stays torch-free for the local
+    unit tests; ``rank``/``world_size`` default to the live process group. ``score_one`` must be
+    keyed on the GLOBAL index (e.g. ``seed = base + i``) so a cell's result does not depend on
+    which rank computed it — exactly what golden tooth #1 (bit-identity vs rank-0) verifies."""
+    import torch.distributed as dist
+
+    if rank is None:
+        rank = dist.get_rank()
+    if world_size is None:
+        world_size = dist.get_world_size()
+    local: list[tuple[int, T]] = [
+        (i, score_one(i)) for i in indices_for_rank(n_items, rank, world_size)
+    ]
+    gathered: list[list[tuple[int, T]] | None] = [None] * world_size
+    dist.all_gather_object(gathered, local)
+    # every rank contributed (no None left); flatten None-typed slots away for the merge.
+    return gather_in_order([g for g in gathered if g is not None], n_items)
