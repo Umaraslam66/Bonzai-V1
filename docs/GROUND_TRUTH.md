@@ -40,8 +40,20 @@ Last reconciled: 2026-06-18.
 - Bake-off trains on **`eu-train-union`** (EU multiregion), **~624M unique tokens**
   (`TRAIN_TOKENS = 623,900,790`). Source: `src/cfm/eval/ladder.py` (`TRAIN_TOKENS`).
 - **Held-out cities** (excluded from training, evaluated against): **glasgow, eisenhüttenstadt,
-  munich, krakow** — per-city usable cells **523 / 579 / 156 / 601** (Σ = 1,859). Source:
-  multiregion holdout manifest (release `2026-04-15.0`) + `_union_datamodule` in `train_scaffold.py`.
+  munich, krakow** — per-city usable **TILES (NOT cells)**: **glasgow 523 / eisenhüttenstadt 579 /
+  munich 156 / krakow 601** (Σ = **1,859 usable tiles**). Source: `reports/2026-06-08-usable-n.yaml`
+  (`n_usable_tiles`) + the multiregion holdout manifest.
+  **CORRECTION (2026-06-19): 1,859 is the usable-TILE count, NOT a cell count.** Earlier docs that
+  said "1,859 held-out cells" conflated tiles with cells. The real held-out **CELL** count is
+  **~77,000** (`held_out_tokens 46,130,102 ÷ 596.7` avg cell-body tokens). A tile holds many cells.
+- **Held-out eval CELL SELECTION = the multiregion eval-set-gen sub-project — NOT built yet.** The
+  tile-level holdout manifest (`data/processed/eval_set/2026-04-15.0/multiregion/`, schema 2.0,
+  sha `ae4d5af…`, `_EVAL_SET_LOCKED`; eval-set-gen Phase B) selects which TILES are held out — it does
+  NOT select a power-sized CELL set. The realism eval (generate held-out cells → Lane-S → decide) is
+  GATED on that selection: power-sized + KS-resolvable per (zoning, road_skeleton, density, coastal)
+  4-tuple stratum at ≥min_n=50, frozen + sha-locked like the conditioning floor. The scored-matrix
+  budget MUST be re-derived at the true cell scale (the old ~1,008 GPU-h / ~20% assumed 1,859 = cells,
+  which is wrong).
 - **singapore is HISTORICAL ONLY** (Phase-1 de-risking). `ScaffoldConfig.region` is REQUIRED and
   fail-closed — there is no silent singapore default. Source: commit `dbdf3d5`,
   `src/cfm/training/config.py`.
@@ -89,4 +101,7 @@ speed. (Also: anything importing `mamba_ssm` needs the gcc-12 `libstdc++` `LD_PR
    on a real distributed run incl. a ragged city. CPU-safe core (`src/cfm/eval/shard.py`) + local
    tests DONE; run `sbatch scripts/eval_sharding_golden.sbatch`.
 
-Live boot doc: `docs/handoffs/2026-06-18-t9-gate-53m-locked.md`.
+Live boot doc: `docs/handoffs/2026-06-19-eval-set-gen-cell-selection-next.md`
+(supersedes `2026-06-18-bakeoff-t10-eval-wiring-open.md`; eval pipeline WIRED + verified — sharding,
+4-tuple gen keying, 29MB parquet floor-repro, memorization-halt; the ONE blocker is the held-out
+CELL SELECTION = eval-set-gen sub-project, NOT built — see §3).

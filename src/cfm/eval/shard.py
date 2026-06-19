@@ -1,9 +1,12 @@
 """4-GPU eval-sharding: pure partition + count-conservation + canonical gather.
 
-The scored bake-off eval generates ~1,859 held-out cells PER run (523/579/156/601 over the 4
-held-out EU cities). Post-train eval ran on rank 0 only (1 GPU works, the node's other 3 GPUs
-are allocated-and-billed but idle → 4x waste). Sharding the cells across the node's `world_size`
-GPUs recovers that ~4x.
+The scored bake-off eval generates held-out cells PER run, partitions them across the node's 4
+GPUs and gathers in canonical order. NOTE (2026-06-19): the held-out set is 1,859 usable TILES
+(523/579/156/601 over glasgow/eisenhüttenstadt/munich/krakow — `n_usable_tiles`), NOT 1,859 cells;
+the real held-out CELL count is ~77,000, and the power-sized cell SELECTION the eval actually
+generates is the eval-set-gen sub-project (NOT built). This module's sharding is independent of
+that count — it shards whatever N cells it is handed. Post-train eval ran on rank 0 only (1 GPU
+works, the other 3 allocated-and-billed but idle → 4x waste); sharding recovers that ~4x.
 
 This module is the **torch-free core** (so it builds and unit-tests on a laptop with no CUDA /
 no mamba, during the $WORK outage): the cell-partition, the count-conservation guard, and the

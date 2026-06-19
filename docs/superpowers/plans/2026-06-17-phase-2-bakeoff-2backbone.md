@@ -431,6 +431,15 @@ git commit -m "feat(bakeoff): mamba-hybrid non-scored GPU smoke + quantified com
 
 ## Phase 4 — Scored runs → verdict (GATED; re-planned from Phase 3 output)
 
+> ⚠️ **BLOCKER (2026-06-19) — the held-out eval CELL SOURCE is OPEN; the matrix cannot run.** Any
+> "1,859 held-out cells" in this Phase is the **tiles↔cells error**: 1,859 is the usable-TILE count
+> (glasgow 523 / eisenhüttenstadt 579 / munich 156 / krakow 601), the real held-out CELL count is
+> ~77,000, and **no power-sized cell SELECTION exists** (eval-set-gen, next sub-project — Phase B tile
+> manifest DONE, cell selection NOT built). The budget (~1,008 GPU-h / ~20%) assumed 1,859 = cells and
+> is VOID — re-derive at true cell scale. The eval pipeline (sharding, 4-tuple gen keying, parquet
+> reference, memorization-halt) is built + verified; only the cell selection blocks. Canonical:
+> GROUND_TRUTH §3; boot: `docs/handoffs/2026-06-19-eval-set-gen-cell-selection-next.md`.
+
 > **RESOLVED by Task 9 + Umar's word (2026-06-18, spec §1A):** the matrix is a **SINGLE fixed
 > scale ≈ 53M**, both backbones, `--no-compile`, **3 seeds per backbone, 4-GPU eval-sharding**.
 > NOT a scaling curve, NO ladder — `decision_basis` is fixed-scale by choice

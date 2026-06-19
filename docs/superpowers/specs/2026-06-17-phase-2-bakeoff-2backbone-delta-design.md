@@ -69,10 +69,20 @@ clean 1:7 Jamba; see handoff `2026-06-18-t9-gate-53m-locked.md`):**
 node-h" was a MISLABEL. `gen_seconds_per_token` is a **single-GPU** rate — post-train eval runs
 on **rank 0 only** (1 GPU works; the node's other 3 GPUs are allocated-and-billed but idle).
 
+> ⚠️ **CORRECTION (2026-06-19) — THIS BUDGET IS INVALID; re-derive at true cell scale.** The
+> projection below multiplies by "1,859 cells", but **1,859 is the usable-TILE count, NOT a cell
+> count** (`reports/2026-06-08-usable-n.yaml` `n_usable_tiles`: glasgow 523 / eisenhüttenstadt 579 /
+> munich 156 / krakow 601). The real held-out **CELL** count is **~77,000** (`held_out_tokens
+> 46,130,102 ÷ 596.7`). The eval does not score all 77k cells either — the held-out eval CELL
+> SELECTION (power-sized per 4-tuple stratum) is the **eval-set-gen** sub-project, NOT built. So the
+> ~1,008 GPU-h / ~20% figures are unfounded; the budget must be re-derived once eval-set-gen fixes
+> the cell count N. See GROUND_TRUTH §3 (canonical).
+
 **Budget re-scaled to ~53M** (interpolation from the 100M diagnostic — NOT a direct ~53M
 measurement): single-GPU per-token `0.026779 s/tok` (@100M) × ~53M scale (≈0.47–0.51) × **13,312**
-full-cap × **Σ per-city held-out 1,859 cells** (523/579/156/601, glasgow/eisenhüttenstadt/
-munich/krakow) × **2 backbones**, with the transformer full-context correction (tf ~×2.7,
+full-cap × **Σ per-city held-out 1,859 USABLE TILES** (523/579/156/601, glasgow/eisenhüttenstadt/
+munich/krakow — ⚠️ mistaken for *cells* here; see correction above) × **2 backbones**, with the
+transformer full-context correction (tf ~×2.7,
 mamba-hybrid ~×1.2 — attention/KV grows with the 13,312 context; an architecture-dependent
 eval-cost gap to carry into the verdict). **Per-seed eval ≈ 336 node-h wall-clock** (tf 233 +
 mamba 103):
