@@ -10,11 +10,13 @@ CUDA-kernel-sensitive backbone whose per-cell state-independence under sharding 
 to verify on real hardware, not assume — and then transformer-ar, so the golden is never
 transformer-only. For each backbone, two teeth + determinism:
 
-  TOOTH 1 (bit-identity): the per-cell generated token sequence from the 4-GPU sharded path is
-          identical, cell-for-cell, to the rank-0 serial baseline on the SAME model. (Generation
-          is keyed on the GLOBAL cell index — seed = BASE + i — so a cell's output must not
+  TOOTH 1 (bit-identity): the per-cell WIRED payload (generate+decode via the SAME score_cell
+          run_short uses — decoded blocks/geoms/flags, gen_seconds excluded) from the 4-GPU
+          sharded path is identical, cell-for-cell, to the rank-0 serial baseline on the SAME
+          model. (Keyed on the GLOBAL cell index — seed = BASE + i — so a cell's output must not
           depend on which rank/GPU computed it; for mamba this stresses cross-GPU kernel
-          determinism, which a pure-transformer run would never exercise.)
+          determinism a pure-transformer run would never exercise. This exercises the wired eval
+          path, not just the isolated sharded_eval primitive.)
   TOOTH 2 (paired count-conservation): on a RAGGED city count (523, NOT divisible by 4) every
           held-out cell is scored exactly once — no boundary cell dropped or double-counted.
           Aggregate equality alone is insufficient, so the count is checked structurally.
@@ -54,10 +56,14 @@ from cfm.eval.shard import (  # noqa: E402
     partition_indices,
     sharded_eval,
 )
-from cfm.inference.generate import generate_cell_tokens  # noqa: E402
 from cfm.models.backbone import subf_vocab_size  # noqa: E402
 from cfm.models.mamba_hybrid import MambaHybrid, MambaHybridConfig  # noqa: E402
 from cfm.models.micro_ar import MicroAR, MicroARConfig  # noqa: E402
+
+# Import the WIRED per-cell path (generate + decode) the scored eval uses, so this golden
+# verifies THAT function across GPUs — not a parallel copy. repo root on sys.path for scripts.*.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.train_scaffold import score_cell  # noqa: E402
 
 # --- fixed, deterministic golden inputs ---------------------------------------------------- #
 INIT_SEED = 20260618  # identical model init on every rank -> identical weights
@@ -115,13 +121,17 @@ def _run_teeth(model: torch.nn.Module, rank: int, world: int) -> dict[str, objec
     sharded passes (matched order); rank 0 additionally computes the serial baseline and returns
     the measurements. Non-zero ranks return None."""
 
-    def score_one(i: int) -> tuple[int, ...]:
-        # Per-cell generated tokens, keyed on the GLOBAL index i (NOT the rank).
+    def score_one(i: int) -> dict:
+        # The WIRED per-cell generate+decode (score_cell), keyed on the GLOBAL index i (NOT rank).
         with torch.no_grad():
-            toks = generate_cell_tokens(
-                model, prefix=PREFIX, max_new=MAX_NEW, seed=GEN_SEED_BASE + i, char_stats=None
+            return score_cell(
+                model, prefix_ids=PREFIX, char_stats=None, max_new=MAX_NEW, seed=GEN_SEED_BASE + i
             )
-        return tuple(toks)
+
+    def _det(p: dict) -> dict:
+        # The DETERMINISTIC per-cell score: decoded blocks/geoms/flags/n_tokens. gen_seconds is
+        # wall-clock (differs run-to-run), so it is excluded from every bit-identity comparison.
+        return {k: v for k, v in p.items() if k != "gen_seconds"}
 
     sharded = sharded_eval(N_RAGGED, score_one, rank=rank, world_size=world)  # collective 1
     # TOOTH 2 structural shape — every rank can assert the ragged partition conserves all cells.
@@ -129,16 +139,17 @@ def _run_teeth(model: torch.nn.Module, rank: int, world: int) -> dict[str, objec
     sharded2 = sharded_eval(N_RAGGED, score_one, rank=rank, world_size=world)  # collective 2
     if rank != 0:
         return None
-    # TOOTH 1 bit-identity vs the rank-0 serial baseline (all cells on one rank).
+    # TOOTH 1 bit-identity of the WIRED payload vs the rank-0 serial baseline (all cells on one
+    # rank): equal decoded output across GPUs is the wired-path equivalence claim (not just tokens).
     baseline = [score_one(i) for i in range(N_RAGGED)]
-    mism = [i for i in range(N_RAGGED) if sharded[i] != baseline[i]]
+    mism = [i for i in range(N_RAGGED) if _det(sharded[i]) != _det(baseline[i])]
     return dict(
         tooth1_mismatches=len(mism),
         tooth1_first=(mism[0] if mism else -1),
         tooth2_gathered=len(sharded),
         tooth2_expected=N_RAGGED,
         tooth2_holes=sum(1 for x in sharded if x is None),
-        determinism_ok=bool(sharded2 == sharded),
+        determinism_ok=bool([_det(x) for x in sharded2] == [_det(x) for x in sharded]),
     )
 
 

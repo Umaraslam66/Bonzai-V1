@@ -181,6 +181,38 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
     )
 
 
+def score_cell(
+    model: torch.nn.Module,
+    *,
+    prefix_ids: list[int],
+    char_stats: list[float] | None,
+    max_new: int,
+    seed: int,
+) -> dict:
+    """Generate + decode ONE cell, keyed on ``seed`` (= base + GLOBAL index) so the result is
+    rank-INDEPENDENT — the unit ``sharded_eval`` distributes and the eval-sharding INTEGRATION
+    golden re-verifies bit-identical across GPUs (it imports THIS function, so the golden
+    exercises the wired path, never a parallel copy). ``gen_seconds`` is wall-clock and is NOT
+    part of the deterministic per-cell score (the golden compares everything else)."""
+    from cfm.eval.emergence import sequence_has_building_tokens
+
+    _g0 = time.perf_counter()
+    tokens = generate_cell_tokens(
+        model, prefix=prefix_ids, max_new=max_new, seed=seed, char_stats=char_stats
+    )
+    gen_s = time.perf_counter() - _g0
+    cell_blocks = split_cell_into_features(tokens)
+    decoded = [(b, try_decode_block(b)) for b in cell_blocks]
+    return {
+        "gen_seconds": gen_s,  # wall-clock; NOT part of the deterministic score
+        "n_tokens": len(tokens),  # prefix-stripped tail = generated tokens
+        "has_building": sequence_has_building_tokens(tokens),
+        "n_attempted": len(cell_blocks),
+        "blocks": [b for b, d in decoded if d is not None],
+        "geoms": [d for b, d in decoded if d is not None],
+    }
+
+
 def _generate_and_score(
     model: ScaffoldLit,
     dm: CellDataModule,
@@ -212,7 +244,6 @@ def _generate_and_score(
     ``generated_length_cap`` defaults to ``max_new`` (one source: the cap IS the
     generation budget); pass it explicitly only to assert a different report value.
     """
-    from cfm.eval.emergence import sequence_has_building_tokens
 
     if generated_length_cap is None:
         generated_length_cap = max_new
@@ -239,30 +270,19 @@ def _generate_and_score(
     # n_tokens give the same single-GPU per-token rate as the serial path (only wall-clock shrinks).
     def _score_one(i: int) -> dict:
         example = sampled[i]
-        _g0 = time.perf_counter()
-        tokens = generate_cell_tokens(
+        # SHARED per-cell generate+decode (the eval-sharding integration golden imports
+        # score_cell, so the golden re-verifies THIS exact path, not a parallel copy). seed =
+        # cfg.seed + GLOBAL i -> rank-independent. Task 24b: char_stats are already ablation-
+        # applied by the datamodule (train/gen identity, like the prefix ids).
+        r = score_cell(
             model.model,
-            prefix=list(example.prefix_ids),
+            prefix_ids=list(example.prefix_ids),
+            char_stats=list(example.character_stats),
             max_new=max_new,
             seed=cfg.seed + i,
-            # Task 24b: the example's stats are ALREADY ablation-applied by the
-            # datamodule (train/gen identity by construction, like the prefix ids).
-            char_stats=list(example.character_stats),
         )
-        gen_s = time.perf_counter() - _g0
-        cell_blocks = split_cell_into_features(tokens)
-        decoded = [(b, try_decode_block(b)) for b in cell_blocks]
-        return {
-            "gen_seconds": gen_s,
-            "n_tokens": len(tokens),  # prefix-stripped tail = generated tokens
-            "has_building": sequence_has_building_tokens(tokens),
-            "n_attempted": len(cell_blocks),
-            # decoded blocks/geoms kept in lockstep; stratum carried per cell (real density
-            # bucket, -1 unknown). Picklable for all_gather_object across ranks.
-            "blocks": [b for b, d in decoded if d is not None],
-            "geoms": [d for b, d in decoded if d is not None],
-            "stratum": example.stratum,
-        }
+        r["stratum"] = example.stratum  # real density bucket (-1 unknown); carried per cell
+        return r
 
     import torch.distributed as dist
 
