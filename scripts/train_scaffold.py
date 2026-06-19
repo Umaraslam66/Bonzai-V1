@@ -632,6 +632,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-steps", type=int, default=None, help="override ScaffoldConfig.max_steps"
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="ScaffoldConfig.seed (overrides the --config YAML / default). The bake-off matrix "
+        "loops 3 distinct seeds per backbone; the seed drives ALL run RNG — model init "
+        "(L.seed_everything before build), the train/val tile split, and the data sampler.",
+    )
     parser.add_argument("--max-len", type=int, default=None, help="override cell-token budget")
     parser.add_argument(
         "--shard-cache",
@@ -750,6 +758,7 @@ def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
     overrides.update({"devices": args.devices, "accelerator": _accelerator_for(args.devices)})
     for flag, key in [
         ("backbone", "backbone"),
+        ("seed", "seed"),
         ("max_steps", "max_steps"),
         ("max_len", "max_len"),
         ("d_model", "d_model"),

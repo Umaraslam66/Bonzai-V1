@@ -11,8 +11,15 @@
 # any 1B job. Discovering a broken resume mid-1B-run costs ~159 node-h.
 #
 # Submit with:
-#   BACKBONE=<name> SCALE=<30M|100M|300M|1B> REGION=<region> RELEASE=<release> \
-#     [TRAIN_SET=single|eu-train-union] sbatch scripts/bakeoff_run.sbatch
+#   BACKBONE=<name> SCALE=<30M|100M|300M|1B|53M> REGION=<region> RELEASE=<release> \
+#     [SEED=<int>] [TRAIN_SET=single|eu-train-union] sbatch scripts/bakeoff_run.sbatch
+# SEED (optional) overrides the per-run YAML's seed via --seed; it drives ALL run RNG (model
+# init, train/val tile split, data sampler) so each seed is a distinct run + checkpoint dir.
+# The Phase-2 bake-off matrix loops 3 distinct seeds per backbone over the 2 fixed-scale YAMLs
+# (6 scored runs):
+#   for s in 7 13 23; do for bb in transformer-ar mamba-hybrid; do \
+#     SEED=$s BACKBONE=$bb SCALE=53M REGION=krakow RELEASE=2026-04-15.0 \
+#       TRAIN_SET=eu-train-union sbatch scripts/bakeoff_run.sbatch; done; done
 # TRAIN_SET defaults to single (per-region corpus). eu-train-union consumes the
 # Task-8 per-city manifests (built by build_multiregion_train_shards.sbatch) and
 # NEVER rebuilds them -- the preamble only asserts they exist.
@@ -47,8 +54,11 @@ mkdir -p logs
 : "${REGION:?set REGION (e.g. krakow)}"
 : "${RELEASE:?set RELEASE (e.g. 2026-04-15.0)}"
 : "${TRAIN_SET:=single}"
+# SEED (optional): overrides the per-run YAML seed via --seed; empty => the YAML/config seed stands.
+SEED_ARG=""
+[ -n "${SEED:-}" ] && SEED_ARG="--seed ${SEED}"
 echo "=== job context ==="
-echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) backbone=$BACKBONE scale=$SCALE region=$REGION release=$RELEASE train_set=$TRAIN_SET"
+echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) backbone=$BACKBONE scale=$SCALE region=$REGION release=$RELEASE train_set=$TRAIN_SET seed=${SEED:-<yaml>}"
 
 # --- F8 verified end-state: JOB_DONE is a TRUSTED marker (future sessions and the
 # orchestration believe it), so it must follow PROOF the run's artifacts exist on disk,
@@ -177,7 +187,7 @@ print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --no-compile --scored-run --backbone "$BACKBONE" \
   --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" \
-  --config "$RUN_CONFIG" &
+  ${SEED_ARG} --config "$RUN_CONFIG" &
 SRUN_PID=$!
 wait "$SRUN_PID"
 
