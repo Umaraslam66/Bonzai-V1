@@ -1,4 +1,8 @@
-# LIVE BOOT DOC — Phase-2 bake-off: eval pipeline WIRED + verified; the ONE blocker is the held-out CELL SELECTION (eval-set-gen, next sub-project) (2026-06-19)
+# LIVE BOOT DOC — Phase-2 bake-off: eval pipeline WIRED + verified; the ONE blocker is the held-out CELL SAMPLER (Lane-S realism eval, next sub-project) (2026-06-19; lane-framing corrected 2026-06-20)
+
+> **Filename note:** the filename still says "eval-set-gen-cell-selection"; the lane was corrected
+> 2026-06-20 — the open item is the **Lane-S realism eval's cell SAMPLER**, NOT a resume of the
+> 2026-06-08 eval-set-gen (per-tile coherence) plan. Content below is authoritative; GROUND_TRUTH §3 wins.
 
 Supersedes `docs/handoffs/2026-06-18-bakeoff-t10-eval-wiring-open.md`. Branch
 **`phase-2-bakeoff-2backbone`**, UNMERGED. **Do NOT launch a scored run or merge without Umar's word.**
@@ -39,24 +43,40 @@ On `phase-2-bakeoff-2backbone` (commits up to this doc), all teeth-verified:
   the locked floor EXACT (265/265 vs sha `95abb88`).
 - **Memorization-first hard-halt WIRED + PROVEN** (9/9 teeth; refuses a best-excess memorizer by name).
 
-## 3. THE ONE OPEN ITEM — held-out CELL SELECTION (the next sub-project: eval-set-gen, resume)
-eval-set-gen **Phase B (tile manifest) is DONE + locked**; resume it at the **cell selection** for the
-realism eval. Design constraints (carry into the sub-project):
-- **Power-sized + KS-resolvable** per **(zoning, road_skeleton, cell_density, coastal) 4-tuple stratum**
-  at **≥ min_n = 50** generated features/stratum (so a `NO_DECISIVE_WINNER` is a true near-tie, never an
-  under-sampling artifact). This is the eval-set-gen's reason to exist.
+## 3. THE ONE OPEN ITEM — held-out CELL SAMPLER (next sub-project: the Lane-S realism eval's down-sampler)
+**LANE CORRECTION (2026-06-20):** this is **NOT** a continuation of the 2026-06-08 eval-set-gen plan.
+That plan built the SEPARATE **per-tile coherence** lane (shuffle-gap, per-city). The open item feeds the
+**Lane-S / conditioning-floor** lane (`conditioning_floor.py` + `bakeoff_decision.py` + `gen_realism.py`).
+The eval-set-gen tile manifest (Phase B) is its INPUT (which tiles are held out), not the thing to resume.
+
+The real problem is a **budget-bounded stratified DOWN-sampler** (NOT a selector-from-scratch): the ~77k
+held-out cells ALREADY cover the strata; the job is to pick a bounded subset to generate (the matrix is
+6 runs × per-city generation) that keeps **≥ min_n = 50 generated features per floored 4-tuple stratum**.
+Design constraints (carry into the sub-project — do NOT scope here):
+- **Keep ≥ min_n = 50 gen features** per **(zoning, road_skeleton, cell_density, coastal) 4-tuple
+  stratum** (so a `NO_DECISIVE_WINNER` is a true near-tie, not an under-sampling artifact). The **265
+  floored strata are proven feasible** — munich (thinnest, 156 tiles) floors 61; the real side already
+  clears min_n=50 there, so the sampler need only preserve coverage while bounding generation cost.
 - **Frozen + sha-locked**, write-once, like the conditioning floor (`95abb88`) — a `_*_LOCKED` marker +
   a manifest the eval reads; reproducible from a committed regen script.
-- **4 held-out cities, corrected counts** (523/579/156/601 tiles → a defined CELL set ⊂ ~77k).
-- **Re-derive the scored-matrix budget** at the selected N (the ~20% figure is void).
-- Then the held-out eval wiring is **mechanical** (all built): generate the selected held-out cells →
+- **4 held-out cities, corrected counts** (523/579/156/601 usable TILES → a defined CELL subset ⊂ ~77k).
+- **Re-derive the scored-matrix budget** at the chosen N (the ~20% figure is void).
+- Then the held-out eval wiring is **mechanical** (all built): generate the sampled held-out cells →
   `gen_realism.gen_features_by_city` (4-tuple) → `lane_s_excess` vs the parquet → `decide`
   (memorization-first → power-gated worst-case → winner / `NO_DECISIVE_WINNER`).
 
 ## 4. STANDING GATES
 - **No scored run, no merge without Umar's word.** The 6 matrix YAMLs are **gated drafts** (untracked,
   corrected comments, `eval_cells:1859` flagged PLACEHOLDER/DO-NOT-RUN) — the matrix is gated on the
-  cell selection above.
+  cell sampler above.
+- **DEPLOY GATE (2026-06-20):** Leonardo is **7 commits behind** (HEAD `d8ea038` vs Mac `46ea757`); the
+  wired path is present there only as LOOSE uncommitted edits and **`gen_realism.py` is not deployed at
+  all**. The GPU markers are real, but **re-deploy Leonardo to the Mac's committed HEAD before any scored
+  run** (full wired path incl. `gen_realism`, git-coherent).
 - **GROUND_TRUTH §3 wins** on any held-out-count question. Verify counts at the precondition with a
   unit-correct method (tiles vs cells) — this blocker was exactly that lesson.
+- **Auto-summary memory is NOT a verified source.** claude-mem obs 8262 ("cell-selection BUILT") and 8233
+  ("cells" for tiles) are WRONG — haiku auto-summarizer; 8262 inverted its own Explore source. The store is
+  read-only in worker runtime so they can't be deleted; verify against source / GROUND_TRUTH §3
+  (see memory `feedback_auto_summary_not_verified_source`).
 - Leonardo ops unchanged (see `leonardo_torch_import_and_fs_health`).
