@@ -39,6 +39,7 @@ from cfm.eval.holdout.paths import (
     holdout_manifest_for_region,
     multiregion_holdout_manifest_path,
 )
+from cfm.eval.shard import sharded_eval
 from cfm.eval.slice_metrics import slice_eval
 from cfm.inference.generate import generate_cell_tokens, try_decode_block
 from cfm.training.config import ScaffoldConfig
@@ -229,19 +230,15 @@ def _generate_and_score(
     random.Random(cfg.seed).shuffle(order)
     sampled = [val[order[i % len(order)]] for i in range(n_cells)]
 
-    blocks: list[list[int]] = []
-    geoms: list[dict] = []
-    strata: list[int] = []
-    n_attempted = 0
-    n_cells_with_building_tokens = 0
-    # Bake-off Task 8: price GENERATION (the binding scored-eval cost) on its own —
-    # accumulate ONLY the wall-clock inside generate_cell_tokens (not the decode/score
-    # that follows) and the number of tokens actually GENERATED. generate_cell_tokens
-    # returns the prefix-stripped tail, so len(tokens) counts generated tokens, never
-    # the conditioning prefix. perf_counter is monotonic (don't reuse outer time.time()).
-    gen_seconds = 0.0
-    n_tokens_generated = 0
-    for i, example in enumerate(sampled):
+    # Bake-off Task 11: SHARD generation+decode across the node's ranks (the budget lever:
+    # rank-0-serial billed 4 GPUs for 1 GPU's work). ``_score_one`` is keyed on the GLOBAL cell
+    # index (seed = cfg.seed + i) so a cell's result is rank-INDEPENDENT — the property the
+    # eval-sharding golden verifies; ``gather_in_order`` reassembles per-cell results in canonical
+    # global order on EVERY rank, so downstream scoring is byte-deterministic. Generation timing
+    # is still per-cell single-GPU (perf_counter inside _score_one) so the SUMMED gen_seconds /
+    # n_tokens give the same single-GPU per-token rate as the serial path (only wall-clock shrinks).
+    def _score_one(i: int) -> dict:
+        example = sampled[i]
         _g0 = time.perf_counter()
         tokens = generate_cell_tokens(
             model.model,
@@ -252,18 +249,47 @@ def _generate_and_score(
             # datamodule (train/gen identity by construction, like the prefix ids).
             char_stats=list(example.character_stats),
         )
-        gen_seconds += time.perf_counter() - _g0
-        n_tokens_generated += len(tokens)  # prefix-stripped tail = generated tokens
-        if sequence_has_building_tokens(tokens):
-            n_cells_with_building_tokens += 1
+        gen_s = time.perf_counter() - _g0
         cell_blocks = split_cell_into_features(tokens)
-        n_attempted += len(cell_blocks)
-        for block in cell_blocks:
-            decoded = try_decode_block(block)
-            if decoded is not None:
-                blocks.append(block)
-                geoms.append(decoded)
-                strata.append(example.stratum)  # real stratum: density bucket (-1 unknown)
+        decoded = [(b, try_decode_block(b)) for b in cell_blocks]
+        return {
+            "gen_seconds": gen_s,
+            "n_tokens": len(tokens),  # prefix-stripped tail = generated tokens
+            "has_building": sequence_has_building_tokens(tokens),
+            "n_attempted": len(cell_blocks),
+            # decoded blocks/geoms kept in lockstep; stratum carried per cell (real density
+            # bucket, -1 unknown). Picklable for all_gather_object across ranks.
+            "blocks": [b for b, d in decoded if d is not None],
+            "geoms": [d for b, d in decoded if d is not None],
+            "stratum": example.stratum,
+        }
+
+    import torch.distributed as dist
+
+    if dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
+        # COLLECTIVE: every rank MUST call (all_gather_object inside). run_short places the model
+        # on every rank's GPU and runs this BEFORE the rank-0-only report gate.
+        per_cell = sharded_eval(n_cells, _score_one)
+    else:
+        per_cell = [_score_one(i) for i in range(n_cells)]  # serial: CPU test / single device
+
+    blocks: list[list[int]] = []
+    geoms: list[dict] = []
+    strata: list[int] = []
+    n_attempted = 0
+    n_cells_with_building_tokens = 0
+    gen_seconds = 0.0
+    n_tokens_generated = 0
+    for r in per_cell:
+        gen_seconds += r["gen_seconds"]
+        n_tokens_generated += r["n_tokens"]
+        n_attempted += r["n_attempted"]
+        if r["has_building"]:
+            n_cells_with_building_tokens += 1
+        for block, geom in zip(r["blocks"], r["geoms"], strict=True):
+            blocks.append(block)
+            geoms.append(geom)
+            strata.append(r["stratum"])
     metrics = slice_eval(
         blocks,
         geoms,
@@ -525,20 +551,15 @@ def run_short(
     trainer.fit(lit, dm, ckpt_path=ckpt_path)
     fit_seconds = time.time() - t0
 
-    # Eval + report on the global-zero rank only: the model is DDP-synced, so rank 0
-    # is representative, and only one process must write the report file.
-    if not trainer.is_global_zero:
-        return {"trained_steps": int(trainer.global_step)}
-    # Eval generation must run on the GPU: mamba-hybrid's kernels (causal_conv1d /
-    # selective_scan) are CUDA-only and RAISE on a CPU tensor. Lightning's DDP teardown
-    # moves the model to CPU after fit, so re-place it on the training device before the
-    # rank-0 generation. transformer-ar tolerated CPU eval (slow but worked, masking this);
-    # mamba does not. Guarded on cfg.accelerator so the CPU test path stays CPU.
+    # Eval generation is SHARDED across ALL ranks (Task 11): the all_gather_object inside
+    # _generate_and_score is COLLECTIVE, so every rank must place the model on its GPU and
+    # participate BEFORE the rank-0-only report gate. (mamba kernels causal_conv1d / selective_scan
+    # are CUDA-only and RAISE on a CPU tensor; Lightning's DDP teardown left the model on CPU, so
+    # re-place it on every rank. transformer-ar tolerated CPU eval, masking this; mamba does not.)
     if cfg.accelerator == "gpu" and torch.cuda.is_available():
         lit.to("cuda")
-    cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step), params_m=params_m)
-    # Time the eval EXPLICITLY: autoregressive generation is the binding bake-off cost,
-    # so price it rather than assume it is free (the eval-cost reframe).
+    # Time the eval EXPLICITLY (wall-clock): autoregressive generation is the binding bake-off
+    # cost; with sharding the wall-clock is ~world_size-fold below the SUMMED single-GPU gen time.
     e0 = time.time()
     metrics = _generate_and_score(
         lit,
@@ -557,6 +578,11 @@ def run_short(
         floor_regime_cell_length=DEFAULT_MAX_CELL_TOKENS,
     )
     eval_seconds = time.time() - e0
+    # Report on the global-zero rank only: the gathered per-cell metrics are identical on every
+    # rank (gather_in_order returns the full list to all), and only one process must write.
+    if not trainer.is_global_zero:
+        return {"trained_steps": int(trainer.global_step)}
+    cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step), params_m=params_m)
     cost["eval_seconds"] = round(eval_seconds, 1)
     cost["eval_node_h"] = round(eval_seconds / 3600.0, 4)
     cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, cfg.eval_cells), 6)
