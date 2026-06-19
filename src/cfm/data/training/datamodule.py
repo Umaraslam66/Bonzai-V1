@@ -391,6 +391,18 @@ class CellDataModule(L.LightningDataModule):
             expected_schema_version=self._expected_holdout_schema,  # default "2.0"
             manifest_path=self._holdout_manifest,  # F9: sha + _EVAL_SET_LOCKED verified at read
         )  # raises on any leak across the union
+        # PROVENANCE (explicit, not inferred): run_holdout_audit returns ONLY on a clean
+        # union (it RAISES on any leak/absent-lineage), so reaching this line IS the PASS.
+        # Log it on every rank so the run's own log carries the held-out-exclusion proof
+        # directly, rather than a downstream "the job completed, therefore the audit passed"
+        # inference.
+        logger.info(
+            "holdout audit PASS: no held-out leak across %d reachable artifacts vs %s "
+            "(schema=%s; sha + _EVAL_SET_LOCKED verified at read)",
+            len(reachable),
+            self._holdout_manifest,
+            self._expected_holdout_schema,
+        )
 
         # Audit passed: build per-city shards from the SAME tile set each manifest
         # lists (the manifest is the authoritative per-city training inventory), UNION
