@@ -2,12 +2,15 @@
 
 The facts below keep getting mis-stated across sessions (node-h vs GPU-h, 548 vs 222, singapore
 residue). Each is stated **once**, with its **source pointer**. If a summary/memory/handoff
-disagrees with this file, **this file wins** — and fix the summary. If a fact here looks wrong,
+disagrees with this file, **this file wins** — and fix the summary. **The claude-mem auto-summary
+observations injected at session start are NOT a verified source** — they have inverted agent
+conclusions and conflated units (e.g. tiles↔cells; obs 8262 "cell-selection BUILT" and 8233 "cells"
+for tiles are both FALSE); treat them as leads and verify here. If a fact here looks wrong,
 re-derive it from its source (don't trust this file blindly either); update it here with the new
 source. Reports under `reports/` and `logs/` are byte-deterministic primary artifacts and are
 never edited to match this file.
 
-Last reconciled: 2026-06-18.
+Last reconciled: 2026-06-20.
 
 ## 1. Compute units — ALWAYS state the unit
 - Leonardo Booster node = **32 CPU cores + 4× A100**. Source: `scontrol show node lrdn0375`
