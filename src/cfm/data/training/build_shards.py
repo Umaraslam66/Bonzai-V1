@@ -32,6 +32,7 @@ from shapely import wkb as shapely_wkb
 from cfm.data.io import canonicalize_yaml
 from cfm.data.sub_d.enums import FeatureClass, SlotKind
 from cfm.data.sub_d.io import read_macro_core_parquet
+from cfm.data.sub_f.vocab import CELL_END_TOKEN_ID
 from cfm.data.sub_g.readers import read_sub_f_cells
 from cfm.data.training.atomic_io import atomic_write_text
 from cfm.data.training.conditioning import CHARACTER_STAT_CHANNELS
@@ -508,7 +509,12 @@ def build_shards_in_memory(
                 cell_i=ci,
                 cell_j=cj,
                 cell_slot_index=ci * 8 + cj,
-                tokens=tuple(toks),
+                # cell-EOS: terminate every NON-EMPTY cell with <cell_end>=260 so the
+                # model learns to self-terminate. The `if toks` guard is mandatory:
+                # build_shards_in_memory builds a CellPayload for EVERY cell incl.
+                # empties (the empty-drop is downstream in flatten), and a blanket
+                # append would turn () into (260,) — Tooth 2 asserts empties stay ().
+                tokens=(*toks, CELL_END_TOKEN_ID) if toks else (),
                 cell_density_bucket=density.get((ci, cj)),
                 boundary_contracts=(),  # provisioned-empty (slice unread; see docstring)
                 character_stats=char_by_cell.get((ci, cj), absent_stats),
