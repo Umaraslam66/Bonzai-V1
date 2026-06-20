@@ -348,7 +348,16 @@ def test_sentinel_inventory_reserves_dataloader_only_ids(sentinel_inventory):
     }
     actual = {slot["token"]: slot["id"] for slot in dataloader["slots"]}
     assert actual == expected
-    assert all(slot["on_disk"] is False for slot in dataloader["slots"])
+    # cell-EOS: 256-259 stay on_disk=false; <cell_end> 260 is flipped on_disk=true
+    # (loaded into the on-disk vocab as family=terminator).
+    on_disk_by_token = {slot["token"]: slot["on_disk"] for slot in dataloader["slots"]}
+    assert on_disk_by_token == {
+        "<pad>": False,
+        "<eos>": False,
+        "<bos>": False,
+        "<cell_start>": False,
+        "<cell_end>": True,
+    }
 
 
 def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
@@ -416,20 +425,22 @@ def test_sentinel_inventory_has_locked_bp2_and_bp7_blocks(sentinel_inventory):
 def test_load_sub_f_vocab_returns_all_on_disk_families_in_id_order():
     """Vocab loader returns every on-disk slot in ascending token_id order.
 
-    Families: BP1 semantic + BP4 unknown + BP2 encoding_primitive + structural + BP7.
-    On-disk excludes dataloader sentinels (256-260 per sentinel_inventory.yaml
-    dataloader_sentinels block, on_disk=false). Total on-disk count is the sum
+    Families: BP1 semantic + BP4 unknown + BP2 encoding_primitive + structural
+    + terminator + BP7.
+    On-disk excludes dataloader sentinels 256-259 (<pad>/<eos>/<bos>/<cell_start>,
+    on_disk=false); <cell_end> 260 IS on-disk (family=terminator) per the cell-EOS
+    change. Total on-disk count is the sum
     of BP1 used (127) + BP4 used (28) + BP2 encoding_primitive used (521 after the
     Halt-2 revisit 2026-05-29 widened direction 48->360; = 96 anchor + 360 direction
     + 65 magnitude; the retired direction_v1_deprecated 48 is NOT emitted) +
     structural sentinels (2 - <feature>/<feature_end> at 509/510, consumed
     from BP2 reserved_v2_headroom front per pre-flight Assertion 4) +
-    BP7 used (8) = 686 slots.
+    terminator (1 - <cell_end> at 260) + BP7 used (8) = 687 slots.
     """
     from cfm.data.sub_f.vocab import load_sub_f_vocab
 
     slots = load_sub_f_vocab()
-    assert len(slots) == 686, f"expected 686 on-disk slots; got {len(slots)}"
+    assert len(slots) == 687, f"expected 687 on-disk slots; got {len(slots)}"
 
     # Strictly ascending token_id (per `feedback_pythonhashseed_dict_iteration_test`
     # the loader must produce deterministic order, not hash-order).
@@ -442,6 +453,7 @@ def test_load_sub_f_vocab_returns_all_on_disk_families_in_id_order():
     bp4 = [s for s in slots if s.family == "unknown"]
     bp2 = [s for s in slots if s.family == "encoding_primitive"]
     structural = [s for s in slots if s.family == "structural"]
+    terminator = [s for s in slots if s.family == "terminator"]
     bp7 = [s for s in slots if s.family == "boundary_reference"]
     assert len(bp1) == 127
     assert len(bp4) == 28
@@ -449,7 +461,8 @@ def test_load_sub_f_vocab_returns_all_on_disk_families_in_id_order():
     # (was 209 at direction=48). The retired direction_v1_deprecated (396-443) is
     # NOT emitted into the encoding_primitive family.
     assert len(bp2) == 521
-    assert len(structural) == 2  # <feature> + <feature_end>
+    assert len(structural) == 2  # <feature> + <feature_end> (cell-EOS: STAYS 2)
+    assert len(terminator) == 1  # <cell_end> 260 — its own family, NOT structural
     assert len(bp7) == 8
 
     # ID-range invariants from sentinel_inventory.yaml.
@@ -465,23 +478,49 @@ def test_load_sub_f_vocab_returns_all_on_disk_families_in_id_order():
     )
     assert not any(396 <= s.token_id <= 443 for s in bp2), "deprecated 396-443 must NOT be emitted"
     assert {s.token_id for s in structural} == {509, 510}
+    # cell-EOS: <cell_end> 260 lives in its OWN family, so the structural-range
+    # invariant above stays honest (folding 260 into structural would force a
+    # widened range that silently admits 261-508).
+    assert {s.token_id for s in terminator} == {260}
     assert all(1500 <= s.token_id <= 1507 for s in bp7)
 
     # Structural family carries the named tags exactly.
     structural_tags = {s.tag: s.token_id for s in structural}
     assert structural_tags == {"<feature>": 509, "<feature_end>": 510}
+    # Terminator family carries exactly <cell_end>.
+    assert {s.tag: s.token_id for s in terminator} == {"<cell_end>": 260}
 
 
-def test_load_sub_f_vocab_no_dataloader_sentinels_on_disk():
-    """Per sentinel_inventory.yaml: <pad>=256, <eos>=257, <bos>=258, <cell_start>=259,
-    <cell_end>=260 are on_disk=false. They must NOT appear in load_sub_f_vocab()."""
+def test_load_sub_f_vocab_only_256_259_excluded():
+    """Per sentinel_inventory.yaml: <pad>=256, <eos>=257, <bos>=258, <cell_start>=259
+    are on_disk=false and must NOT appear in load_sub_f_vocab(). cell-EOS flips
+    <cell_end>=260 to on_disk=true, so 260 MUST now appear (family=terminator)."""
     from cfm.data.sub_f.vocab import load_sub_f_vocab
 
     on_disk_ids = {s.token_id for s in load_sub_f_vocab()}
-    for sentinel_id in (256, 257, 258, 259, 260):
+    for sentinel_id in (256, 257, 258, 259):
         assert sentinel_id not in on_disk_ids, (
             f"dataloader sentinel id={sentinel_id} must NOT be in on-disk vocab"
         )
+    assert 260 in on_disk_ids, "<cell_end> 260 must be on-disk after the cell-EOS change"
+
+
+def test_cell_end_reuse_does_not_widen_head_or_conditioning_base():
+    """cell-EOS reuses id 260, which is BELOW the max on-disk id (1507), so it must
+    NOT change the sub-F head width nor the conditioning id-block base. The locked
+    53M param-match rests on this (head = nn.Linear(d_model, subf_vocab_size())).
+    A guard, not a red-green: it would fail only if 260 were a NEW id above 1507.
+
+    Asserted torch-free: ``subf_vocab_size()`` (cfm.models.backbone) is, by
+    definition, ``max(vocab_tag_to_id().values()) + 1`` — so the vocab-side
+    expression below IS the head width, with no training-stack import. The
+    torch-side ``subf_vocab_size()`` and the 53M param count are exercised by
+    ``tests/models/test_bakeoff_param_match.py`` in the Leonardo torch env."""
+    from cfm.data.sub_f.vocab import vocab_tag_to_id
+    from cfm.data.training.conditioning import CONDITIONING_ID_BASE
+
+    assert max(vocab_tag_to_id().values()) + 1 == 1508  # == subf_vocab_size()
+    assert CONDITIONING_ID_BASE == 1508
 
 
 def test_load_sub_f_vocab_tag_lookup_round_trips():
