@@ -15,13 +15,14 @@ from __future__ import annotations
 import pytest
 import torch
 
+from cfm.data.sub_f.vocab import CELL_END_TOKEN_ID
 from cfm.data.training.conditioning import (
     CONDITIONING_ID_BASE,
     CONDITIONING_PREFIX_LEN,
     build_value_bearing_prefix,
     conditioning_id_span,
 )
-from cfm.models.micro_ar import MicroAR, MicroARConfig
+from cfm.models.micro_ar import _IGNORE, MicroAR, MicroARConfig
 
 # Real sub-F prediction range (sub-F ids span 0..1507 -> 1508). n_cond=8 conditioning
 # id-block. Embedding table covers n_subf_vocab + n_cond = 1516; head = 1508.
@@ -68,6 +69,44 @@ def test_loss_masks_right_padding_via_seq_len():
     # ex0: prefix 8, real length 14 (6 padding); ex1: prefix 8, real length 20 (no pad)
     out = m.training_loss(tokens, prefix_len=torch.tensor([8, 8]), seq_len=torch.tensor([14, 20]))
     assert out.n_supervised_positions == (14 - 8) + (20 - 8)  # 6 + 12 = 18
+
+
+def test_loss_supervises_the_cell_end_target(monkeypatch):
+    """Tooth 3 (cell-EOS, spec E — NO mask-code change): a cell whose body ends
+    (..., 510, 260) trains the model to emit 260. The next-token target at the
+    final-510 position is 260 AND supervised (counted, contributes to CE); the 260's
+    own next-target (the first pad) is masked. Proves the existing seq_len-relative
+    mask already covers 260 with zero change to scaffold_backbone.
+
+    A spy wraps the REAL cross_entropy to read the production-built target tensor
+    (the masking under test is production code; the spy only observes it)."""
+    import torch.nn.functional as F
+
+    m = MicroAR(_cfg())
+    pad = 256
+    # [c0 c1 c2 | b0 b1 509 x 510 260 | pad pad pad]  prefix=3, real length 9 (260 @ idx 8)
+    row = [0, 1, 2, 30, 31, 509, 42, 510, CELL_END_TOKEN_ID, pad, pad, pad]
+    ids = torch.tensor([row])
+
+    captured: dict[str, torch.Tensor] = {}
+    real_ce = F.cross_entropy
+
+    def spy_ce(input, target, *a, **k):
+        captured["target"] = target.clone()
+        return real_ce(input, target, *a, **k)
+
+    monkeypatch.setattr(F, "cross_entropy", spy_ce)
+    out = m.training_loss(ids, prefix_len=torch.tensor([3]), seq_len=torch.tensor([9]))
+
+    # target = ids[:, 1:] flattened (B=1) -> alignment index i predicts ids[i+1].
+    tgt = captured["target"]
+    # (a) final-510 (ids idx 7) -> predicts ids[8]=260; supervised, not ignored.
+    assert int(tgt[7]) == CELL_END_TOKEN_ID
+    assert int(tgt[7]) != _IGNORE
+    # (b) the 260 (ids idx 8) -> its next-target (first pad) is masked.
+    assert int(tgt[8]) == _IGNORE
+    # count: supervised = seq_len - prefix_len = 9 - 3 = 6 (the 510->260 IS among them).
+    assert out.n_supervised_positions == 9 - 3
 
 
 def test_logits_cover_only_subf_predict_range():
