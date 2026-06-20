@@ -47,8 +47,18 @@ Last reconciled: 2026-06-20.
   munich 156 / krakow 601** (Σ = **1,859 usable tiles**). Source: `reports/2026-06-08-usable-n.yaml`
   (`n_usable_tiles`) + the multiregion holdout manifest.
   **CORRECTION (2026-06-19): 1,859 is the usable-TILE count, NOT a cell count.** Earlier docs that
-  said "1,859 held-out cells" conflated tiles with cells. The real held-out **CELL** count is
-  **~77,000** (`held_out_tokens 46,130,102 ÷ 596.7` avg cell-body tokens). A tile holds many cells.
+  said "1,859 held-out cells" conflated tiles with cells. A tile holds many cells.
+  **COUNTED (2026-06-20, job `47473524`, `_heldout_cell_count.py`): 94,520 distinct non-empty
+  (conditionable) held-out cells** over the floor's manifest tile set (**1,952** held-out tiles —
+  glasgow 549 / eisenhüttenstadt 616 / munich 171 / krakow 616, missing-cells=0; this is the manifest
+  `tiles[]` the floor reads, a SUPERSET of the 1,859 "usable" filter). The earlier **~77,000 estimate
+  (`46,130,102 ÷ 596.7`) UNDERCOUNTED** — measured avg cell-body ≈ **488 tok**, not 596.7. Distinct
+  cells per `(zoning, skeleton, density, coastal)` stratum: **78 global 4-tuples / 185 `(city,stratum)`
+  units** (the floor's keying). **Thin-strata is LIVE at cell granularity: 82/185 `(city,stratum)`
+  (44%) hold < 50 distinct cells (95 < 75, 103 < 100); 27/78 global < 50.** This is NOT the
+  feature-level picture (the floor's `min_n=50` is on FEATURES, where 0/312 held-out strata-metrics fall
+  below 50 — a cell emits many features). Whether the sampler floors on cells or generated-features is
+  the open {N / thin-strata} call. Keying code: `conditioning_discrimination.py:454-465`.
 - **Held-out eval CELL SAMPLER = the next sub-project — NOT built.** The realism eval (generate held-out
   cells → `gen_realism` 4-tuple → Lane-S vs the conditioning floor → `decide`) needs a budget-bounded
   **stratified DOWN-sampler** over the ~77k held-out cells that keeps **≥ min_n=50 generated features per
@@ -63,6 +73,14 @@ Last reconciled: 2026-06-20.
   it does NOT select cells; it is the sampler's INPUT. Frozen + sha-locked write-once like the floor. The
   scored-matrix budget MUST be re-derived at the chosen N (the old ~1,008 GPU-h / ~20% assumed 1,859 =
   cells, which is wrong).
+- **Eval generation cap LOCKED at `DEFAULT_MAX_CELL_TOKENS = 13,312`** (`datamodule.py:63`) — record-only
+  decision **2026-06-20, NOT lowered**. With cell-EOS self-termination (Tooth-1 GPU smoke, job `47470695`:
+  **0/64 cells at cap, p99≈601, 100% emit `<cell_end>`=260**) the cap is a rarely-hit SAFETY CEILING, not a
+  cost driver — per-cell eval cost scales with the ~600-tok self-terminated length, not the cap (capping
+  saves ≈ nothing; per-cell at 600 tok = 0.0045 GPU-h vs at the 13,312 cap = 0.099 GPU-h, but cells stop at
+  ~600 so the cap is near-free). Any prior **"cap at ~4,500 to save eval budget" framing is DEAD** (it
+  assumed cells run to the cap; they self-terminate — no such framing survives in committed docs). Cap stays
+  13,312 to avoid truncating the rare long cell. Source: cell-EOS spec `docs/superpowers/specs/2026-06-20-cell-eos.md`.
 - **singapore is HISTORICAL ONLY** (Phase-1 de-risking). `ScaffoldConfig.region` is REQUIRED and
   fail-closed — there is no silent singapore default. Source: commit `dbdf3d5`,
   `src/cfm/training/config.py`.
