@@ -282,7 +282,15 @@ def test_build_refuses_marker_when_sample_rederivation_diverges(tmp_path: Path, 
 def test_golden_fixture_pins_versions_to_the_cache_bytes(tmp_path: Path):
     """Lock-and-guards travel together: changing the serialization OR the
     derivation-relevant format without bumping the version constants goes RED
-    here (and bumping the constants without re-goldening goes red too)."""
+    here (and bumping the constants without re-goldening goes red too).
+
+    cell-EOS (derivation 1->2): only ``derivation`` moves here. This fixture builds
+    from SYNTHETIC hand-built shards (``_full_format_shards``), which bypass
+    build_shards_in_memory — so the <cell_end>=260 append (spec change B) does NOT
+    touch these bytes, and ``cells_sha256``/``tiles_sha256`` are UNCHANGED (verified
+    red phase: only ``{'derivation': '2'} != {'derivation': '1'}`` differed). The
+    260 byte-change is guarded against the REAL builder in
+    tests/data/training/test_build_shards_cell_end.py (Tooth 2), not here."""
     from cfm.data.determinism import compute_sha256
     from cfm.data.training.shard_cache import (
         SHARD_CACHE_DERIVATION_VERSION,
@@ -299,7 +307,7 @@ def test_golden_fixture_pins_versions_to_the_cache_bytes(tmp_path: Path):
     }
     assert golden == {
         "schema": "1.0",
-        "derivation": "1",
+        "derivation": "2",
         "cells_sha256": "626c28684049c50df12f38e4ef798caef3f6d9aba1350fd1a269940a4d4c3c50",
         "tiles_sha256": "34dd8b8967e934f72a59bbb78a6ae0f0b0774679232a18dae7d717d7c05f05bc",
     }
