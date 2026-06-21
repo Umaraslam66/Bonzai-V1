@@ -222,6 +222,30 @@ def test_cell_census_byte_deterministic(tmp_path):
     assert path_a.read_bytes() == path_b.read_bytes()
 
 
+def test_cell_census_byte_deterministic_reversed_input_order(tmp_path):
+    """Write the SAME logical cells in REVERSED input order — output must still be byte-identical.
+
+    This pins the manifest-reproducibility guarantee: rows.sort() inside write_cell_census
+    makes the output input-order-independent, not merely same-order-idempotent.
+    """
+    rows = [
+        ls.SampledCell("glasgow", 1, 2, 0, 0, 1),
+        ls.SampledCell("glasgow", 1, 2, 0, 1, 1),
+        ls.SampledCell("krakow", 3, 4, 5, 6, 2),
+    ]
+    strata = {
+        ("glasgow", 1, 2): ("R", "S1", "inland"),
+        ("krakow", 3, 4): ("C", "S2", "coastal"),
+    }
+    path_a = tmp_path / "fwd.parquet"
+    path_b = tmp_path / "rev.parquet"
+    ls.write_cell_census(rows, strata, path_a)
+    ls.write_cell_census(list(reversed(rows)), strata, path_b)
+    assert path_a.read_bytes() == path_b.read_bytes(), (
+        "write_cell_census is NOT input-order-independent: the canonical sort is broken"
+    )
+
+
 def test_select_cells_stable_across_pythonhashseed():
     snippet = (
         "from cfm.eval import lane_s_sampler as ls\n"

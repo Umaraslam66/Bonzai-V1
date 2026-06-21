@@ -259,7 +259,14 @@ def write_cell_census(
 
     rows: list[tuple] = []
     for c in cells:
-        z, sk, co = tile_strata[(c.city, c.tile_i, c.tile_j)]
+        key = (c.city, c.tile_i, c.tile_j)
+        stratum_triple = tile_strata.get(key)
+        if stratum_triple is None:
+            raise ValueError(
+                f"write_cell_census: no tile stratum recorded for cell's tile "
+                f"{c.city} ({c.tile_i},{c.tile_j})"
+            )
+        z, sk, co = stratum_triple
         rows.append((c.city, c.tile_i, c.tile_j, c.cell_i, c.cell_j, z, sk, c.density_bucket, co))
     rows.sort()  # canonical order => byte-deterministic parquet
     col_data = {name: [r[i] for r in rows] for i, name in enumerate(_CENSUS_COLS)}

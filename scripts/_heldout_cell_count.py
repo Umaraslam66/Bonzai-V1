@@ -84,6 +84,8 @@ def main() -> int:
             tokens = read_sub_f_cells(cells_path)
             # Record the tile's stratum triple once (for census emit)
             if args.emit:
+                # Tiles with all-empty cells record an orphaned stratum entry here;
+                # harmless — write_cell_census iterates cells not tile_strata.
                 tile_strata[(city, ti, tj)] = (zoning, skeleton, coastal)
             for (ci, cj), toks in tokens.items():
                 if not toks:
