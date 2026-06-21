@@ -129,7 +129,7 @@ def test_select_cells_output_canonically_sorted():
     assert out == sorted(out, key=ls._cell_sort_key)
 
 
-def test_select_cells_stable_across_pythonhashseed(tmp_path):
+def test_select_cells_stable_across_pythonhashseed():
     snippet = (
         "from cfm.eval import lane_s_sampler as ls\n"
         "cells=[ls.SampledCell('glasgow',i,0,i%7,i//7,1) for i in range(200)]\n"

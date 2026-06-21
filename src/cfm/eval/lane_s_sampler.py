@@ -76,7 +76,9 @@ def load_verified_manifest(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True)
+# NOT order=True: bare sort would include density_bucket and diverge from _cell_sort_key
+# (manifest order). Always sort cells via _cell_sort_key.
 class SampledCell:
     """One held-out cell to condition generation on. Identity = grid coordinate (cell_i,
     cell_j) within (city, tile_i, tile_j); density_bucket is the conditioned stratum dim."""
@@ -148,6 +150,8 @@ def _cell_sort_key(c: SampledCell) -> tuple:
 def _rank_digest(seed: int, c: SampledCell) -> str:
     """blake2b hexdigest over the cell identity + seed. stdlib hashlib is byte-stable across
     Python/numpy versions and PYTHONHASHSEED-independent, giving a total order on cells."""
+    # Assumes held-out city names contain no ':' (true for the locked held-out set);
+    # the digest keys on cell identity.
     raw = f"{seed}:{c.city}:{c.tile_i}:{c.tile_j}:{c.cell_i}:{c.cell_j}"
     return hashlib.blake2b(raw.encode("utf-8"), digest_size=16).hexdigest()
 
@@ -159,7 +163,11 @@ def select_cells(cells: list[SampledCell], n: int, *, seed: int) -> list[Sampled
     not) and order-independent (the digest is a total order), so the result is reproducible
     for a sha-locked write-once manifest. Take-all when n >= len(cells). Output is sorted
     canonically by _cell_sort_key (not by digest) so manifest bytes are stable.
+
+    n == 0 returns an empty list by design (no cells selected).
     """
+    if n < 0:
+        raise ValueError(f"select_cells: n must be >= 0 (got {n})")
     if n >= len(cells):
         chosen = list(cells)
     else:
