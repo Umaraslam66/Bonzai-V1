@@ -392,6 +392,94 @@ def build_manifest(
     }
 
 
+# ---------------------------------------------------------------------------
+# Consumer-side coverage check — §9 ceiling-bound split (Task 7)
+# ---------------------------------------------------------------------------
+
+
+class SamplerCoverageError(RuntimeError):
+    """A floored (metric, stratum) is below min_n on the GENERATED side WITHOUT being
+    ceiling-bound — a sampler sizing / headroom bug, never hidden behind the ceiling
+    exclusion (spec Gate 5 / protocol §9 regime-distinguishing guard)."""
+
+
+@dataclass(frozen=True)
+class CoverageReport:
+    """Result of verify_gen_coverage: three disjoint buckets over floored (city, metric, stratum).
+
+    ok                   — achieved >= min_n on the generated side.
+    ceiling_bound_excluded — short on the binding metric AND the stratum was ceiling-bound:
+                             a data limit (mirrors floor's 'report, do NOT coarsen'); these
+                             strata are dropped from Lane-S scoring (#21 demotion downstream).
+    unexpected_short     — always empty on successful return; we raise SamplerCoverageError
+                           first, so this field is reserved for future batch-collect mode.
+    """
+
+    ok: list[tuple[str, str, tuple]]
+    ceiling_bound_excluded: list[tuple[str, str, tuple]]
+    unexpected_short: list[tuple[str, str, tuple]]
+
+
+def verify_gen_coverage(
+    gen_by_city: dict[str, dict[tuple[str, tuple], list]],
+    manifest: dict,
+    *,
+    min_n: int | None = None,
+) -> CoverageReport:
+    """Per floored (city, metric, stratum) in the manifest: assert achieved gen features >=
+    min_n on the ACTUAL generated set (spec Gate 5, protocol §10.3 correct unit).
+
+    §9 split: a short metric that is the binding metric of a CEILING-BOUND stratum is a data
+    limit -> exclude-and-report (mirrors the floor's 'report, do NOT coarsen'; #21 demotion +
+    SECOND_REGION downstream). Any other short -> FAIL LOUD (sampler under-sized).
+
+    ``gen_by_city[city][(metric, stratum)]`` is the list of generated features for that slot.
+    ``min_n`` defaults to ``manifest["methodology"]["target_features"]``.
+    """
+    min_n = manifest["methodology"]["target_features"] if min_n is None else min_n
+    ok: list[tuple[str, str, tuple]] = []
+    excluded: list[tuple[str, str, tuple]] = []
+    for s in manifest["strata"]:
+        city = s["city"]
+        stratum = tuple(s["stratum"])
+        binding = s["binding_metric"]
+        ceiling = bool(s["ceiling_bound"])
+        for metric in s["owed_metrics"]:
+            key = (city, metric, stratum)
+            achieved = len(gen_by_city.get(city, {}).get((metric, stratum), []))
+            if achieved >= min_n:
+                ok.append(key)
+            elif metric == binding and ceiling:
+                # Construction-identity exclusion (spec §9): the binding metric is short
+                # because the pool was exhausted (ceiling-bound), not because of under-sizing.
+                # Report it; do NOT coarsen; downstream demotes this stratum (#21).
+                logger.warning(
+                    "lane-s coverage: ceiling-bound exclusion %s — achieved %d < min_n=%d "
+                    "(pool exhausted at generation; binding=%s, ceiling_bound=True)",
+                    key,
+                    achieved,
+                    min_n,
+                    binding,
+                )
+                excluded.append(key)
+            else:
+                # NOT ceiling-bound for this metric: the sampler should have provided enough
+                # cells but didn't. This is a sizing/headroom bug — fail loud so it cannot
+                # be silently hidden by a symptom-keyed "skip if thin" guard.
+                raise SamplerCoverageError(
+                    f"lane-s coverage: {key} has {achieved} gen features < min_n={min_n} but the "
+                    f"stratum is not ceiling-bound for this metric (binding={binding}, "
+                    f"ceiling_bound={ceiling}) — the sampler under-sized it; re-derive headroom, "
+                    "do not exclude. (spec Gate 5 / protocol §9)"
+                )
+    return CoverageReport(ok=ok, ceiling_bound_excluded=excluded, unexpected_short=[])
+
+
+# ---------------------------------------------------------------------------
+# Selection: blake2b hash-rank (PYTHONHASHSEED-proof, input-order-independent)
+# ---------------------------------------------------------------------------
+
+
 def select_cells(cells: list[SampledCell], n: int, *, seed: int) -> list[SampledCell]:
     """Deterministically select <= n cells by blake2b hash-rank of the cell identity.
 

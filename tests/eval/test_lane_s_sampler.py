@@ -310,3 +310,52 @@ def test_select_cells_stable_across_pythonhashseed():
         assert r.returncode == 0, r.stderr
         outs.append(r.stdout.strip())
     assert outs[0] == outs[1] == outs[2], "selection drifted across PYTHONHASHSEED"
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Consumer-side coverage check — §9 ceiling-bound split
+# ---------------------------------------------------------------------------
+
+
+def _manifest_with(stratum, ceiling_bound, owed, binding):
+    return {
+        "methodology": {"target_features": 50},
+        "strata": [
+            {
+                "city": "glasgow",
+                "stratum": list(stratum),
+                "owed_metrics": sorted(owed),
+                "binding_metric": binding,
+                "ceiling_bound": ceiling_bound,
+            }
+        ],
+    }
+
+
+def test_coverage_ok_when_all_metrics_meet_min_n():
+    S = ("R", "S1", 1, "inland")
+    man = _manifest_with(S, False, {ls.BUILDING_METRIC, ls.ROAD_METRIC}, ls.BUILDING_METRIC)
+    gen = {"glasgow": {(ls.BUILDING_METRIC, S): [1.0] * 60, (ls.ROAD_METRIC, S): [1.0] * 400}}
+    report = ls.verify_gen_coverage(gen, man)
+    assert report.unexpected_short == [] and report.ceiling_bound_excluded == []
+    assert report.ok == [("glasgow", ls.BUILDING_METRIC, S), ("glasgow", ls.ROAD_METRIC, S)]
+
+
+def test_coverage_ceiling_bound_short_is_excluded_and_reported():
+    S = ("R", "S1", 1, "inland")
+    man = _manifest_with(S, True, {ls.BUILDING_METRIC, ls.ROAD_METRIC}, ls.BUILDING_METRIC)
+    gen = {"glasgow": {(ls.BUILDING_METRIC, S): [1.0] * 30, (ls.ROAD_METRIC, S): [1.0] * 400}}
+    # building short but ceiling-bound -> report, no raise
+    report = ls.verify_gen_coverage(gen, man)
+    assert report.ceiling_bound_excluded == [("glasgow", ls.BUILDING_METRIC, S)]
+    assert report.unexpected_short == []
+
+
+def test_coverage_NOT_ceiling_bound_short_FAILS_LOUD():
+    # The regime-distinguishing guard: same SYMPTOM (building short) but NOT ceiling-bound ->
+    # sampler under-sized -> must raise. A symptom-keyed "skip if thin" would wrongly pass this.
+    S = ("R", "S1", 1, "inland")
+    man = _manifest_with(S, False, {ls.BUILDING_METRIC, ls.ROAD_METRIC}, ls.BUILDING_METRIC)
+    gen = {"glasgow": {(ls.BUILDING_METRIC, S): [1.0] * 30, (ls.ROAD_METRIC, S): [1.0] * 400}}
+    with pytest.raises(ls.SamplerCoverageError, match="not ceiling-bound"):
+        ls.verify_gen_coverage(gen, man)
