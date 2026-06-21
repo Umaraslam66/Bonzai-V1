@@ -19,7 +19,9 @@ import yaml
 
 from cfm.eval import lane_s_sampler as ls
 
-FLOOR = Path("reports/conditioning_floor/2026-04-15.0/conditioning-floor.yaml")
+FLOOR = (
+    Path(__file__).parents[2] / "reports/conditioning_floor/2026-04-15.0/conditioning-floor.yaml"
+)
 
 
 @pytest.mark.slow

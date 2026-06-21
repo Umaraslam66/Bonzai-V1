@@ -164,7 +164,8 @@ def _rank_digest(seed: int, c: SampledCell) -> str:
 @dataclass(frozen=True)
 class FlooredTarget:
     """One (city, 4-tuple) targeted stratum: the set of owed floored metrics and the binding
-    (scarce) metric that drives n_cells sizing."""
+    (scarce) metric that drives n_cells sizing. The 4-tuple dims are
+    (zoning, skeleton, density_bucket, coastal)."""
 
     city: str
     stratum: tuple
@@ -203,6 +204,12 @@ def heldout_feature_counts(floor_payload: dict) -> dict[tuple[str, str, tuple], 
     full draw (= available_cells * real_fpc).
 
     Source: conditioning_floor n_a/n_b (locked floor artifact — NEVER recomputed).
+    ASSUMPTION (verified against locked floor 95abb88, 2026-06-21): n is consistent for a
+    given (city, metric, stratum) across all pair records in BOTH families — n =
+    len(qualifying_features) is a property of the city's sample, not of any pair — so
+    last-write-wins dict assignment is safe (0 conflicts confirmed over 312 keys; the 47
+    cross-only keys are never floored, so Task 6's join hits no KeyError). Re-verify if a
+    future floor re-derivation changes the qualify rule.
     LOCK-AND-GUARDS-TRAVEL-TOGETHER: reads THIS floor (sha EXPECTED_FLOOR_SHA256); the
     build CLI and the Task-4 SoT test enforce the sha invariant jointly.
     """
