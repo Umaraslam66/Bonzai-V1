@@ -300,6 +300,95 @@ def read_cell_census(path: Path) -> dict[tuple[str, tuple], list[SampledCell]]:
     return pool
 
 
+# ---------------------------------------------------------------------------
+# Build orchestrator: manifest assembly (Task 6)
+# ---------------------------------------------------------------------------
+
+
+def build_manifest(
+    *,
+    floor_payload: dict,
+    floor_sha256: str,
+    cell_pool: dict[tuple[str, tuple], list[SampledCell]],
+    release: str,
+    seed: int,
+    target_features: int = DEFAULT_TARGET_FEATURES,
+    headroom: float = DEFAULT_HEADROOM,
+) -> dict:
+    """Assemble the (unsealed) manifest payload: size + select per floored (city, 4-tuple).
+
+    NOTE: the sha guard (floor_sha == EXPECTED_FLOOR_SHA256) lives in the BUILD CLI, NOT here.
+    Fixture tests pass floor_sha256="abc123" and must work without hitting the guard.
+    """
+    targets = floored_targets(floor_payload)
+    counts = heldout_feature_counts(floor_payload)
+    strata_records: list[dict] = []
+    all_cells: list[SampledCell] = []
+    for city, stratum in sorted(targets, key=lambda k: (k[0], tuple(map(str, k[1])))):
+        t = targets[(city, stratum)]
+        available = cell_pool.get((city, stratum), [])
+        if not available:
+            logger.warning(
+                "lane-s sampler: no census cells for floored stratum %s %s; skipping "
+                "(census/floor lineage mismatch)",
+                city,
+                stratum,
+            )
+            continue
+        floor_n = counts[(city, t.binding_metric, stratum)]
+        sizing = size_stratum(
+            target_features=target_features,
+            headroom=headroom,
+            floor_n_binding=floor_n,
+            available_cells=len(available),
+        )
+        chosen = select_cells(available, sizing.n_cells_selected, seed=seed)
+        all_cells.extend(chosen)
+        strata_records.append(
+            {
+                "city": city,
+                "stratum": list(stratum),
+                "owed_metrics": sorted(t.owed_metrics),
+                "binding_metric": t.binding_metric,
+                "floor_n_binding": floor_n,
+                "available_cells": len(available),
+                "real_fpc_binding": floor_n / len(available),
+                "n_cells_target": sizing.n_cells_target,
+                "n_cells_selected": sizing.n_cells_selected,
+                "ceiling_bound": sizing.ceiling_bound,
+            }
+        )
+    all_cells.sort(key=_cell_sort_key)
+    return {
+        "sampler_schema_version": SAMPLER_SCHEMA_VERSION,
+        "release": release,
+        "floor_sha256": floor_sha256,
+        "methodology": {
+            "target_features": target_features,
+            "headroom": headroom,
+            "seed": seed,
+            "selection": "blake2b_hash_rank",
+            "sizing": "ceil(target_features * headroom * available / floor_n_binding)",
+            "binding_rule": "scarce_floored_metric_building_area_else_road_length",
+            "real_fpc_source": "heldout_floor_n_a_n_b_div_census_cells",
+            "gen_ratio": "training_city_informed_proxy_validated_at_first_generation",
+        },
+        "held_out_cities": sorted(floor_payload["held_out_cities"]),
+        "strata": strata_records,
+        "cells": [
+            {
+                "city": c.city,
+                "tile_i": c.tile_i,
+                "tile_j": c.tile_j,
+                "cell_i": c.cell_i,
+                "cell_j": c.cell_j,
+                "density_bucket": c.density_bucket,
+            }
+            for c in all_cells
+        ],
+    }
+
+
 def select_cells(cells: list[SampledCell], n: int, *, seed: int) -> list[SampledCell]:
     """Deterministically select <= n cells by blake2b hash-rank of the cell identity.
 

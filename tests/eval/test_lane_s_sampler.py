@@ -246,6 +246,56 @@ def test_cell_census_byte_deterministic_reversed_input_order(tmp_path):
     )
 
 
+# ---------------------------------------------------------------------------
+# Task 6: Build orchestrator — manifest assembly
+# ---------------------------------------------------------------------------
+
+
+def test_build_manifest_sizes_and_selects_per_stratum(tmp_path):
+    floor = _floor_payload()  # glasgow: building n=59 + road n=800; krakow: road n=950
+    S = ("R", "S1", 1, "inland")
+    pool = {
+        ("glasgow", S): [ls.SampledCell("glasgow", 0, 0, i % 9, i // 9, 1) for i in range(40)],
+        ("krakow", S): [ls.SampledCell("krakow", 0, 0, i % 9, i // 9, 1) for i in range(500)],
+    }
+    payload = ls.build_manifest(
+        floor_payload=floor,
+        floor_sha256="abc123",
+        cell_pool=pool,
+        release="test.0",
+        seed=7,
+        target_features=50,
+        headroom=2.0,
+    )
+    by_key = {(s["city"], tuple(s["stratum"])): s for s in payload["strata"]}
+    g = by_key[("glasgow", S)]
+    # glasgow building: target*headroom=100 > 59 -> ceiling-bound -> take all 40
+    assert g["binding_metric"] == ls.BUILDING_METRIC and g["ceiling_bound"] is True
+    assert g["n_cells_selected"] == 40
+    k = by_key[("krakow", S)]
+    # krakow road n=950: raw=ceil(50*2*500/950)=ceil(52.6)=53 -> not ceiling-bound
+    assert k["binding_metric"] == ls.ROAD_METRIC and k["ceiling_bound"] is False
+    assert k["n_cells_selected"] == 53
+    # cells[] holds exactly the selected union
+    assert len(payload["cells"]) == 40 + 53
+    assert payload["floor_sha256"] == "abc123"
+
+
+def test_build_manifest_skips_strata_absent_from_pool(tmp_path, caplog):
+    floor = _floor_payload()
+    payload = ls.build_manifest(
+        floor_payload=floor,
+        floor_sha256="abc",
+        cell_pool={},
+        release="test.0",
+        seed=7,
+        target_features=50,
+        headroom=2.0,
+    )
+    assert payload["strata"] == [] and payload["cells"] == []
+    assert "no census cells" in caplog.text.lower()
+
+
 def test_select_cells_stable_across_pythonhashseed():
     snippet = (
         "from cfm.eval import lane_s_sampler as ls\n"
