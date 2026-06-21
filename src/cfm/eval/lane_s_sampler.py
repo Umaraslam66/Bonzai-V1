@@ -466,6 +466,17 @@ def verify_gen_coverage(
                 # NOT ceiling-bound for this metric: the sampler should have provided enough
                 # cells but didn't. This is a sizing/headroom bug — fail loud so it cannot
                 # be silently hidden by a symptom-keyed "skip if thin" guard.
+                #
+                # NOTE (spec gap, do not 'fix' silently): a ceiling-bound stratum's
+                # NON-binding metric falling short is ALSO a data limit (the cell pool
+                # was exhausted — all cells taken), yet this else-branch currently raises
+                # it as a sampler bug. UNREACHABLE under R3 (0/119 ceiling-bound at
+                # headroom <= 2.0; roads are plentiful), so safe for the first generation.
+                # REVISIT this branch before increasing headroom > 2.0 or applying to a
+                # corpus where R3's zero-ceiling-bound guarantee does not hold — the
+                # binding-vs-non-binding semantics in a ceiling-bound stratum are a PI
+                # decision (widen the exclusion to any-metric-when-ceiling vs keep loud
+                # as a model-pathology signal).
                 raise SamplerCoverageError(
                     f"lane-s coverage: {key} has {achieved} gen features < min_n={min_n} but the "
                     f"stratum is not ceiling-bound for this metric (binding={binding}, "

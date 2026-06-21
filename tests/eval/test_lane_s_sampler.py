@@ -317,7 +317,7 @@ def test_select_cells_stable_across_pythonhashseed():
 # ---------------------------------------------------------------------------
 
 
-def _manifest_with(stratum, ceiling_bound, owed, binding):
+def _manifest_with(stratum: tuple, ceiling_bound: bool, owed: set, binding: str) -> dict:
     return {
         "methodology": {"target_features": 50},
         "strata": [
