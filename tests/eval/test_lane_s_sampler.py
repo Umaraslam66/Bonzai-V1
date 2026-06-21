@@ -59,13 +59,27 @@ def test_size_stratum_ceiling_bound_depends_only_on_floor_n():
     # floor_n=59 (the real min), headroom=2.0 -> target*headroom=100 > 59 -> ceiling-bound
     r2 = ls.size_stratum(target_features=50, headroom=2.0, floor_n_binding=59, available_cells=40)
     assert r2.ceiling_bound and r2.n_cells_selected == 40  # take-all
+    assert r2.n_cells_target == 68  # ceil(50*2.0*40/59)
     # plentiful stratum: floor_n=3000, headroom=2.0, available big -> small draw, not ceiling
     r3 = ls.size_stratum(
         target_features=50, headroom=2.0, floor_n_binding=3000, available_cells=2000
     )
     assert not r3.ceiling_bound and r3.n_cells_selected < 2000
+    # R3 invariant: available cancels in the ceiling test — ceiling_bound is True AND
+    # n_cells_selected equals available_cells (take-all) regardless of pool size.
+    for avail in (40, 200, 1000):
+        ra = ls.size_stratum(
+            target_features=50, headroom=2.0, floor_n_binding=59, available_cells=avail
+        )
+        assert ra.ceiling_bound, f"expected ceiling_bound=True for available={avail}"
+        assert ra.n_cells_selected == avail, f"expected take-all for available={avail}"
 
 
 def test_size_stratum_rejects_unfloored_n():
     with pytest.raises(ValueError, match="floor_n_binding"):
         ls.size_stratum(target_features=50, headroom=2.0, floor_n_binding=0, available_cells=10)
+
+
+def test_size_stratum_rejects_empty_pool():
+    with pytest.raises(ValueError, match="available_cells"):
+        ls.size_stratum(target_features=50, headroom=2.0, floor_n_binding=10, available_cells=0)

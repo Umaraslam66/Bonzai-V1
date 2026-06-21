@@ -84,8 +84,9 @@ class SizingResult:
 
 def binding_metric(owed_metrics: frozenset[str]) -> str:
     """The SCARCE floored metric that binds n_cells: building_area where owed (it emits
-    ~0-1/cell vs roads ~5-15/cell), else road_length. building_area is never owed alone
-    (building_area subset road_length in the floor), so this is total over the floored set."""
+    ~0-1/cell vs roads ~5-15/cell), else road_length. building_area is never the sole owed
+    metric (the floor guarantees building_area ⊆ road_length at the stratum level — Gate 1),
+    so this is total over the floored set."""
     if BUILDING_METRIC in owed_metrics:
         return BUILDING_METRIC
     if ROAD_METRIC in owed_metrics:
