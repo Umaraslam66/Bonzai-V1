@@ -129,6 +129,59 @@ def test_select_cells_output_canonically_sorted():
     assert out == sorted(out, key=ls._cell_sort_key)
 
 
+# ---------------------------------------------------------------------------
+# Task 4: Floor adapter — floored targets + held-out feature counts
+# ---------------------------------------------------------------------------
+
+
+def _floor_payload() -> dict:
+    # Two held-out cities so a family-1 D-D pair exists per stratum. stratum lists per the floor.
+    S = ["R", "S1", 1, "inland"]
+    return {
+        "held_out_cities": ["glasgow", "krakow"],
+        "floors": [
+            {"city": "glasgow", "metric": ls.BUILDING_METRIC, "stratum": S},
+            {"city": "glasgow", "metric": ls.ROAD_METRIC, "stratum": S},
+            {"city": "krakow", "metric": ls.ROAD_METRIC, "stratum": S},
+        ],
+        "pairs": [
+            {
+                "city_a": "glasgow",
+                "city_b": "krakow",
+                "metric": ls.BUILDING_METRIC,
+                "stratum": S,
+                "n_a": 59,
+                "n_b": 120,
+            },
+            {
+                "city_a": "glasgow",
+                "city_b": "krakow",
+                "metric": ls.ROAD_METRIC,
+                "stratum": S,
+                "n_a": 800,
+                "n_b": 950,
+            },
+        ],
+        "cross_pairs": [],
+    }
+
+
+def test_floored_targets_groups_owed_metrics_and_binding():
+    targets = ls.floored_targets(_floor_payload())
+    assert ("glasgow", ("R", "S1", 1, "inland")) in targets
+    g = targets[("glasgow", ("R", "S1", 1, "inland"))]
+    assert g.owed_metrics == frozenset({ls.BUILDING_METRIC, ls.ROAD_METRIC})
+    assert g.binding_metric == ls.BUILDING_METRIC
+    k = targets[("krakow", ("R", "S1", 1, "inland"))]
+    assert k.owed_metrics == frozenset({ls.ROAD_METRIC}) and k.binding_metric == ls.ROAD_METRIC
+
+
+def test_heldout_feature_counts_reads_n_from_pairs():
+    counts = ls.heldout_feature_counts(_floor_payload())
+    assert counts[("glasgow", ls.BUILDING_METRIC, ("R", "S1", 1, "inland"))] == 59
+    assert counts[("krakow", ls.ROAD_METRIC, ("R", "S1", 1, "inland"))] == 950
+
+
 def test_select_cells_stable_across_pythonhashseed():
     snippet = (
         "from cfm.eval import lane_s_sampler as ls\n"

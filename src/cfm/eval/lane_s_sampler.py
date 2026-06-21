@@ -156,6 +156,67 @@ def _rank_digest(seed: int, c: SampledCell) -> str:
     return hashlib.blake2b(raw.encode("utf-8"), digest_size=16).hexdigest()
 
 
+# ---------------------------------------------------------------------------
+# Floor adapter: floored targets + held-out feature counts (Task 4)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FlooredTarget:
+    """One (city, 4-tuple) targeted stratum: the set of owed floored metrics and the binding
+    (scarce) metric that drives n_cells sizing."""
+
+    city: str
+    stratum: tuple
+    owed_metrics: frozenset[str]
+    binding_metric: str
+
+
+def floored_targets(floor_payload: dict) -> dict[tuple[str, tuple], FlooredTarget]:
+    """Per (city, 4-tuple) targeted stratum: the owed floored metrics + the binding metric.
+
+    Target set = the distinct (city, 4-tuple) carrying >= 1 floored metric row (spec Gate 1).
+    Reads ``floor_payload["floors"]`` — the per-(city, metric, stratum) floor rows emitted by
+    ``conditioning_floor.build_floor()``.
+    """
+    owed: dict[tuple[str, tuple], set[str]] = {}
+    for rec in floor_payload["floors"]:
+        key = (rec["city"], tuple(rec["stratum"]))
+        owed.setdefault(key, set()).add(rec["metric"])
+    return {
+        (city, stratum): FlooredTarget(
+            city=city,
+            stratum=stratum,
+            owed_metrics=frozenset(ms),
+            binding_metric=binding_metric(frozenset(ms)),
+        )
+        for (city, stratum), ms in owed.items()
+    }
+
+
+def heldout_feature_counts(floor_payload: dict) -> dict[tuple[str, str, tuple], int]:
+    """Per (held-out city, metric, stratum): the real feature count n, read from the floor's
+    pair records (n_a/n_b) across BOTH families (``pairs`` + ``cross_pairs``).
+
+    These ARE the floor's qualify counts (same extraction as ``conditioning_floor``), so
+    n >= min_n for any floored stratum. Equals the optimistic gen ceiling at gen_ratio=1,
+    full draw (= available_cells * real_fpc).
+
+    Source: conditioning_floor n_a/n_b (locked floor artifact — NEVER recomputed).
+    LOCK-AND-GUARDS-TRAVEL-TOGETHER: reads THIS floor (sha EXPECTED_FLOOR_SHA256); the
+    build CLI and the Task-4 SoT test enforce the sha invariant jointly.
+    """
+    held = set(floor_payload["held_out_cities"])
+    out: dict[tuple[str, str, tuple], int] = {}
+    for table in ("pairs", "cross_pairs"):
+        for p in floor_payload.get(table, []):
+            stratum = tuple(p["stratum"])
+            for city, n in ((p["city_a"], p["n_a"]), (p["city_b"], p["n_b"])):
+                if city in held:
+                    out[(city, p["metric"], stratum)] = int(n)
+    return out
+
+
 def select_cells(cells: list[SampledCell], n: int, *, seed: int) -> list[SampledCell]:
     """Deterministically select <= n cells by blake2b hash-rank of the cell identity.
 
