@@ -17,6 +17,8 @@ marker beside the file; reader refuses absent/unsealed/sha-mismatch/skew).
 from __future__ import annotations
 
 import logging
+import math
+from dataclasses import dataclass
 from pathlib import Path
 
 from cfm.data.locked_yaml import stamp_and_seal, verify_sealed_yaml
@@ -28,6 +30,7 @@ SAMPLER_LOCK_NAME = "_LANE_S_SAMPLER_LOCKED"
 SAMPLER_SHA_FIELD = "sampler_sha256"
 
 #: Metric token strings as the floor freezes them (conditioning_discrimination._tile_features).
+#: Used by binding_metric() to identify the scarce metric that drives n_cells sizing.
 BUILDING_METRIC = "building_area_m2"
 ROAD_METRIC = "road_length_m"
 
@@ -64,4 +67,53 @@ def load_verified_manifest(path: Path) -> dict:
         schema_version=SAMPLER_SCHEMA_VERSION,
         required_key="strata",
         error=SamplerArtifactError,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Sizing: scarce-metric binding + ceiling-bound (spec §6, R3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SizingResult:
+    n_cells_target: int  # raw demand = ceil(target/real_fpc * headroom)
+    n_cells_selected: int  # min(raw, available_cells)
+    ceiling_bound: bool  # raw > available_cells (pool exhausted at the target)
+
+
+def binding_metric(owed_metrics: frozenset[str]) -> str:
+    """The SCARCE floored metric that binds n_cells: building_area where owed (it emits
+    ~0-1/cell vs roads ~5-15/cell), else road_length. building_area is never owed alone
+    (building_area subset road_length in the floor), so this is total over the floored set."""
+    if BUILDING_METRIC in owed_metrics:
+        return BUILDING_METRIC
+    if ROAD_METRIC in owed_metrics:
+        return ROAD_METRIC
+    raise ValueError(f"no known floored metric in owed set {sorted(owed_metrics)}")
+
+
+def size_stratum(
+    *, target_features: int, headroom: float, floor_n_binding: int, available_cells: int
+) -> SizingResult:
+    """n_cells = ceil(target / real_fpc[binding] * headroom), real_fpc = floor_n/available.
+
+    Algebraically raw = ceil(target * headroom * available / floor_n); `available` cancels in
+    the ceiling test, so ceiling_bound <=> floor_n < target*headroom (independent of available —
+    why R3 was computable from floor_n alone). floor_n must be >= 1 (a floored stratum has
+    n >= the floor's min_n by construction).
+    """
+    if floor_n_binding < 1:
+        raise ValueError(
+            f"floor_n_binding must be >= 1 (got {floor_n_binding}); a floored "
+            "stratum has n >= min_n by construction"
+        )
+    if available_cells < 1:
+        raise ValueError(f"available_cells must be >= 1 (got {available_cells})")
+    raw = math.ceil(target_features * headroom * available_cells / floor_n_binding)
+    selected = min(raw, available_cells)
+    return SizingResult(
+        n_cells_target=raw,
+        n_cells_selected=selected,
+        ceiling_bound=raw > available_cells,
     )
