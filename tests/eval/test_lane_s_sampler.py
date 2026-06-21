@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+import random
+import subprocess
+import sys
+
 import pytest
 
 from cfm.eval import lane_s_sampler as ls
@@ -83,3 +88,58 @@ def test_size_stratum_rejects_unfloored_n():
 def test_size_stratum_rejects_empty_pool():
     with pytest.raises(ValueError, match="available_cells"):
         ls.size_stratum(target_features=50, headroom=2.0, floor_n_binding=10, available_cells=0)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: Selection — blake2b hash-rank (PYTHONHASHSEED-proof)
+# ---------------------------------------------------------------------------
+
+
+def _cells(n: int) -> list[ls.SampledCell]:
+    return [
+        ls.SampledCell(
+            city="glasgow", tile_i=i, tile_j=0, cell_i=i % 7, cell_j=i // 7, density_bucket=1
+        )
+        for i in range(n)
+    ]
+
+
+def test_select_cells_take_all_when_capped():
+    cells = _cells(10)
+    out = ls.select_cells(cells, 25, seed=7)
+    assert len(out) == 10  # take-all, never over-draw
+
+
+def test_select_cells_is_input_order_independent():
+    cells = _cells(100)
+    a = ls.select_cells(cells, 30, seed=7)
+    shuffled = cells[:]
+    random.Random(123).shuffle(shuffled)
+    b = ls.select_cells(shuffled, 30, seed=7)
+    assert a == b  # hash-rank keys on identity, not input order -> PYTHONHASHSEED-proof
+
+
+def test_select_cells_seed_changes_subset():
+    cells = _cells(100)
+    assert ls.select_cells(cells, 30, seed=7) != ls.select_cells(cells, 30, seed=8)
+
+
+def test_select_cells_output_canonically_sorted():
+    out = ls.select_cells(_cells(100), 30, seed=7)
+    assert out == sorted(out, key=ls._cell_sort_key)
+
+
+def test_select_cells_stable_across_pythonhashseed(tmp_path):
+    snippet = (
+        "from cfm.eval import lane_s_sampler as ls\n"
+        "cells=[ls.SampledCell('glasgow',i,0,i%7,i//7,1) for i in range(200)]\n"
+        "out=ls.select_cells(cells,40,seed=7)\n"
+        "print(';'.join(f'{c.tile_i},{c.cell_i},{c.cell_j}' for c in out))\n"
+    )
+    outs = []
+    for hs in ("0", "1", "12345"):
+        env = {**os.environ, "PYTHONHASHSEED": hs}
+        r = subprocess.run([sys.executable, "-c", snippet], capture_output=True, text=True, env=env)
+        assert r.returncode == 0, r.stderr
+        outs.append(r.stdout.strip())
+    assert outs[0] == outs[1] == outs[2], "selection drifted across PYTHONHASHSEED"

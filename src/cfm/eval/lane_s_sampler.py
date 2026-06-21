@@ -16,6 +16,7 @@ marker beside the file; reader refuses absent/unsealed/sha-mismatch/skew).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 from dataclasses import dataclass
@@ -75,6 +76,19 @@ def load_verified_manifest(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, order=True)
+class SampledCell:
+    """One held-out cell to condition generation on. Identity = grid coordinate (cell_i,
+    cell_j) within (city, tile_i, tile_j); density_bucket is the conditioned stratum dim."""
+
+    city: str
+    tile_i: int
+    tile_j: int
+    cell_i: int
+    cell_j: int
+    density_bucket: int
+
+
 @dataclass(frozen=True)
 class SizingResult:
     n_cells_target: int  # raw demand = ceil(target/real_fpc * headroom)
@@ -118,3 +132,36 @@ def size_stratum(
         n_cells_selected=selected,
         ceiling_bound=raw > available_cells,
     )
+
+
+# ---------------------------------------------------------------------------
+# Selection: blake2b hash-rank (PYTHONHASHSEED-proof, input-order-independent)
+# ---------------------------------------------------------------------------
+
+
+def _cell_sort_key(c: SampledCell) -> tuple:
+    """Canonical sort key for manifest output: (city, tile_i, tile_j, cell_i, cell_j).
+    density_bucket excluded — identity is the grid coordinate."""
+    return (c.city, c.tile_i, c.tile_j, c.cell_i, c.cell_j)
+
+
+def _rank_digest(seed: int, c: SampledCell) -> str:
+    """blake2b hexdigest over the cell identity + seed. stdlib hashlib is byte-stable across
+    Python/numpy versions and PYTHONHASHSEED-independent, giving a total order on cells."""
+    raw = f"{seed}:{c.city}:{c.tile_i}:{c.tile_j}:{c.cell_i}:{c.cell_j}"
+    return hashlib.blake2b(raw.encode("utf-8"), digest_size=16).hexdigest()
+
+
+def select_cells(cells: list[SampledCell], n: int, *, seed: int) -> list[SampledCell]:
+    """Deterministically select <= n cells by blake2b hash-rank of the cell identity.
+
+    stdlib hashlib is byte-stable across Python/numpy versions (a seeded numpy shuffle is
+    not) and order-independent (the digest is a total order), so the result is reproducible
+    for a sha-locked write-once manifest. Take-all when n >= len(cells). Output is sorted
+    canonically by _cell_sort_key (not by digest) so manifest bytes are stable.
+    """
+    if n >= len(cells):
+        chosen = list(cells)
+    else:
+        chosen = sorted(cells, key=lambda c: _rank_digest(seed, c))[:n]
+    return sorted(chosen, key=_cell_sort_key)
