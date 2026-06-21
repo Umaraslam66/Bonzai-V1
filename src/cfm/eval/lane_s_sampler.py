@@ -156,6 +156,25 @@ def _rank_digest(seed: int, c: SampledCell) -> str:
     return hashlib.blake2b(raw.encode("utf-8"), digest_size=16).hexdigest()
 
 
+def select_cells(cells: list[SampledCell], n: int, *, seed: int) -> list[SampledCell]:
+    """Deterministically select <= n cells by blake2b hash-rank of the cell identity.
+
+    stdlib hashlib is byte-stable across Python/numpy versions (a seeded numpy shuffle is
+    not) and order-independent (the digest is a total order), so the result is reproducible
+    for a sha-locked write-once manifest. Take-all when n >= len(cells). Output is sorted
+    canonically by _cell_sort_key (not by digest) so manifest bytes are stable.
+
+    n == 0 returns an empty list by design (no cells selected).
+    """
+    if n < 0:
+        raise ValueError(f"select_cells: n must be >= 0 (got {n})")
+    if n >= len(cells):
+        chosen = list(cells)
+    else:
+        chosen = sorted(cells, key=lambda c: _rank_digest(seed, c))[:n]
+    return sorted(chosen, key=_cell_sort_key)
+
+
 # ---------------------------------------------------------------------------
 # Floor adapter: floored targets + held-out feature counts (Task 4)
 # ---------------------------------------------------------------------------
@@ -484,27 +503,3 @@ def verify_gen_coverage(
                     "do not exclude. (spec Gate 5 / protocol §9)"
                 )
     return CoverageReport(ok=ok, ceiling_bound_excluded=excluded, unexpected_short=[])
-
-
-# ---------------------------------------------------------------------------
-# Selection: blake2b hash-rank (PYTHONHASHSEED-proof, input-order-independent)
-# ---------------------------------------------------------------------------
-
-
-def select_cells(cells: list[SampledCell], n: int, *, seed: int) -> list[SampledCell]:
-    """Deterministically select <= n cells by blake2b hash-rank of the cell identity.
-
-    stdlib hashlib is byte-stable across Python/numpy versions (a seeded numpy shuffle is
-    not) and order-independent (the digest is a total order), so the result is reproducible
-    for a sha-locked write-once manifest. Take-all when n >= len(cells). Output is sorted
-    canonically by _cell_sort_key (not by digest) so manifest bytes are stable.
-
-    n == 0 returns an empty list by design (no cells selected).
-    """
-    if n < 0:
-        raise ValueError(f"select_cells: n must be >= 0 (got {n})")
-    if n >= len(cells):
-        chosen = list(cells)
-    else:
-        chosen = sorted(cells, key=lambda c: _rank_digest(seed, c))[:n]
-    return sorted(chosen, key=_cell_sort_key)
