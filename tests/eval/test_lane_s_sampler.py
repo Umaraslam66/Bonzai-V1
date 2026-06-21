@@ -182,6 +182,46 @@ def test_heldout_feature_counts_reads_n_from_pairs():
     assert counts[("krakow", ls.ROAD_METRIC, ("R", "S1", 1, "inland"))] == 950
 
 
+# ---------------------------------------------------------------------------
+# Task 5: Per-stratum cell-key census — emit + read
+# ---------------------------------------------------------------------------
+
+
+def test_cell_census_round_trips_grouped_by_city_4tuple(tmp_path):
+    rows = [
+        ls.SampledCell("glasgow", 1, 2, 0, 0, 1),
+        ls.SampledCell("glasgow", 1, 2, 0, 1, 1),
+        ls.SampledCell("krakow", 3, 4, 5, 6, 2),
+    ]
+    strata = {  # (city, tile_i, tile_j) -> (zoning, skeleton, coastal)
+        ("glasgow", 1, 2): ("R", "S1", "inland"),
+        ("krakow", 3, 4): ("C", "S2", "coastal"),
+    }
+    path = tmp_path / "census.parquet"
+    ls.write_cell_census(rows, strata, path)
+    pool = ls.read_cell_census(path)
+    # grouped by (city, 4-tuple); density from the cell, (zoning,skeleton,coastal) from the tile
+    assert len(pool[("glasgow", ("R", "S1", 1, "inland"))]) == 2
+    assert pool[("krakow", ("C", "S2", 2, "coastal"))][0].cell_i == 5
+
+
+def test_cell_census_byte_deterministic(tmp_path):
+    """Two writes of identical input must produce identical bytes."""
+    rows = [
+        ls.SampledCell("glasgow", 1, 2, 0, 0, 1),
+        ls.SampledCell("krakow", 3, 4, 5, 6, 2),
+    ]
+    strata = {
+        ("glasgow", 1, 2): ("R", "S1", "inland"),
+        ("krakow", 3, 4): ("C", "S2", "coastal"),
+    }
+    path_a = tmp_path / "a.parquet"
+    path_b = tmp_path / "b.parquet"
+    ls.write_cell_census(rows, strata, path_a)
+    ls.write_cell_census(rows, strata, path_b)
+    assert path_a.read_bytes() == path_b.read_bytes()
+
+
 def test_select_cells_stable_across_pythonhashseed():
     snippet = (
         "from cfm.eval import lane_s_sampler as ls\n"

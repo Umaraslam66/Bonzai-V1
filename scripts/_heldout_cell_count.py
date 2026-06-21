@@ -8,6 +8,7 @@ _cell_density_by_cell, read_sub_f_cells) — but counts DISTINCT NON-EMPTY CELLS
 
 from __future__ import annotations
 
+import argparse
 import sys
 from collections import defaultdict
 
@@ -23,9 +24,21 @@ from cfm.eval.holdout.paths import (
     tile_dirname,
 )
 from cfm.eval.holdout.pipeline import _cell_density_by_cell
+from cfm.eval.lane_s_sampler import SampledCell, write_cell_census
 
 RELEASE = "2026-04-15.0"
 HELD = ["glasgow", "eisenhuttenstadt", "munich", "krakow"]
+
+
+def _parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description="held-out per-stratum cell census")
+    ap.add_argument(
+        "--emit",
+        default=None,
+        metavar="PATH",
+        help="write the per-cell census parquet to this path (default: no emit)",
+    )
+    return ap.parse_args()
 
 
 def _dist(label: str, sizes: list[int]) -> None:
@@ -39,10 +52,14 @@ def _dist(label: str, sizes: list[int]) -> None:
 
 
 def main() -> int:
+    args = _parse_args()
     by_stratum: dict[tuple, int] = defaultdict(int)  # global 4-tuple -> distinct non-empty cells
     by_city_stratum: dict[tuple, int] = defaultdict(int)  # (city, 4-tuple) -> distinct cells
     total_tiles = nonempty = empty = missing = 0
     per_city_tiles: dict[str, int] = {}
+    # census accumulators — only populated when --emit is requested
+    cell_rows: list[SampledCell] = []
+    tile_strata: dict[tuple[str, int, int], tuple] = {}
 
     for city in HELD:
         manifest = yaml.safe_load(holdout_manifest_for_region(RELEASE, city).read_text())
@@ -65,6 +82,9 @@ def main() -> int:
             coastal = labels.coastal_inland_river
             cdbc = _cell_density_by_cell(sub_d / dirname)
             tokens = read_sub_f_cells(cells_path)
+            # Record the tile's stratum triple once (for census emit)
+            if args.emit:
+                tile_strata[(city, ti, tj)] = (zoning, skeleton, coastal)
             for (ci, cj), toks in tokens.items():
                 if not toks:
                     empty += 1
@@ -76,12 +96,13 @@ def main() -> int:
                 stratum = (zoning, skeleton, density, coastal)
                 by_stratum[stratum] += 1
                 by_city_stratum[(city, stratum)] += 1
+                # Collect cell row for census emit
+                if args.emit:
+                    cell_rows.append(SampledCell(city, ti, tj, ci, cj, int(density)))
 
     print("==================== HELD-OUT DISTINCT-CELL COUNT ====================")
     print(f"cities: {HELD}")
-    print(
-        f"tiles: {total_tiles}  per-city: {per_city_tiles}  missing-parquet: {missing}"
-    )
+    print(f"tiles: {total_tiles}  per-city: {per_city_tiles}  missing-parquet: {missing}")
     print(f"non-empty (conditionable) cells: {nonempty}   empty cells: {empty}")
     print()
     _dist("GLOBAL 4-tuple stratum (merged across cities)", list(by_stratum.values()))
@@ -103,6 +124,11 @@ def main() -> int:
             f"<75:{sum(1 for n in rows if n < 75)} <100:{sum(1 for n in rows if n < 100)}"
         )
     print("=====================================================================")
+
+    if args.emit:
+        write_cell_census(cell_rows, tile_strata, args.emit)
+        print(f"census parquet emitted: {args.emit}  rows={len(cell_rows)}")
+
     return 0
 
 

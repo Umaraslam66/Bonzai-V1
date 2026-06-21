@@ -224,6 +224,75 @@ def heldout_feature_counts(floor_payload: dict) -> dict[tuple[str, str, tuple], 
     return out
 
 
+# ---------------------------------------------------------------------------
+# Census: per-cell parquet emit + read (pyarrow imports are LOCAL to keep
+# the pure-logic core import-light — only materialised when census IO is used)
+# ---------------------------------------------------------------------------
+
+#: Census parquet column order. Sorted-row determinism relies on this fixed schema.
+_CENSUS_COLS: tuple[str, ...] = (
+    "city",
+    "tile_i",
+    "tile_j",
+    "cell_i",
+    "cell_j",
+    "zoning",
+    "skeleton",
+    "density",
+    "coastal",
+)
+
+
+def write_cell_census(
+    cells: list[SampledCell],
+    tile_strata: dict[tuple[str, int, int], tuple],
+    path: Path,
+) -> None:
+    """Write the per-cell census parquet: one row per conditionable held-out cell, carrying
+    the cell's density and its tile's (zoning, skeleton, coastal). Rows are sorted
+    canonically before writing to give byte-deterministic output.
+
+    ``tile_strata[(city, tile_i, tile_j)] = (zoning, skeleton, coastal)``
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    rows: list[tuple] = []
+    for c in cells:
+        z, sk, co = tile_strata[(c.city, c.tile_i, c.tile_j)]
+        rows.append((c.city, c.tile_i, c.tile_j, c.cell_i, c.cell_j, z, sk, c.density_bucket, co))
+    rows.sort()  # canonical order => byte-deterministic parquet
+    col_data = {name: [r[i] for r in rows] for i, name in enumerate(_CENSUS_COLS)}
+    table = pa.table({k: col_data[k] for k in _CENSUS_COLS})
+    pq.write_table(table, str(path))
+
+
+def read_cell_census(path: Path) -> dict[tuple[str, tuple], list[SampledCell]]:
+    """Read the census back, grouped by (city, 4-tuple stratum).
+
+    The 4-tuple is (zoning, skeleton, density_bucket, coastal) — the floor's grammar.
+    """
+    import pyarrow.parquet as pq
+
+    tbl = pq.ParquetFile(str(path)).read()
+    col = {n: tbl.column(n).to_pylist() for n in tbl.column_names}
+    pool: dict[tuple[str, tuple], list[SampledCell]] = {}
+    for i in range(tbl.num_rows):
+        city = col["city"][i]
+        density = int(col["density"][i])
+        stratum = (col["zoning"][i], col["skeleton"][i], density, col["coastal"][i])
+        cell = SampledCell(
+            city,
+            int(col["tile_i"][i]),
+            int(col["tile_j"][i]),
+            int(col["cell_i"][i]),
+            int(col["cell_j"][i]),
+            density,
+        )
+        pool.setdefault((city, stratum), []).append(cell)
+    return pool
+
+
 def select_cells(cells: list[SampledCell], n: int, *, seed: int) -> list[SampledCell]:
     """Deterministically select <= n cells by blake2b hash-rank of the cell identity.
 
