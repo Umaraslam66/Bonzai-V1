@@ -15,6 +15,7 @@ from cfm.eval.conditioning_floor import load_verified_floor
 from cfm.eval.lane_s_sampler import (
     EXPECTED_FLOOR_SHA256,
     build_manifest,
+    floored_targets,
     load_verified_manifest,
     read_cell_census,
     seal_manifest,
@@ -33,7 +34,7 @@ def main() -> int:
     )
     ap.add_argument("--out", required=True, type=Path, help="Output path for sampler-manifest.yaml")
     ap.add_argument("--release", required=True, help="Release tag (e.g. 2026-04-15.0)")
-    ap.add_argument("--seed", type=int, required=True, help="Blake2b rank seed (default: 7)")
+    ap.add_argument("--seed", type=int, required=True, help="Blake2b rank seed")
     ap.add_argument(
         "--target-features",
         type=int,
@@ -84,8 +85,16 @@ def main() -> int:
     total = sum(s["n_cells_selected"] for s in loaded["strata"])
     ceil_bound = sum(1 for s in loaded["strata"] if s["ceiling_bound"])
     gpu_h = total * MATRIX_RUNS * PER_CELL_GPU_H_TRANSFORMER
+    expected = len(floored_targets(verified.payload))
+    built = len(loaded["strata"])
     print(f"=== Lane-S sampler built: {args.out} ===")
     print(f"strata={len(loaded['strata'])}  cells_selected={total}  ceiling_bound={ceil_bound}")
+    print(f"floored strata: built={built} / expected={expected}")
+    if built < expected:
+        print(
+            f"WARNING: {expected - built} floored strata had NO census cells — "
+            "census/floor lineage gap; cost is understated. Investigate before any scored run."
+        )
     print(f"generations={total * MATRIX_RUNS} (x{MATRIX_RUNS} runs)")
     print(
         f"est transformer GPU-h={gpu_h:.1f}  (~{100 * gpu_h / 5000:.1f}% of 5,000 GPU-h grant); "

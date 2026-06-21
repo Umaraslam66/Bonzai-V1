@@ -251,7 +251,7 @@ def test_cell_census_byte_deterministic_reversed_input_order(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_manifest_sizes_and_selects_per_stratum(tmp_path):
+def test_build_manifest_sizes_and_selects_per_stratum():
     floor = _floor_payload()  # glasgow: building n=59 + road n=800; krakow: road n=950
     S = ("R", "S1", 1, "inland")
     pool = {
@@ -281,7 +281,7 @@ def test_build_manifest_sizes_and_selects_per_stratum(tmp_path):
     assert payload["floor_sha256"] == "abc123"
 
 
-def test_build_manifest_skips_strata_absent_from_pool(tmp_path, caplog):
+def test_build_manifest_skips_strata_absent_from_pool(caplog):
     floor = _floor_payload()
     payload = ls.build_manifest(
         floor_payload=floor,

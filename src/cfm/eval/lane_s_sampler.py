@@ -324,6 +324,9 @@ def build_manifest(
     counts = heldout_feature_counts(floor_payload)
     strata_records: list[dict] = []
     all_cells: list[SampledCell] = []
+    # DECISION: str()-based sort. density_bucket is single-digit (0-3, locked by the 4-bucket
+    # schema in conditioning_floor); str("0") < str("1") < ... matches integer order for single
+    # digits, so this is safe. Re-check if density buckets ever exceed 9 (str("10") < str("9")).
     for city, stratum in sorted(targets, key=lambda k: (k[0], tuple(map(str, k[1])))):
         t = targets[(city, stratum)]
         available = cell_pool.get((city, stratum), [])
