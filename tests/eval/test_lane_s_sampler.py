@@ -261,6 +261,7 @@ def test_build_manifest_sizes_and_selects_per_stratum():
     payload = ls.build_manifest(
         floor_payload=floor,
         floor_sha256="abc123",
+        census_sha256="c0ffee",
         cell_pool=pool,
         release="test.0",
         seed=7,
@@ -286,6 +287,7 @@ def test_build_manifest_skips_strata_absent_from_pool(caplog):
     payload = ls.build_manifest(
         floor_payload=floor,
         floor_sha256="abc",
+        census_sha256="c0ffee",
         cell_pool={},
         release="test.0",
         seed=7,
@@ -359,3 +361,102 @@ def test_coverage_NOT_ceiling_bound_short_FAILS_LOUD():
     gen = {"glasgow": {(ls.BUILDING_METRIC, S): [1.0] * 30, (ls.ROAD_METRIC, S): [1.0] * 400}}
     with pytest.raises(ls.SamplerCoverageError, match="not ceiling-bound"):
         ls.verify_gen_coverage(gen, man)
+
+
+# ---------------------------------------------------------------------------
+# Pre-build addendum: census_sha256 wiring (spec §7, PI ratification 2026-06-22)
+# ---------------------------------------------------------------------------
+
+
+def test_census_sha256_field_present_and_round_trips(tmp_path):
+    """census_sha256 is recorded in the payload and survives seal + verified-load (spec §7)."""
+    floor = _floor_payload()
+    S = ("R", "S1", 1, "inland")
+    pool = {
+        ("glasgow", S): [ls.SampledCell("glasgow", 0, 0, i % 9, i // 9, 1) for i in range(40)],
+        ("krakow", S): [ls.SampledCell("krakow", 0, 0, i % 9, i // 9, 1) for i in range(60)],
+    }
+    payload = ls.build_manifest(
+        floor_payload=floor,
+        floor_sha256="abc123",
+        census_sha256="deadc0de1234",
+        cell_pool=pool,
+        release="test.0",
+        seed=7,
+        target_features=50,
+        headroom=2.0,
+    )
+    # Field must be present in the unsaled payload
+    assert payload["census_sha256"] == "deadc0de1234"
+    # Must survive the canonical seal + verified read-back
+    path = tmp_path / "sampler-manifest.yaml"
+    ls.seal_manifest(payload, path)
+    loaded = ls.load_verified_manifest(path)
+    assert loaded["census_sha256"] == "deadc0de1234"
+
+
+def test_census_sha256_sealed_manifest_byte_identical_across_pythonhashseed(tmp_path):
+    """The fully sealed manifest (census_sha256 included) must be byte-for-byte identical
+    across fresh processes with varied PYTHONHASHSEED (pins process-independence of the
+    whole sha-locked artifact — spec §9 determinism test extended to the census field).
+
+    If the outputs DIFFER this is a real determinism failure — do NOT weaken.
+    """
+    # Self-contained snippet that runs in a fresh interpreter: builds + seals the manifest
+    # from a fixed fixture and prints the sha256 of the sealed YAML bytes.
+    snippet = """\
+import hashlib, sys, pathlib, tempfile
+from cfm.eval import lane_s_sampler as ls
+
+S = ("R", "S1", 1, "inland")
+floor = {
+    "held_out_cities": ["glasgow", "krakow"],
+    "floors": [
+        {"city": "glasgow", "metric": ls.BUILDING_METRIC, "stratum": list(S)},
+        {"city": "glasgow", "metric": ls.ROAD_METRIC, "stratum": list(S)},
+        {"city": "krakow", "metric": ls.ROAD_METRIC, "stratum": list(S)},
+    ],
+    "pairs": [
+        {"city_a": "glasgow", "city_b": "krakow", "metric": ls.BUILDING_METRIC,
+         "stratum": list(S), "n_a": 59, "n_b": 120},
+        {"city_a": "glasgow", "city_b": "krakow", "metric": ls.ROAD_METRIC,
+         "stratum": list(S), "n_a": 800, "n_b": 950},
+    ],
+    "cross_pairs": [],
+}
+pool = {
+    ("glasgow", S): [ls.SampledCell("glasgow", 0, 0, i % 9, i // 9, 1) for i in range(40)],
+    ("krakow", S): [ls.SampledCell("krakow", 0, 0, i % 9, i // 9, 1) for i in range(60)],
+}
+with tempfile.TemporaryDirectory() as d:
+    path = pathlib.Path(d) / "sampler-manifest.yaml"
+    payload = ls.build_manifest(
+        floor_payload=floor,
+        floor_sha256="abc123",
+        census_sha256="fixed_census_sha_for_determinism_test",
+        cell_pool=pool,
+        release="test.0",
+        seed=7,
+        target_features=50,
+        headroom=2.0,
+    )
+    ls.seal_manifest(payload, path)
+    print(hashlib.sha256(path.read_bytes()).hexdigest())
+"""
+    outs = []
+    for hs in ("0", "1", "12345"):
+        env = {**os.environ, "PYTHONHASHSEED": hs}
+        r = subprocess.run(
+            [sys.executable, "-c", snippet],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert r.returncode == 0, f"PYTHONHASHSEED={hs} subprocess failed:\n{r.stderr}"
+        outs.append(r.stdout.strip())
+    assert outs[0] == outs[1] == outs[2], (
+        f"Sealed manifest bytes differ across PYTHONHASHSEED — determinism failure!\n"
+        f"  HS=0:     {outs[0]}\n"
+        f"  HS=1:     {outs[1]}\n"
+        f"  HS=12345: {outs[2]}"
+    )

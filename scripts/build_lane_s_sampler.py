@@ -11,6 +11,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from cfm.data.determinism import compute_sha256
 from cfm.eval.conditioning_floor import load_verified_floor
 from cfm.eval.lane_s_sampler import (
     EXPECTED_FLOOR_SHA256,
@@ -66,11 +67,13 @@ def main() -> int:
             "lineage."
         )
 
+    census_sha = compute_sha256(args.census.read_bytes())
     pool = read_cell_census(args.census)
 
     payload = build_manifest(
         floor_payload=floor_payload,
         floor_sha256=floor_sha,
+        census_sha256=census_sha,
         cell_pool=pool,
         release=args.release,
         seed=args.seed,

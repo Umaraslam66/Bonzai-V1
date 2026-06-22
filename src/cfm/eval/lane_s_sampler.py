@@ -328,6 +328,7 @@ def build_manifest(
     *,
     floor_payload: dict,
     floor_sha256: str,
+    census_sha256: str,
     cell_pool: dict[tuple[str, tuple], list[SampledCell]],
     release: str,
     seed: int,
@@ -336,8 +337,13 @@ def build_manifest(
 ) -> dict:
     """Assemble the (unsealed) manifest payload: size + select per floored (city, 4-tuple).
 
+    ``census_sha256`` is the sha256 hex digest of the census parquet bytes — it pins the
+    exact input cell pool unambiguously (spec §7, PI ratification 2026-06-22). Pass
+    ``compute_sha256(args.census.read_bytes())`` from the build CLI.
+
     NOTE: the sha guard (floor_sha == EXPECTED_FLOOR_SHA256) lives in the BUILD CLI, NOT here.
-    Fixture tests pass floor_sha256="abc123" and must work without hitting the guard.
+    Fixture tests pass floor_sha256="abc123" and census_sha256="c0ffee" and must work without
+    hitting the guard.
     """
     targets = floored_targets(floor_payload)
     counts = heldout_feature_counts(floor_payload)
@@ -385,6 +391,7 @@ def build_manifest(
         "sampler_schema_version": SAMPLER_SCHEMA_VERSION,
         "release": release,
         "floor_sha256": floor_sha256,
+        "census_sha256": census_sha256,
         "methodology": {
             "target_features": target_features,
             "headroom": headroom,
