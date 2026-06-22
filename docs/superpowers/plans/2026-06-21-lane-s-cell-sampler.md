@@ -1098,6 +1098,20 @@ git commit -m "chore(cell-eos): Leonardo no-GPU sbatch for lane-s sampler census
 
 ---
 
+## Pre-build addendum (PI ratifications 2026-06-22 — docs-only now; code at PI word + Leonardo redeploy)
+
+Two spec ratifications landed (spec §7 + §10 R5). They imply ONE small pre-build code step and one logged gap — neither implemented yet (Tasks 1–7 are frozen green; this is gated build prep):
+
+1. **Wire `census_sha256` into the manifest (small code task, land BEFORE the first manifest seals).** The manifest must pin the EXACT cell pool via `census_sha256` (chosen over `source_holdout_manifest` because the 1,952-tile pool = 4 per-city manifests → ambiguous ref; spec §7). Change:
+   - `scripts/build_lane_s_sampler.py`: after reading the census, compute `census_sha = compute_sha256(args.census.read_bytes())` (`from cfm.data.determinism import compute_sha256`) and pass it to `build_manifest`.
+   - `build_manifest(...)`: add a `census_sha256: str` param; record `"census_sha256": census_sha256` as a top-level payload key (beside `floor_sha256`).
+   - Test: extend `test_build_manifest_*` to assert the passed `census_sha256` round-trips into the payload. (TDD, same discipline as Tasks 1–7.)
+   No artifact exists yet, so adding this field invalidates nothing.
+
+2. **R5 (logged, NO code change):** the §9 `else` fail-loud branch also catches a ceiling-bound stratum's NON-binding metric short (a data limit, not a sampler bug). UNREACHABLE under R3 at `headroom ≤ 2.0`. The `verify_gen_coverage` comment (commit `5e80f1d`) carries the note. **Activation condition: revisit before raising `headroom` > 2.0** — PI then decides widen-exclusion vs keep-loud. No speculative handling.
+
+3. **Naming-seam note (generation-loop wiring, no change now):** manifest `cells[].density_bucket` → `DecodedCell.cell_density_bucket` (`gen_realism.py:51`).
+
 ## Post-build (gated — execute only on PI word, after Leonardo redeploy)
 
 These are NOT plan tasks (no code). Recorded so the executor does not improvise:
