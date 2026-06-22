@@ -1115,8 +1115,11 @@ Two spec ratifications landed (spec §7 + §10 R5). They imply ONE small pre-bui
 ## Post-build (gated — execute only on PI word, after Leonardo redeploy)
 
 These are NOT plan tasks (no code). Recorded so the executor does not improvise:
-1. Submit `build_lane_s_sampler.sbatch` (serial, no GPU). Confirm the manifest seals and `load_verified_manifest` round-trips on Leonardo.
-2. Read the printed cost re-derivation; confirm `ceiling_bound` count ≈ R3 (≤6 at headroom 2.0). If materially higher, halt and revisit `headroom`/`target_features` with the PI before any generation.
+1. ✅ **DONE 2026-06-22** — `build_lane_s_sampler.sbatch` submitted (Leonardo job `47600021`, HEAD `69bca37`, serial no-GPU, COMPLETED 2:37). Manifest sealed; `load_verified_manifest` round-trips; `floor_sha256`=`95abb88…` (==EXPECTED), `census_sha256`=`236cea99…` recomputes byte-for-byte from the on-disk census parquet. 146/146 floored strata built, 5,705 cells, ~154 transformer GPU-h ≈ 3.1% of grant (mamba rate still unverified).
+2. **`ceiling_bound = 10` is EXPECTED** (NOT "≤6"). The R3 census only ever counted **building_area-floored** ceiling-bound (6 @ headroom 2.0); the manifest counts ceiling-bound across **all** binding metrics, so the correct expectation is **6 building + 4 road-only = 10**:
+   - **6 building-floored** reproduce R3 *exactly* by city — glasgow 4 / munich 1 / eisenhüttenstadt 1 / krakow 0 (all building `floor_n` ∈ [59,93] < 100).
+   - **4 road-only** (one per city) — eisenh `floor_n`=59/avail=1, glasgow 57/8, krakow 69/2, munich 73/29 — each verified a **legit data limit** (`n_cells_target` > `available_cells`, took all available; `floor_n` < target×headroom=100), routing to §9 **exclude-and-report** (confirmed read-only via `verify_gen_coverage` + the regime-distinguishing guard, 2026-06-22).
+   - Action contract: at headroom 2.0 this is the expected count — do **not** revisit `headroom`/`target_features`. Halt only if a *building-floored* ceiling-bound count exceeds 6, or a *not-ceiling-bound* stratum shorts at generation (`verify_gen_coverage` fails loud).
 3. The matrix generation loop consumes `manifest.cells[]` → `gen_realism.gen_features_by_city` → `verify_gen_coverage` → `decide()`. Still gated: no scored run without PI word.
 
 ---
