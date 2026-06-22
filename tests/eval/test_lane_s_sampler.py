@@ -386,7 +386,7 @@ def test_census_sha256_field_present_and_round_trips(tmp_path):
         target_features=50,
         headroom=2.0,
     )
-    # Field must be present in the unsaled payload
+    # Field must be present in the unsealed payload
     assert payload["census_sha256"] == "deadc0de1234"
     # Must survive the canonical seal + verified read-back
     path = tmp_path / "sampler-manifest.yaml"
