@@ -21,7 +21,7 @@ import torch
 
 from cfm.data.training.build_shards import character_stats_for_cell  # noqa: F401 (probe reuse)
 from cfm.eval.standing.geometry_validity import geometry_validity_report
-from cfm.eval.standing.heldout_cells import load_heldout_cells
+from cfm.eval.standing.heldout_cells import load_heldout_cells, read_heldout_cache
 from cfm.eval.standing.nll import GapCell, compute_gap, effective_macro_shuffle_fraction
 from cfm.eval.standing.saturation import classify_saturation, read_loss_series, resolve_bakeoff_run
 from cfm.inference.generate import generate_cell_tokens
@@ -79,15 +79,21 @@ def run_perplexity_gap(
     sample_seed: int = 1234,
     shuffle_seed: int = 5678,
     max_tiles_per_city: int | None = None,
+    heldout_cache: Path | None = None,
 ) -> dict[str, Any]:
-    cells = load_heldout_cells(
-        release,
-        HELD_OUT_CITIES,
-        n_per_city=n_per_city,
-        sample_seed=sample_seed,
-        shuffle_seed=shuffle_seed,
-        max_tiles_per_city=max_tiles_per_city,
-    )
+    # The held-out cells are checkpoint-independent: read the cache when present (built once
+    # for the full run); a byte-identical read-back is verified before the run (cached≡uncached).
+    if heldout_cache is not None and Path(heldout_cache).exists():
+        cells = read_heldout_cache(heldout_cache)
+    else:
+        cells = load_heldout_cells(
+            release,
+            HELD_OUT_CITIES,
+            n_per_city=n_per_city,
+            sample_seed=sample_seed,
+            shuffle_seed=shuffle_seed,
+            max_tiles_per_city=max_tiles_per_city,
+        )
     dev = str(device)
     macro = [
         GapCell(c.region, c.body_tokens, c.own_prefix, c.donor_prefix, c.own_char, c.own_char)
@@ -174,6 +180,7 @@ def eval_checkpoint(
     cells_per_context: int = 7,
     device: str | None = None,
     max_tiles_per_city: int | None = None,
+    heldout_cache: Path | None = None,
 ) -> dict[str, Any]:
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model, meta = load_model(ckpt_path, dev)
@@ -188,6 +195,7 @@ def eval_checkpoint(
             n_per_city=n_per_city,
             device=dev,
             max_tiles_per_city=max_tiles_per_city,
+            heldout_cache=heldout_cache,
         ),
         "saturation": run_saturation(logs_dir, backbone=meta["backbone"], seed=meta["seed"]),
         "geometry_validity": run_geometry_validity(

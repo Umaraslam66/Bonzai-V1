@@ -12,6 +12,7 @@ Requires the sub-C/sub-D/sub-F tile artifacts on Leonardo $WORK (Leonardo-only).
 
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,7 +99,46 @@ def load_heldout_cells(
 
 
 def write_heldout_cache(cells: list[HeldoutCell], path: Path) -> None:
-    """Persist loaded held-out cells (so --decode-only / re-runs don't re-read tile data)."""
-    import json
+    """Persist loaded held-out cells once so the full 6-checkpoint run reuses ONE tile read.
 
+    The cells are checkpoint-independent; a byte-identical read-back (read_heldout_cache) is the
+    cached≡uncached guarantee — the optimization never changes the gap inputs.
+    """
     Path(path).write_text(json.dumps([c.__dict__ for c in cells]))
+
+
+def read_heldout_cache(path: Path) -> list[HeldoutCell]:
+    """Reconstruct held-out cells from a cache written by write_heldout_cache (exact)."""
+    return [HeldoutCell(**d) for d in json.loads(Path(path).read_text())]
+
+
+def build_and_verify_cache(
+    release: str,
+    regions: list[str],
+    *,
+    n_per_city: int | None,
+    cache_path: Path,
+    sample_seed: int = 1234,
+    shuffle_seed: int = 5678,
+) -> int:
+    """Load held-out cells fresh, persist, read back, and ASSERT byte-identical.
+
+    This is the cached≡uncached gate: the cells are checkpoint-independent and the gap is a
+    deterministic function of (cells, model), so a byte-identical read-back guarantees the
+    cache never changes the gap inputs for ANY of the 6 checkpoints. Raises on mismatch.
+    """
+    fresh = load_heldout_cells(
+        release,
+        regions,
+        n_per_city=n_per_city,
+        sample_seed=sample_seed,
+        shuffle_seed=shuffle_seed,
+    )
+    write_heldout_cache(fresh, cache_path)
+    back = read_heldout_cache(cache_path)
+    if back != fresh:
+        raise SystemExit(
+            "cache verification FAILED: read-back != fresh load — the optimization would "
+            "silently change the gap inputs; refusing to run the full matrix"
+        )
+    return len(fresh)
