@@ -1,3 +1,7 @@
+> NOTE (2026-06-23): current design, but the scored run / architecture crown / realism eval is DEFERRED per
+> `docs/PROJECT_FOCUS.md` (current focus = methodology validation). Do not run the scored matrix, decide(),
+> or build the realism eval without Umar's word.
+
 # Lane-S held-out CELL SAMPLER — design spec
 
 **Date:** 2026-06-21 · **Branch:** `phase-2-cell-eos` · **Status:** DESIGN COMPLETE — all gates locked, **awaiting PI review**. NO build, no `writing-plans`, no scored run until approved.

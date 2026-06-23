@@ -1,3 +1,7 @@
+> NOTE (2026-06-23): current design, but the scored run / architecture crown / realism eval is DEFERRED per
+> `docs/PROJECT_FOCUS.md` (current focus = methodology validation). Do not run the scored matrix, decide(),
+> or build the realism eval without Umar's word.
+
 # Lane-S Cell Sampler Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

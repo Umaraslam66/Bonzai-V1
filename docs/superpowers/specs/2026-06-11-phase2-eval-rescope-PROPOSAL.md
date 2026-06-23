@@ -1,3 +1,6 @@
+> HISTORICAL PROPOSAL — its outcome was ADOPTED and ABSORBED into the conditioning-floor / Lane-S design
+> (`src/cfm/eval/conditioning_floor.py`; `docs/GROUND_TRUTH.md` §4). Retained for lineage; not a live proposal.
+
 # Phase-2 eval re-scope — PROPOSAL (APPROVED 2026-06-11)
 
 **Status: APPROVED by the PI + Umar 2026-06-11, all four §5 knobs LOCKED:** (1) floor =

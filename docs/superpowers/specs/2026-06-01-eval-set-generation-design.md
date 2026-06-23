@@ -1,3 +1,5 @@
+> SUPERSEDED by `docs/superpowers/specs/2026-06-08-eval-set-gen-design.md` — historical, retained for lineage. The current version is canonical; canon facts: `docs/GROUND_TRUTH.md`.
+
 # Eval-set generation — design spec (Phase 1, stage six)
 
 **Date:** 2026-06-01 · **Branch:** `phase-1-eval-set-generation` · **Status:** design locked, pre-plan.
