@@ -36,9 +36,11 @@ leak analysis lives in this session's findings; the short version is the bullet 
 
 ## Deferred defects — RECORDED so they aren't rediscovered (do NOT fix unprompted)
 
-Both surfaced by the 2026-06-23 eyeball probe; both DEFERRED (no fix taken). Evidence:
-`reports/_eyeball_probe/SUMMARY.md` (+ this session's encode→decode round-trip experiment).
-They matter **only when the realism eval revives** — irrelevant to the current coherence focus.
+All three surfaced by the 2026-06-23 eyeball probe; all DEFERRED (no fix taken). Evidence:
+`reports/_eyeball_probe/SUMMARY.md` (+ this session's encode→decode round-trip experiment and
+`scripts/_road_connectivity_diag.py`). (a) and (b) matter **only when the realism eval revives**;
+(c) is a **v2 grammar** question (relevant to v2 scoping, not the current coherence focus). None
+changes the validated result: the methodology produces coherent geometry.
 
 ### (a) EVAL-SIDE BUG — over-strict ring-closure check (suppresses ~half of building promotion)
 - **Where:** `src/cfm/eval/geometry.py` — `_is_closed_ring` / `promote_building_rings` use an
@@ -61,6 +63,28 @@ They matter **only when the realism eval revives** — irrelevant to the current
   expressible; see defect (a)). Measured on `transformer-ar-53M/krakow-seed7`.
 - **Fix direction (deferred):** out of scope now; revisit only if/when footprint exactness becomes a
   product bar. Do NOT chase unprompted.
+
+### (c) v2 REPRESENTATION GAP — road topology is not expressible in sub-F-v1 (NOT a model/training bug)
+- **What:** on the 21 probe cells, after reclassifying by construction identity (so the **234 / 673
+  (35%)** raw "road" LineStrings that were actually unsealed buildings are NOT counted as roads), the
+  **401 true road segments are genuinely fragmented as drawn** — components÷segments ≈ **0.87 dense /
+  1.00 medium / 1.00 sparse**, largest connected component **7–33%** of segments, **85–100% of road
+  endpoints dangling**. Robust to an **8× endpoint tolerance** sweep (0.5→4 m), so it is NOT a
+  float-drift / near-miss artifact. So the model emits road **geometry, not road topology.**
+- **Root cause (why it's representation, not training):** `src/cfm/data/sub_f/decoder.py` decodes
+  **every feature independently** (one `decode_feature` per feature); there is **no junction /
+  shared-vertex primitive**. The only connectivity mechanism is `<bref>`, which references the **cell
+  boundary only** (not other features) and **drops the crossing position** (decoder error
+  UNBOUNDED-BY-TEST, bounded above by `cell_extent/2 = 125 m`). Connected topology **cannot be
+  expressed in v1, so it cannot be trained in** — fragmentation is a property of the grammar, not a
+  learning failure. (Same "representation vs model" distinction as defect (a)/(b).)
+- **Classification:** DEFERRED to a **v2 grammar** (a junction-node / shared-vertex primitive). Out of
+  scope for the current methodology-validation focus and for the realism eval.
+- **Open question for v2 scoping (UNKNOWN locally):** do the **real training roads carry noded
+  junctions** (coincident junction vertices that survive encoding)? If yes, v2 noding is well-motivated;
+  if not, fragmented output is faithful to source. Not verifiable on the Mac — needs a Leonardo check;
+  **singapore is a banned proxy** (do NOT estimate it with singapore). Measured on
+  `transformer-ar-53M/krakow-seed7`; one checkpoint, synthetic hand-built conditioning.
 
 ## What IS in scope
 
