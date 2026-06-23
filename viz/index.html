@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bonzai · Cell Plotter — methodology validation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">
+          <span class="mark-dot"></span><span class="mark-dot"></span><span class="mark-dot"></span>
+        </div>
+        <div class="brand-text">
+          <h1>Cell&nbsp;Plotter</h1>
+          <p class="kicker">
+            Watching a token-only model draw city geometry —
+            <em>methodology validation, not a realism claim</em>
+          </p>
+        </div>
+      </div>
+      <nav class="modes" role="tablist" aria-label="View mode">
+        <button class="mode is-active" data-mode="inspect" role="tab">Inspect</button>
+        <button class="mode" data-mode="compare" role="tab">Compare</button>
+      </nav>
+    </header>
+
+    <!-- ───────────────────────────── INSPECT ───────────────────────────── -->
+    <main id="view-inspect" class="view is-active">
+      <section class="stage">
+        <div class="stage-head">
+          <div class="stage-title">
+            <span class="ctx-pill" id="insp-ctx-pill">dense urban</span>
+            <span class="cell-id" id="insp-cell-id">cell 0</span>
+          </div>
+          <div class="stage-tools">
+            <button class="tool" id="zoom-out" title="Zoom out">–</button>
+            <button class="tool" id="zoom-in" title="Zoom in">+</button>
+            <button class="tool wide" id="zoom-reset" title="Reset view">fit</button>
+          </div>
+        </div>
+        <div class="plot-wrap">
+          <svg id="plot" xmlns="http://www.w3.org/2000/svg" role="img"
+               aria-label="Generated cell geometry"></svg>
+          <div class="hint" id="plot-hint">scroll to zoom · drag to pan</div>
+        </div>
+        <ul class="legend" id="legend" aria-label="Feature classes (click to toggle)"></ul>
+      </section>
+
+      <aside class="rail">
+        <div class="picker">
+          <div class="seg" id="ctx-seg" role="tablist" aria-label="Density context"></div>
+          <div class="cells" id="cell-seg" aria-label="Cell"></div>
+        </div>
+
+        <article class="card" id="card-cond">
+          <h2>Conditioning <span class="card-note">what the model was told</span></h2>
+          <div class="cond-grid" id="cond-grid"></div>
+        </article>
+
+        <article class="card honest" id="card-char">
+          <h2>Character stats <span class="card-note">fed in as a vector</span></h2>
+          <p class="caveat">
+            These per-cell building/road moments are handed to the model as input. A slider's
+            “response” partly reflects this <strong>echo</strong>, not pure learned understanding.
+          </p>
+          <div class="char-list" id="char-list"></div>
+        </article>
+
+        <article class="card" id="card-out">
+          <h2>Output <span class="card-note">what it drew</span></h2>
+          <div class="stat-row" id="stat-row"></div>
+          <div class="counts" id="counts"></div>
+        </article>
+      </aside>
+    </main>
+
+    <!-- ───────────────────────────── COMPARE ───────────────────────────── -->
+    <main id="view-compare" class="view">
+      <section class="compare-head">
+        <h2>Density response</h2>
+        <p>
+          Same model, same fixed zoning &amp; coastal class — only the density and road-skeleton
+          conditioning change. The geometry should get denser left&nbsp;→&nbsp;right.
+          All three panels share one scale.
+        </p>
+        <div class="compare-cellpick" id="compare-cellpick" aria-label="Cell index across contexts"></div>
+      </section>
+      <div class="compare-grid" id="compare-grid"></div>
+      <section class="summary">
+        <h3>Per-context medians (directional read)</h3>
+        <table id="summary-table">
+          <thead>
+            <tr><th>context</th><th>cells</th><th>med tokens</th><th>med buildings</th><th>med roads</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer class="provenance" id="provenance"></footer>
+
+    <div class="tooltip" id="tooltip" hidden></div>
+
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
