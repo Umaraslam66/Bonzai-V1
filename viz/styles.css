@@ -195,6 +195,8 @@ body {
 
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
   background: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 4px; }
+.bb-seg { grid-template-columns: repeat(2, 1fr); margin-bottom: 8px; }
+.bb-seg button.on { background: var(--accent); color: var(--ink); box-shadow: none; font-weight: 600; }
 .seg button {
   appearance: none; border: 0; cursor: pointer; padding: 9px 4px; border-radius: 7px;
   font-family: var(--mono); font-size: 11px; color: var(--text-dim); background: transparent;
@@ -265,7 +267,11 @@ body {
 .compare-head { max-width: 760px; }
 .compare-head h2 { font-family: var(--serif); font-weight: 500; font-size: 24px; margin: 0 0 8px; }
 .compare-head p { margin: 0; color: var(--text-dim); font-size: 13.5px; }
-.compare-cellpick { display: flex; gap: 5px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
+.honest-line { font-family: var(--mono); font-size: 12px; color: var(--warn) !important;
+  border-left: 2px solid var(--warn); padding-left: 12px; }
+.compare-controls { display: flex; gap: 20px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+.compare-controls .seg { display: inline-grid; min-width: 280px; }
+.compare-cellpick { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
 .compare-cellpick .lbl { font-family: var(--mono); font-size: 11px; color: var(--text-faint);
   text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; }
 .compare-cellpick button { appearance: none; cursor: pointer; width: 32px; height: 32px;
@@ -289,6 +295,8 @@ body {
 .compare-svg { aspect-ratio: 1 / 1; border-bottom: 1px solid var(--line-soft); }
 .compare-col .readout { display: grid; grid-template-columns: repeat(3, 1fr);
   font-family: var(--mono); font-size: 11px; }
+.compare-col .readout.four { grid-template-columns: repeat(4, 1fr); }
+.compare-col .readout .rv.ok { color: var(--accent); }
 .compare-col .readout div { padding: 11px 8px; text-align: center; border-right: 1px solid var(--line-soft); }
 .compare-col .readout div:last-child { border-right: 0; }
 .compare-col .readout .rv { font-family: var(--serif); font-size: 19px; color: var(--text); }
@@ -298,12 +306,17 @@ body {
 .summary { background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--r);
   padding: 18px 20px; }
 .summary h3 { font-family: var(--serif); font-weight: 500; font-size: 16px; margin: 0 0 12px; }
+.summary h3 .sub { font-family: var(--mono); font-size: 11px; color: var(--text-faint); font-weight: 400; }
 .summary table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; }
 .summary th { text-align: right; color: var(--text-faint); font-weight: 500; text-transform: uppercase;
   font-size: 10px; letter-spacing: 0.06em; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.summary thead tr:first-child th { text-align: center; border-bottom: 1px solid var(--line-soft); }
+.summary thead tr:first-child th:first-child { text-align: left; }
+.summary .sub-head th { text-align: right; font-size: 9px; padding: 3px 12px 6px; }
 .summary th:first-child, .summary td:first-child { text-align: left; }
 .summary td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line-soft);
-  color: var(--text-dim); }
+  color: var(--text); }
+.summary td.m { color: var(--text-dim); border-right: 1px solid var(--line); padding-right: 18px; }
 .summary tr:last-child td { border-bottom: 0; }
 .summary td.ctx { color: var(--text); }
 

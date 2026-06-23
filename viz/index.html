@@ -58,6 +58,7 @@
 
       <aside class="rail">
         <div class="picker">
+          <div class="seg bb-seg" id="bb-seg" role="tablist" aria-label="Backbone"></div>
           <div class="seg" id="ctx-seg" role="tablist" aria-label="Density context"></div>
           <div class="cells" id="cell-seg" aria-label="Cell"></div>
         </div>
@@ -87,20 +88,29 @@
     <!-- ───────────────────────────── COMPARE ───────────────────────────── -->
     <main id="view-compare" class="view">
       <section class="compare-head">
-        <h2>Density response</h2>
-        <p>
-          Same model, same fixed zoning &amp; coastal class — only the density and road-skeleton
-          conditioning change. The geometry should get denser left&nbsp;→&nbsp;right.
-          All three panels share one scale.
+        <h2>Transformer vs Mamba</h2>
+        <p class="honest-line" id="compare-banner">
+          Same conditioning + seed, backbone is the only difference — eyeball only, not a verdict.
         </p>
-        <div class="compare-cellpick" id="compare-cellpick" aria-label="Cell index across contexts"></div>
+        <div class="compare-controls">
+          <div class="seg" id="cmp-ctx-seg" role="tablist" aria-label="Density context"></div>
+          <div class="compare-cellpick" id="compare-cellpick" aria-label="Cell index"></div>
+        </div>
       </section>
-      <div class="compare-grid" id="compare-grid"></div>
+      <div class="compare-grid two" id="compare-grid"></div>
       <section class="summary">
-        <h3>Per-context medians (directional read)</h3>
+        <h3>Per-context medians — both backbones <span class="sub">(directional + backbone read)</span></h3>
         <table id="summary-table">
           <thead>
-            <tr><th>context</th><th>cells</th><th>med tokens</th><th>med buildings</th><th>med roads</th></tr>
+            <tr>
+              <th rowspan="2">context</th>
+              <th colspan="2">med tokens</th>
+              <th colspan="2">med buildings</th>
+              <th colspan="2">med roads</th>
+            </tr>
+            <tr class="sub-head">
+              <th>tf</th><th>mamba</th><th>tf</th><th>mamba</th><th>tf</th><th>mamba</th>
+            </tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -112,6 +122,7 @@
     <div class="tooltip" id="tooltip" hidden></div>
 
     <script src="data.js"></script>
+    <script src="data_mamba.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
