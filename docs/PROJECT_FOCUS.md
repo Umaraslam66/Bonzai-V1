@@ -13,6 +13,17 @@ The bar right now is **plausibility + geometric validity** (sane building footpr
 that connect, output that responds to conditioning). It is **NOT** distributional realism,
 **NOT** a sales/marketing claim, and **NOT** an architecture verdict.
 
+## Standing-eval RESULT (2026-06-25) — a METHODOLOGY result, not a crown
+
+Standing-eval matrix COMPLETE (6/6, job 47824952; code commit `0d677cc`). **Architecture is
+`NO_DECISIVE`** — macro-only perplexity-gap **T +0.0066 vs M +0.0063, Δ0.0003 inside seed-noise
+0.0012**. Conditioning **is** read (all 6 sign-tests significant at 100% effective-shuffle), but
+**macro-only ~0.006 vs full ~0.45 → ~99% of the conditioning signal is char_stats; the macro
+buckets contribute ~1%**. Saturation is **seed-dependent** (seed7 DESCENDING, seed13 PLATEAUED on
+**both** backbones; mamba-seed23 saturation UNAVAILABLE — no training log on disk, D4). Geometry
+**valid on both** (100% decodable, self-terminating, closure tight, roads fragmented = defect (c)).
+This is descriptive methodology evidence, **not** a `decide()` verdict — the crown stays Umar-gated.
+
 ## Explicitly OUT of scope right now — do NOT do these unprompted
 
 - **Do NOT crown transformer-vs-mamba.** No `decide()`, no Lane-S excess, no Lane-M verdict,
