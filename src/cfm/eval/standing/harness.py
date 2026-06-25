@@ -248,7 +248,7 @@ def render_table(r: dict[str, Any]) -> str:
         sat_lines = [
             "## (2) Saturation (would more training help?)",
             f"- **UNAVAILABLE** — {sat.get('reason', 'no bake-off training log on disk')} "
-            f"(saturation not computed; D4 — not guessed)",
+            f"(saturation not computed)",
         ]
     else:
         sat_lines = [
