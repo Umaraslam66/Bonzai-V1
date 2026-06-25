@@ -23,7 +23,12 @@ from cfm.data.training.build_shards import character_stats_for_cell  # noqa: F40
 from cfm.eval.standing.geometry_validity import geometry_validity_report
 from cfm.eval.standing.heldout_cells import load_heldout_cells, read_heldout_cache
 from cfm.eval.standing.nll import GapCell, compute_gap, effective_macro_shuffle_fraction
-from cfm.eval.standing.saturation import classify_saturation, read_loss_series, resolve_bakeoff_run
+from cfm.eval.standing.saturation import (
+    SATURATION_UNAVAILABLE,
+    classify_saturation,
+    read_loss_series,
+    resolve_bakeoff_run,
+)
 from cfm.inference.generate import generate_cell_tokens
 from cfm.models.backbone import build_backbone
 from cfm.training.config import ScaffoldConfig
@@ -119,6 +124,15 @@ def run_perplexity_gap(
 
 
 def run_saturation(logs_dir: Path, *, backbone: str, seed: int) -> dict[str, Any]:
+    # D4: a run on the committed UNAVAILABLE registry has no bake-off training log on disk —
+    # record UNAVAILABLE rather than guess/fabricate/hunt. A no-match for ANY OTHER (backbone,seed)
+    # is a real error and still fails loud inside resolve_bakeoff_run (not swallowed here).
+    if (backbone, int(seed)) in SATURATION_UNAVAILABLE:
+        return {
+            "classification": "UNAVAILABLE",
+            "version_dir": None,
+            "reason": "no bake-off training log on disk (D4: not guessed/fabricated/hunted)",
+        }
     run_dir = resolve_bakeoff_run(Path(logs_dir), backbone=backbone, seed=seed)
     steps, losses = read_loss_series(run_dir / "metrics.csv")
     return {"version_dir": run_dir.name, **asdict(classify_saturation(steps, losses))}
@@ -230,6 +244,21 @@ def render_table(r: dict[str, Any]) -> str:
         f"{pg['macro_shuffle_floor']:.0%}; gap ({macro['gap_nats_per_token']:+.4f}) not a clean "
         f"number"
     )
+    if sat.get("classification") == "UNAVAILABLE":
+        sat_lines = [
+            "## (2) Saturation (would more training help?)",
+            f"- **UNAVAILABLE** — {sat.get('reason', 'no bake-off training log on disk')} "
+            f"(saturation not computed; D4 — not guessed)",
+        ]
+    else:
+        sat_lines = [
+            "## (2) Saturation (would more training help?)",
+            f"- **{sat['classification']}** — final_step={sat['final_step']} "
+            f"final_loss={sat['final_loss']:.4f}",
+            f"- final-window slope={sat['final_window_slope']:+.5f} nats/tok per 1k steps; "
+            f"noise-derived threshold=±{sat['plateau_threshold']:.5f} "
+            f"(noise={sat['final_window_noise']:.4f})",
+        ]
     lines = [
         f"# Standing eval — {r['ckpt_id']}",
         "",
@@ -243,12 +272,7 @@ def render_table(r: dict[str, Any]) -> str:
         f"- full (secondary): gap = {full['gap_nats_per_token']:+.4f} "
         f"(frac_positive {full['fraction_positive']:.2f})",
         "",
-        "## (2) Saturation (would more training help?)",
-        f"- **{sat['classification']}** — final_step={sat['final_step']} "
-        f"final_loss={sat['final_loss']:.4f}",
-        f"- final-window slope={sat['final_window_slope']:+.5f} nats/tok per 1k steps; "
-        f"noise-derived threshold=±{sat['plateau_threshold']:.5f} "
-        f"(noise={sat['final_window_noise']:.4f})",
+        *sat_lines,
         "",
         "## (3) Geometry-validity (echo-immune; per context)",
         "| context | self-term | decode | closure med | <5% | comp/seg | dangling |",

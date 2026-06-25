@@ -29,6 +29,28 @@ _BAKEOFF_SIGNATURE = {
     "conditioning_scheme": "value-char-v1",
 }
 
+#: D4 committed lookup table — (backbone, seed) -> version dir name — for runs whose logs are
+#: AMBIGUOUS under the signature match. mamba-hybrid restarted many times; several version dirs
+#: share the bake-off signature, so the signature alone cannot pick the canonical run. We pin the
+#: single COMPLETED run here; the pin is itself verified (signature + completion tooth in
+#: `_verify_override`) so a wrong pin FAILS LOUD, never silently maps to a crashed-restart stub.
+_BAKEOFF_VERSION_OVERRIDE: dict[tuple[str, int], str] = {
+    ("mamba-hybrid", 7): "version_25",
+    ("mamba-hybrid", 13): "version_27",
+}
+
+#: A canonical bake-off run trained to ~112,549 steps; crashed restarts died at <=10,232 steps.
+#: A pin resolving to a run whose final logged step is below this floor is a crashed-restart STUB;
+#: reading saturation off a stub would be silently wrong, so we FAIL LOUD (completion tooth).
+#: 100k cleanly separates the completed value (112,549) from the worst restart (10,232).
+_COMPLETION_MIN_STEP = 100_000
+
+#: D4: runs whose bake-off training log is genuinely ABSENT on disk (mamba-hybrid seed23 never
+#: produced a signature metrics.csv — its restarts logged away the canonical run). Saturation is
+#: recorded UNAVAILABLE by the harness — NOT guessed, NOT fabricated, NOT hunted. Perplexity-gap +
+#: geometry-validity still compute from the checkpoint (the comparison-critical metrics).
+SATURATION_UNAVAILABLE: frozenset[tuple[str, int]] = frozenset({("mamba-hybrid", 23)})
+
 
 def read_loss_series(csv_path: Path) -> tuple[list[int], list[float]]:
     """Read (step, train_loss) from a Lightning metrics.csv, skipping blank-loss rows.
@@ -49,20 +71,65 @@ def read_loss_series(csv_path: Path) -> tuple[list[int], list[float]]:
     return steps, losses
 
 
+def _hparams(vdir: Path) -> dict:
+    hp_path = vdir / "hparams.yaml"
+    if not hp_path.exists():
+        return {}
+    return yaml.safe_load(hp_path.read_text()) or {}
+
+
+def _is_bakeoff_match(hp: dict, *, backbone: str, seed: int) -> bool:
+    if str(hp.get("backbone")) != backbone or int(hp.get("seed", -1)) != int(seed):
+        return False
+    return all(hp.get(k) == v for k, v in _BAKEOFF_SIGNATURE.items())
+
+
+def _verify_override(vdir: Path, *, backbone: str, seed: int) -> None:
+    """Tooth for a committed pin (D4): the target must exist, match (backbone, seed) + the bake-off
+    signature, AND be a COMPLETED run (final step >= the completion floor). A wrong pin FAILS LOUD,
+    never silently maps to a crashed-restart stub."""
+    src = "committed lookup table (D4)"
+    if not (vdir / "hparams.yaml").exists():
+        raise ValueError(
+            f"{src} maps (backbone={backbone}, seed={seed}) to {vdir.name}, which has no "
+            f"hparams.yaml under {vdir.parent} — refusing"
+        )
+    hp = _hparams(vdir)
+    if not _is_bakeoff_match(hp, backbone=backbone, seed=seed):
+        raise ValueError(
+            f"{src} maps (backbone={backbone}, seed={seed}) to {vdir.name}, but its hparams "
+            f"(backbone={hp.get('backbone')} seed={hp.get('seed')} d_model={hp.get('d_model')} "
+            f"train_set={hp.get('train_set')}) don't match the bake-off signature — "
+            f"refusing a mismatched pin"
+        )
+    metrics = vdir / "metrics.csv"
+    steps, _losses = read_loss_series(metrics) if metrics.exists() else ([], [])
+    final_step = max(steps) if steps else -1
+    if final_step < _COMPLETION_MIN_STEP:
+        raise ValueError(
+            f"{src} maps (backbone={backbone}, seed={seed}) to {vdir.name}, whose final logged "
+            f"step {final_step} < completion floor {_COMPLETION_MIN_STEP} — that is a "
+            f"crashed-restart stub, not the canonical ~112,549-step run; FAIL LOUD rather than "
+            f"read saturation off a stub (D4)"
+        )
+
+
 def resolve_bakeoff_run(logs_dir: Path, *, backbone: str, seed: int) -> Path:
-    """Find the single ``version_N`` dir whose hparams match (backbone, seed) AND the
-    bake-off signature. FAIL LOUD on ambiguity or no-match (D4: do not guess)."""
+    """Find the single ``version_N`` dir whose hparams match (backbone, seed) AND the bake-off
+    signature. A committed lookup table (D4) overrides the signature match for runs whose logs are
+    ambiguous; an override is verified (signature + completion tooth) before use. FAIL LOUD on a bad
+    pin, ambiguity, or no-match (D4: do not guess)."""
     logs_dir = Path(logs_dir)
-    matches: list[Path] = []
-    for vdir in sorted(logs_dir.glob("version_*")):
-        hp_path = vdir / "hparams.yaml"
-        if not hp_path.exists():
-            continue
-        hp = yaml.safe_load(hp_path.read_text()) or {}
-        if str(hp.get("backbone")) != backbone or int(hp.get("seed", -1)) != int(seed):
-            continue
-        if all(hp.get(k) == v for k, v in _BAKEOFF_SIGNATURE.items()):
-            matches.append(vdir)
+    override = _BAKEOFF_VERSION_OVERRIDE.get((backbone, int(seed)))
+    if override is not None:
+        vdir = logs_dir / override
+        _verify_override(vdir, backbone=backbone, seed=seed)
+        return vdir
+    matches = [
+        vdir
+        for vdir in sorted(logs_dir.glob("version_*"))
+        if _is_bakeoff_match(_hparams(vdir), backbone=backbone, seed=seed)
+    ]
     if len(matches) == 1:
         return matches[0]
     if not matches:
