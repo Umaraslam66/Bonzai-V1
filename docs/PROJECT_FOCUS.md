@@ -24,6 +24,20 @@ buckets contribute ~1%**. Saturation is **seed-dependent** (seed7 DESCENDING, se
 **valid on both** (100% decodable, self-terminating, closure tight, roads fragmented = defect (c)).
 This is descriptive methodology evidence, **not** a `decide()` verdict — the crown stays Umar-gated.
 
+## Why macro conditioning is only ~1% (2026-06-26 diagnostic — read-only)
+
+Direct factorial on the checkpoints (job 47910130 + local; `scripts/_diag_*.py`,
+`reports/_diag/*.json`): the macro channel is **intrinsically weak for per-token NLL**, NOT
+ignored. Macro's **standalone** value (char_stats also ablated) is only **~0.012–0.021 nats/tok**
+vs char_stats's **+0.63–0.75** — and ablating char_stats does **not** resurrect macro, so char
+isn't *masking* it. **Injection** and **capacity/training** are ruled out (macro responds
+monotonically to id changes; flat across seeds/saturation/backbone). The random within-city donor
+**understated** macro ~2.5× → true within-city effect ≈ **+0.018**. char_stats dominates because it
+is a **leak-grade near-sufficient statistic computed from the target cell** (this quantifies the
+parked char_stats↔KS echo). **Caveat: NLL ≠ generation plausibility** — macro still shapes coarse
+structure (denser context → more buildings) in ways per-token NLL barely rewards; do NOT read this
+as "drop macro." A v2 question (which macro fields to keep/strengthen), not a current-focus fix.
+
 ## Explicitly OUT of scope right now — do NOT do these unprompted
 
 - **Do NOT crown transformer-vs-mamba.** No `decide()`, no Lane-S excess, no Lane-M verdict,
