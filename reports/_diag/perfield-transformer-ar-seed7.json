@@ -1,0 +1,125 @@
+{
+  "ckpt_id": "transformer-ar-seed7",
+  "meta": {
+    "backbone": "transformer-ar",
+    "d_model": 512,
+    "n_layers": 14,
+    "seed": 7,
+    "global_step": 111281,
+    "train_set": "eu-train-union",
+    "conditioning_scheme": "value-char-v1",
+    "conditioning_ablation": "full"
+  },
+  "n_cells": 2000,
+  "varying": [
+    [
+      0,
+      "pop_density"
+    ],
+    [
+      1,
+      "zoning"
+    ],
+    [
+      2,
+      "road_skeleton"
+    ],
+    [
+      3,
+      "cell_density"
+    ],
+    [
+      5,
+      "coastal"
+    ]
+  ],
+  "fields": {
+    "pop_density": {
+      "pos": 0,
+      "swap_donor": {
+        "mean": 0.0009010394513607025,
+        "frac_pos": 0.347,
+        "frac_changed": 0.5505,
+        "n": 2000
+      },
+      "swap_maxdist": {
+        "mean": 0.002215057283639908,
+        "frac_pos": 0.6235,
+        "frac_changed": 0.995,
+        "n": 2000
+      }
+    },
+    "zoning": {
+      "pos": 1,
+      "swap_donor": {
+        "mean": 0.000517618864774704,
+        "frac_pos": 0.2475,
+        "frac_changed": 0.425,
+        "n": 2000
+      },
+      "swap_maxdist": {
+        "mean": 0.0024565571844577788,
+        "frac_pos": 0.6335,
+        "frac_changed": 0.9975,
+        "n": 2000
+      }
+    },
+    "road_skeleton": {
+      "pos": 2,
+      "swap_donor": {
+        "mean": 0.0018498856276273727,
+        "frac_pos": 0.353,
+        "frac_changed": 0.5865,
+        "n": 2000
+      },
+      "swap_maxdist": {
+        "mean": 0.0040460266023874284,
+        "frac_pos": 0.6205,
+        "frac_changed": 1.0,
+        "n": 2000
+      }
+    },
+    "cell_density": {
+      "pos": 3,
+      "swap_donor": {
+        "mean": 0.0010816183388233185,
+        "frac_pos": 0.289,
+        "frac_changed": 0.416,
+        "n": 2000
+      },
+      "swap_maxdist": {
+        "mean": 0.002553740158677101,
+        "frac_pos": 0.647,
+        "frac_changed": 1.0,
+        "n": 2000
+      }
+    },
+    "coastal": {
+      "pos": 5,
+      "swap_donor": {
+        "mean": 0.0014000318348407746,
+        "frac_pos": 0.2595,
+        "frac_changed": 0.4385,
+        "n": 2000
+      },
+      "swap_maxdist": {
+        "mean": 0.0027193833440542223,
+        "frac_pos": 0.6075,
+        "frac_changed": 0.9995,
+        "n": 2000
+      }
+    }
+  },
+  "joint_donor": {
+    "mean": 0.0068115246444940564,
+    "frac_pos": 0.7025,
+    "frac_changed": 1.0,
+    "n": 2000
+  },
+  "joint_maxdist": {
+    "mean": 0.01583010298013687,
+    "frac_pos": 0.7965,
+    "frac_changed": 1.0,
+    "n": 2000
+  }
+}
