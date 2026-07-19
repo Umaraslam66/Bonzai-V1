@@ -1,3 +1,5 @@
+> SUPERSEDED — live boot doc is docs/handoffs/2026-06-18-t9-gate-50m-locked.md (canon: docs/GROUND_TRUTH.md). Archived 2026-06-18.
+
 # Handoff — START of the architecture bake-off (2026-06-09)
 
 You are a fresh, context-free agent starting the **architecture bake-off**. The eval-set-generation

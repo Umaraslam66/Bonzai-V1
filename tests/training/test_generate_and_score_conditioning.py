@@ -75,7 +75,7 @@ def capture(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 
 def _run(cap: SimpleNamespace, n_cells: int = 4) -> dict:
-    cfg = ScaffoldConfig(devices=1, accelerator="cpu")
+    cfg = ScaffoldConfig(region="singapore", devices=1, accelerator="cpu")
     dm = _FakeDM([_example(0, _PREFIX_A, 2), _example(1, _PREFIX_B, None)])
     model = SimpleNamespace(model=object())  # generation is stubbed; inner model unused
     return ts._generate_and_score(model, dm, cfg, n_cells=n_cells, max_new=16)
@@ -116,7 +116,7 @@ def test_strata_match_sampled_examples_buckets(capture):
 
 
 def test_per_cell_seeding_kept(capture):
-    cfg_seed = ScaffoldConfig(devices=1, accelerator="cpu").seed
+    cfg_seed = ScaffoldConfig(region="singapore", devices=1, accelerator="cpu").seed
     _run(capture, n_cells=4)
     assert capture.seeds == [cfg_seed + i for i in range(4)]
 
@@ -131,7 +131,7 @@ def test_sampling_is_deterministic(capture):
 
 
 def test_empty_val_fails_loud(capture):
-    cfg = ScaffoldConfig(devices=1, accelerator="cpu")
+    cfg = ScaffoldConfig(region="singapore", devices=1, accelerator="cpu")
     model = SimpleNamespace(model=object())
     with pytest.raises(ValueError, match="val"):
         ts._generate_and_score(model, _FakeDM([]), cfg, n_cells=2, max_new=16)

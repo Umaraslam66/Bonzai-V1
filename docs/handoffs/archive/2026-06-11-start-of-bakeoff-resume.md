@@ -1,3 +1,5 @@
+> SUPERSEDED — live boot doc is docs/handoffs/2026-06-18-t9-gate-50m-locked.md (canon: docs/GROUND_TRUTH.md). Archived 2026-06-18.
+
 # START: Phase-2 bake-off RESUME — first scored numbers (boot 2026-06-11)
 
 **This is a NEW-PHASE handoff, not a continuation.** The readiness-closure +

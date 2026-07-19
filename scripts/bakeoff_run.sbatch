@@ -11,8 +11,15 @@
 # any 1B job. Discovering a broken resume mid-1B-run costs ~159 node-h.
 #
 # Submit with:
-#   BACKBONE=<name> SCALE=<30M|100M|300M|1B> REGION=<region> RELEASE=<release> \
-#     [TRAIN_SET=single|eu-train-union] sbatch scripts/bakeoff_run.sbatch
+#   BACKBONE=<name> SCALE=<30M|100M|300M|1B|53M> REGION=<region> RELEASE=<release> \
+#     [SEED=<int>] [TRAIN_SET=single|eu-train-union] sbatch scripts/bakeoff_run.sbatch
+# SEED (optional) overrides the per-run YAML's seed via --seed; it drives ALL run RNG (model
+# init, train/val tile split, data sampler) so each seed is a distinct run + checkpoint dir.
+# The Phase-2 bake-off matrix loops 3 distinct seeds per backbone over the 2 fixed-scale YAMLs
+# (6 scored runs):
+#   for s in 7 13 23; do for bb in transformer-ar mamba-hybrid; do \
+#     SEED=$s BACKBONE=$bb SCALE=53M REGION=krakow RELEASE=2026-04-15.0 \
+#       TRAIN_SET=eu-train-union sbatch scripts/bakeoff_run.sbatch; done; done
 # TRAIN_SET defaults to single (per-region corpus). eu-train-union consumes the
 # Task-8 per-city manifests (built by build_multiregion_train_shards.sbatch) and
 # NEVER rebuilds them -- the preamble only asserts they exist.
@@ -31,7 +38,15 @@
 #SBATCH --error=logs/%x-%j.err
 set -euo pipefail
 cd /leonardo_work/AIFAC_P02_222/Bonzai-OSM
-module load python/3.11.7 cuda/12.2
+# gcc/12.2.0 toolchain (spec §4.1): the RHEL-8 gcc-8.5 crashed torch.compile inductor CPU
+# codegen in eval at Step 18.5; 12.2.0 is the newest module CUDA 12.2 supports. The same
+# load satisfies the mamba run's gcc-12 libstdc++ (GLIBCXX_3.4.29) precondition #3 — the
+# LD_PRELOAD is REQUIRED for the mamba_ssm/causal_conv1d import and HARMLESS for
+# transformer-ar, so it rides this shared entry unconditionally (mirrors the GPU-verified
+# scripts/probe_mamba_gpu_half.sh). Verified by `sbatch --test-only` on AIFAC_P02_548.
+module load python/3.11.7 cuda/12.2 gcc/12.2.0
+export CC=$(command -v gcc) CXX=$(command -v g++) CUDAHOSTCXX=$(command -v g++)
+export LD_PRELOAD="$(dirname "$($CC -print-file-name=libstdc++.so.6)")/libstdc++.so.6"
 source .venv/bin/activate
 mkdir -p logs
 
@@ -39,8 +54,11 @@ mkdir -p logs
 : "${REGION:?set REGION (e.g. krakow)}"
 : "${RELEASE:?set RELEASE (e.g. 2026-04-15.0)}"
 : "${TRAIN_SET:=single}"
+# SEED (optional): overrides the per-run YAML seed via --seed; empty => the YAML/config seed stands.
+SEED_ARG=""
+[ -n "${SEED:-}" ] && SEED_ARG="--seed ${SEED}"
 echo "=== job context ==="
-echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) backbone=$BACKBONE scale=$SCALE region=$REGION release=$RELEASE train_set=$TRAIN_SET"
+echo "host=$(hostname) date=$(date -u +%FT%TZ) git_sha=$(git rev-parse HEAD) backbone=$BACKBONE scale=$SCALE region=$REGION release=$RELEASE train_set=$TRAIN_SET seed=${SEED:-<yaml>}"
 
 # --- F8 verified end-state: JOB_DONE is a TRUSTED marker (future sessions and the
 # orchestration believe it), so it must follow PROOF the run's artifacts exist on disk,
@@ -144,7 +162,17 @@ if declared is not None and declared != '${BACKBONE}':
         + ' but the job was submitted with BACKBONE=${BACKBONE} — a config/submission'
         + ' mismatch is a refusal, never a silent stomp; fix the YAML or the submit env.'
     )
-cfg = ScaffoldConfig(**{**loaded, 'backbone': '${BACKBONE}'})
+declared_region = loaded.get('region')
+if declared_region is not None and declared_region != '${REGION}':
+    raise SystemExit(
+        'CONFIG_REGION_MISMATCH: ${RUN_CONFIG} names region ' + repr(declared_region)
+        + ' but the job was submitted with REGION=${REGION} — a config/submission'
+        + ' mismatch is a refusal, never a silent stomp; fix the YAML or the submit env.'
+    )
+# item-3 made ScaffoldConfig.region REQUIRED, so the CPU dry-run must carry region — inject the
+# env REGION (mirrors the backbone override: supply the omitted case, refuse a contradicting one),
+# else ScaffoldConfig(**loaded) raises before the real run even spins up.
+cfg = ScaffoldConfig(**{**loaded, 'backbone': '${BACKBONE}', 'region': '${REGION}'})
 build_backbone(cfg.backbone, cfg)
 print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={cfg.n_layers}')
 "
@@ -152,10 +180,14 @@ print(f'buildability dry-run OK: {cfg.backbone} d_model={cfg.d_model} n_layers={
 # --scored-run: this entry point feeds the bake-off decision, so the W1
 # commensurability gate (max_len == locked budget, eval_max_new >= it) fires at
 # the entrypoint — an opt-down recipe dies named, before any GPU-hour burns.
+# --no-compile (T7 verdict): torch.compile recompiled 22>10 with no plateau (62.6% overhead)
+# and graph-breaks on mamba's selective_scan/causal_conv1d — BOTH backbones run eager so the
+# (measured node-h, geometry-fidelity) comparison stays commensurable (architecture is the only
+# variable, never the compile path).
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
-  --devices 4 --no-build --scored-run --backbone "$BACKBONE" \
+  --devices 4 --no-build --no-compile --scored-run --backbone "$BACKBONE" \
   --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" \
-  --config "$RUN_CONFIG" &
+  ${SEED_ARG} --config "$RUN_CONFIG" &
 SRUN_PID=$!
 wait "$SRUN_PID"
 

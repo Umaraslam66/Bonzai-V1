@@ -43,7 +43,12 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from cfm.eval.city_aggregate import BindingVerdict, PerCityKS, binding_city_verdict
+from cfm.eval.city_aggregate import (
+    BindingVerdict,
+    NoDecisiveWinner,
+    PerCityKS,
+    binding_city_verdict,
+)
 from cfm.eval.conditioning_floor import (
     FloorArtifactError,
     LaneMResult,
@@ -75,6 +80,22 @@ DECISION_QUANTITY = "lane_s_median_excess_over_floor_all"
 class MemorizationRefusal(RuntimeError):
     """The would-be decision involves a candidate that FAILED the Lane-M
     memorization discriminator — no crowning (hard halt), by name."""
+
+
+class NoDecisiveWinnerRefusal(RuntimeError):
+    """No held-out city separated the backbones beyond BOTH the C/sqrt(n) resolution floor
+    AND the seed-noise band — the S13 'doesn't separate' outcome (the likely result on
+    param-matched near-ties). No winner is crowned; route to the spec §13 pre-committed
+    simplest-backbone tie-break, never improvise. The ``NoDecisiveWinner`` verdict (per-city
+    gaps + which floor bound) is attached as ``.verdict``."""
+
+    def __init__(self, verdict: NoDecisiveWinner) -> None:
+        self.verdict = verdict
+        super().__init__(
+            "no decisive winner: no held-out city's winner-vs-runner-up gap cleared both the "
+            f"C/sqrt(n) resolution floor and the seed-noise floor (cities {verdict.demoted}); "
+            "route to the spec §13 simplest-backbone tie-break, do not improvise."
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -322,6 +343,10 @@ def pick_winner(
         for c in candidates
     }
     binding = binding_city_verdict(per_backbone)
+    if isinstance(binding, NoDecisiveWinner):
+        # The backbones did not separate beyond noise+resolution at ANY held-out city: the
+        # S13 'doesn't separate' outcome. No crown — by name, like the memorization halt.
+        raise NoDecisiveWinnerRefusal(binding)
     return WinnerDecision(winner=binding.winner, binding=binding)
 
 

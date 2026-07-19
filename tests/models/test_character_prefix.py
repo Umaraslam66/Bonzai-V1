@@ -29,7 +29,13 @@ from cfm.training.config import ScaffoldConfig
 
 def _production_model(max_len: int = 32) -> tuple[MicroAR, ScaffoldConfig]:
     cfg = ScaffoldConfig(
-        d_model=32, n_layers=1, n_heads=2, max_len=max_len, accelerator="cpu", devices=1
+        region="singapore",
+        d_model=32,
+        n_layers=1,
+        n_heads=2,
+        max_len=max_len,
+        accelerator="cpu",
+        devices=1,
     )
     return build_backbone("transformer-ar", cfg), cfg
 

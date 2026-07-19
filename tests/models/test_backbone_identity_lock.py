@@ -17,7 +17,13 @@ from cfm.training.config import ScaffoldConfig
 
 def _tiny_cfg() -> ScaffoldConfig:
     return ScaffoldConfig(
-        backbone="transformer-ar", d_model=32, n_layers=2, n_heads=2, max_len=64, accelerator="cpu"
+        region="singapore",  # region REQUIRED (no default); backbone build is region-agnostic
+        backbone="transformer-ar",
+        d_model=32,
+        n_layers=2,
+        n_heads=2,
+        max_len=64,
+        accelerator="cpu",
     )
 
 
@@ -60,16 +66,35 @@ def test_embedding_covers_the_value_bearing_conditioning_id_span() -> None:
     assert out.shape == (1, len(prefix), subf_vocab_size())
 
 
-def test_mamba_hybrid_asserts_mamba_env_lock_then_gates(monkeypatch) -> None:
-    """build_backbone('mamba-hybrid') enforces the mamba env-lock (GPU verify-before-lock
-    PASS 2026-06-17) at the construction site, AHEAD of the not-built gate. With the lock
-    satisfied it still raises BackboneNotYetBuilt — the kernel is verified, the backbone
-    module is the downstream build. (Lock mocked so this is env-independent.)"""
-    called: list[bool] = []
-    monkeypatch.setattr("cfm.models.backbone.assert_mamba_env_locked", lambda: called.append(True))
-    with pytest.raises(BackboneNotYetBuilt):
+def test_mamba_hybrid_builds_and_shares_the_scaffold_contract() -> None:
+    """With the mamba env-lock satisfied, build_backbone('mamba-hybrid') BUILDS a MambaHybrid
+    that SHARES the scaffold contract with transformer-ar: same sub-F head dim, same embedding
+    span (sub-F vocab + conditioning id-block), and the ONE shared conditioning builder (by
+    identity). Structural only — MambaHybrid.forward needs CUDA, so we never call it here."""
+    pytest.importorskip("mamba_ssm")
+    from cfm.data.training.conditioning import conditioning_id_span
+    from cfm.models.mamba_hybrid import MambaHybrid
+
+    model = build_backbone("mamba-hybrid", _tiny_cfg())
+    assert isinstance(model, MambaHybrid)
+    assert model.head.out_features == subf_vocab_size() == 1508
+    assert model.embed.num_embeddings == subf_vocab_size() + conditioning_id_span()
+    assert shared_conditioning_builder() is build_value_bearing_prefix
+
+
+def test_mamba_hybrid_lock_gates_construction_failclosed(monkeypatch) -> None:
+    """The mamba env-lock fires AHEAD of construction: if it raises, build_backbone aborts
+    before touching mamba_ssm. Env-independent (no mamba needed — the lock raises first)."""
+
+    class _Unlocked(RuntimeError):
+        pass
+
+    def _raise() -> None:
+        raise _Unlocked("env not locked")
+
+    monkeypatch.setattr("cfm.models.backbone.assert_mamba_env_locked", _raise)
+    with pytest.raises(_Unlocked):
         build_backbone("mamba-hybrid", _tiny_cfg())
-    assert called == [True], "the mamba env-lock must fire at mamba-backbone construction"
 
 
 def test_discrete_diffusion_gates_without_the_mamba_lock(monkeypatch) -> None:

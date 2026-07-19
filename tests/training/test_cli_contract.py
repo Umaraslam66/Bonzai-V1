@@ -86,6 +86,8 @@ def test_config_yaml_round_trips_into_scaffold_config(tmp_path) -> None:
     p = _write_yaml(
         tmp_path,
         {
+            # region is REQUIRED (no default); a per-run bake-off YAML must name it.
+            "region": "singapore",
             "backbone": "mamba-hybrid",
             "d_model": 384,
             "n_layers": 10,
@@ -97,6 +99,7 @@ def test_config_yaml_round_trips_into_scaffold_config(tmp_path) -> None:
         },
     )
     cfg = mod.build_config_from_args(mod._build_parser().parse_args(["--config", str(p)]))
+    assert cfg.region == "singapore"  # the YAML region round-trips
     assert cfg.backbone == "mamba-hybrid"
     assert cfg.d_model == 384
     assert cfg.n_layers == 10
@@ -109,7 +112,7 @@ def test_config_yaml_round_trips_into_scaffold_config(tmp_path) -> None:
 
 def test_explicit_cli_flag_overrides_the_config_value(tmp_path) -> None:
     mod = _load_module()
-    p = _write_yaml(tmp_path, {"d_model": 384, "max_steps": 1234})
+    p = _write_yaml(tmp_path, {"region": "singapore", "d_model": 384, "max_steps": 1234})
     args = mod._build_parser().parse_args(["--config", str(p), "--d-model", "512"])
     cfg = mod.build_config_from_args(args)
     assert cfg.d_model == 512  # explicit flag wins
@@ -189,6 +192,27 @@ def test_bakeoff_run_sbatch_dry_run_vets_the_trained_backbone() -> None:
     )
 
 
+def test_bakeoff_run_sbatch_dry_run_injects_region() -> None:
+    """item-3 made ``ScaffoldConfig.region`` REQUIRED, so the CPU buildability dry-run must
+    carry region or ``ScaffoldConfig(**loaded)`` raises before the run even spins up. The
+    dry-run injects the env REGION (mirroring the backbone override) AND refuses a YAML region
+    that contradicts $REGION (a config/submission mismatch is a loud refusal, never a silent
+    stomp — same discipline as the backbone)."""
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    override = "'region': '${REGION}'"
+    assert override in text, (
+        "the dry-run does not inject the env REGION — with region REQUIRED (item-3), a YAML "
+        "omitting `region` makes the dry-run ScaffoldConfig(**loaded) raise spuriously"
+    )
+    assert text.index(override) < text.index("\nsrun "), (
+        "the region-injected dry-run must run in the preamble, before srun"
+    )
+    assert "CONFIG_REGION_MISMATCH" in text, (
+        "no loud refusal for a YAML region that contradicts $REGION — a config/submission "
+        "mismatch must refuse, never silently stomp the YAML"
+    )
+
+
 # --- Task 10 (readiness-closure): --region/--release CLI + sbatch de-Singaporization ---
 
 _SBATCH_NAMES = ["bakeoff_diagnostic.sbatch", "bakeoff_run.sbatch"]
@@ -200,10 +224,21 @@ def test_region_release_flags_reach_scaffold_config() -> None:
     cfg = mod.build_config_from_args(args)
     assert cfg.region == "krakow"
     assert cfg.release == "2026-04-15.0"
-    # without the flags, the ScaffoldConfig defaults must remain untouched
-    cfg_default = mod.build_config_from_args(mod._build_parser().parse_args([]))
-    assert cfg_default.region == "singapore"
-    assert cfg_default.release == "2026-04-15.0"
+    # release still defaults when its flag is absent (region supplied so the build proceeds)
+    cfg_rel_default = mod.build_config_from_args(
+        mod._build_parser().parse_args(["--region", "krakow"])
+    )
+    assert cfg_rel_default.release == "2026-04-15.0"
+
+
+def test_no_region_fails_loud_no_silent_singapore_default() -> None:
+    # Fail-closed (the only NEW behavior): region has no default, so a run that names
+    # no --region (and no region in --config) must die LOUDLY at config-build time with
+    # a clear message — never silently fall back to the retired Phase-1 singapore corpus.
+    mod = _load_module()
+    args = mod._build_parser().parse_args([])
+    with pytest.raises(SystemExit, match="region is required"):
+        mod.build_config_from_args(args)
 
 
 @pytest.mark.parametrize("name", _SBATCH_NAMES)
@@ -243,11 +278,16 @@ def test_sbatch_srun_passes_region_release_to_cli(name: str) -> None:
 
 def test_train_set_flag_reaches_scaffold_config() -> None:
     mod = _load_module()
-    args = mod._build_parser().parse_args(["--train-set", "eu-train-union"])
+    # --region supplied (now REQUIRED); this test's subject is the --train-set flag/default
+    args = mod._build_parser().parse_args(
+        ["--region", "singapore", "--train-set", "eu-train-union"]
+    )
     cfg = mod.build_config_from_args(args)
     assert cfg.train_set == "eu-train-union"
     # without the flag, the ScaffoldConfig default must remain single-region
-    cfg_default = mod.build_config_from_args(mod._build_parser().parse_args([]))
+    cfg_default = mod.build_config_from_args(
+        mod._build_parser().parse_args(["--region", "singapore"])
+    )
     assert cfg_default.train_set == "single"
 
 
@@ -261,12 +301,17 @@ def test_train_set_flag_rejects_unknown_choice() -> None:
 
 def test_eval_length_flags_reach_scaffold_config() -> None:
     mod = _load_module()
-    args = mod._build_parser().parse_args(["--eval-cells", "32", "--eval-max-new", "5760"])
+    # --region supplied (now REQUIRED); this test's subject is the eval-length flags/defaults
+    args = mod._build_parser().parse_args(
+        ["--region", "singapore", "--eval-cells", "32", "--eval-max-new", "5760"]
+    )
     cfg = mod.build_config_from_args(args)
     assert cfg.eval_cells == 32
     assert cfg.eval_max_new == 5760
     # without the flags, the ScaffoldConfig defaults rule (argparse defaults are None)
-    cfg_default = mod.build_config_from_args(mod._build_parser().parse_args([]))
+    cfg_default = mod.build_config_from_args(
+        mod._build_parser().parse_args(["--region", "singapore"])
+    )
     assert cfg_default.eval_cells == 64
     assert cfg_default.eval_max_new == 512
 
@@ -347,3 +392,17 @@ def test_diagnostic_sbatch_missing_report_fails_loudly() -> None:
     # job; a missing report must fail the job loudly (verify_endstate + set -euo pipefail).
     text = (_REPO / "scripts" / "bakeoff_diagnostic.sbatch").read_text(encoding="utf-8")
     assert "(report not found)" not in text, "missing-report masking is still present (F8)"
+
+
+# --- Phase-2 bake-off Task 1: gcc/12.2.0 toolchain on the compiled scored path ---
+
+
+def test_bakeoff_run_sbatch_loads_gcc12_and_preloads_libstdcxx() -> None:
+    """The compiled scored path (torch.compile inductor CPU codegen) needs gcc/12.2.0,
+    not the RHEL-8 gcc-8.5 that crashed eval at Step 18.5; and the mamba run needs the
+    gcc-12 libstdc++ at import. Shared run sbatch (parameterized by --backbone), so one
+    fix serves both backbones; the LD_PRELOAD is harmless for transformer-ar."""
+    text = (_REPO / "scripts" / "bakeoff_run.sbatch").read_text(encoding="utf-8")
+    assert "module load python/3.11.7 cuda/12.2 gcc/12.2.0" in text
+    assert "export CC=" in text and "CXX=" in text and "CUDAHOSTCXX=" in text
+    assert "LD_PRELOAD" in text and "libstdc++.so.6" in text

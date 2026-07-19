@@ -36,9 +36,20 @@ set -euo pipefail
 # Submit with: REGION=<region> RELEASE=<release> sbatch scripts/bakeoff_diagnostic.sbatch
 : "${REGION:?set REGION (e.g. krakow)}"
 : "${RELEASE:?set RELEASE (e.g. 2026-04-15.0)}"
+# EU multiregion diagnostic: geometry-r is training-data-dependent, so the diagnostic TRAINS
+# on the eu-train-union (what the scored runs train on) and evals against REGION's held-out
+# emergence floor (REGION=krakow). The sealed EU cache makes the union load fast; the per-
+# token eval cost it measures is region-agnostic, so krakow is a fine floor/calibration tag.
+: "${TRAIN_SET:=eu-train-union}"
+: "${SHARD_CACHE:=data/processed/training_cache}"
+SHARD_CACHE_ARG=""
+[ -n "${SHARD_CACHE:-}" ] && SHARD_CACHE_ARG="--shard-cache ${SHARD_CACHE}"
 
 cd /leonardo_work/AIFAC_P02_222/Bonzai-OSM
-module load python/3.11.7 cuda/12.2
+# gcc/12.2.0 is PRECAUTIONARY (toolchain consistency only): this job runs --no-compile,
+# so it cannot hit the torch.inductor crash that needs gcc. No CC/CXX/LD_PRELOAD exports
+# here — this job needs neither mamba nor compile.
+module load python/3.11.7 cuda/12.2 gcc/12.2.0
 source .venv/bin/activate
 mkdir -p logs
 echo "=== job context ==="
@@ -64,8 +75,14 @@ verify_endstate() {
   echo "end-state verified: checkpoint + report artifacts on disk"
 }
 
-echo "=== pre-build training manifest (single process, no rank write-race) ==="
-python -c "from cfm.data.training.build_shards import build_training_shards as b; b('${RELEASE}','${REGION}'); print('manifest built')"
+# eu-train-union NEVER rebuilds (the per-city manifests are built by the Task-8 sbatch; the
+# union path reads them, fail-loud if missing). Only the single-region path pre-builds the
+# manifest once (single process, no DDP write-race). REGION=krakow is HELD-OUT, so a union
+# diagnostic must NOT pre-build krakow's shards — it trains the union, not krakow.
+if [ "$TRAIN_SET" = "single" ]; then
+  echo "=== pre-build training manifest (single-region, no rank write-race) ==="
+  python -c "from cfm.data.training.build_shards import build_training_shards as b; b('${RELEASE}','${REGION}'); print('manifest built')"
+fi
 
 # ~90M (d_model 768 / 12L / 12H). tokens/step = batch 4 * 4 devices * 2048 = 32,768.
 # --max-steps 110000 ~= r 40 (3.6B tokens / 90M). --no-compile (conservative; variable cell
@@ -86,11 +103,18 @@ python -c "from cfm.data.training.build_shards import build_training_shards as b
 # fix the verdict. Making the verdict scoreable requires max_len >= the floor regime —
 # a re-planned model budget, i.e. a Phase-6 / PI decision; do NOT silently edit these
 # numbers.
+# --max-time bounds TRAINING so fit stops GRACEFULLY before the 8h Slurm wall, leaving room
+# for the post-train eval to RUN — the eval is where gen_seconds_per_token (the §6 budget
+# input) and the emergence verdict are produced. Without it, an 8h-wall SIGTERM mid-training
+# would skip the eval (no per-token cost) AND fail verify_endstate (no report). r is read
+# from the loss CSV up to the stop, so a graceful stop short of --max-steps still yields r
+# (or, if loss hasn't flattened, the FIXED_SCALE_PLUS_S13 ladder-collapse verdict). 7h30m
+# train + ~20min eval (transformer-ar 90M, 64x2048 batch-1) fits the 8h wall.
 srun --kill-on-bad-exit=1 python -u scripts/train_scaffold.py \
   --devices 4 --no-build --no-compile --backbone transformer-ar \
-  --region "$REGION" --release "$RELEASE" \
+  --region "$REGION" --release "$RELEASE" --train-set "$TRAIN_SET" $SHARD_CACHE_ARG \
   --d-model 768 --n-layers 12 --n-heads 12 --max-len 2048 --batch-size 4 \
-  --max-steps 110000 --ckpt-every-n-steps 25000 \
+  --max-steps 110000 --ckpt-every-n-steps 25000 --max-time 00:07:30:00 \
   --eval-cells 64 --eval-max-new 2048
 
 verify_endstate

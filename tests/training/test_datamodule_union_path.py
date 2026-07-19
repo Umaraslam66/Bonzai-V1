@@ -77,7 +77,9 @@ def test_union_datamodule_constructs_from_per_city_manifests(
     monkeypatch.setattr(mod, "_g4_rollup_path", lambda: g4)
     monkeypatch.setattr(mod, "multiregion_holdout_manifest_path", lambda release: holdout)
 
-    cfg = ScaffoldConfig(train_set="eu-train-union", release=_RELEASE)
+    # region is REQUIRED (no default); on the union path it is ignored for data
+    # selection (the docstring contract), so SG keeps the behavior identical.
+    cfg = ScaffoldConfig(region="singapore", train_set="eu-train-union", release=_RELEASE)
     dm = mod._datamodule(cfg, build=False)
 
     # union mode: the per-city manifest paths for train_cities(...), held-out absent
@@ -104,7 +106,7 @@ def test_union_holdout_missing_held_out_cities_raises(
     monkeypatch.setattr(mod, "_g4_rollup_path", lambda: g4)
     monkeypatch.setattr(mod, "multiregion_holdout_manifest_path", lambda release: bad)
 
-    cfg = ScaffoldConfig(train_set="eu-train-union", release=_RELEASE)
+    cfg = ScaffoldConfig(region="singapore", train_set="eu-train-union", release=_RELEASE)
     # ValueError ONLY: the shipped contract is the explicit raise in _union_datamodule,
     # never an incidental KeyError from a dict lookup.
     with pytest.raises(ValueError, match="held_out_cities"):
@@ -125,7 +127,7 @@ def test_union_branch_never_calls_single_region_build(
         raise AssertionError("build_training_shards must not be called on the union path")
 
     monkeypatch.setattr(mod, "build_training_shards", _boom)
-    cfg = ScaffoldConfig(train_set="eu-train-union", release=_RELEASE)
+    cfg = ScaffoldConfig(region="singapore", train_set="eu-train-union", release=_RELEASE)
     dm = mod._datamodule(cfg, build=True)  # build flag is a no-op on the union path
     assert dm._expected_holdout_schema == "2.0"
 
@@ -141,15 +143,23 @@ def test_conditioning_ablation_threads_cfg_to_datamodule_on_both_paths(
     monkeypatch.setattr(mod, "_g4_rollup_path", lambda: g4)
     monkeypatch.setattr(mod, "multiregion_holdout_manifest_path", lambda release: holdout)
 
+    # region is REQUIRED (no default); SG keeps these ablation-threading tests identical
     union_cfg = ScaffoldConfig(
-        train_set="eu-train-union", release=_RELEASE, conditioning_ablation="no_city"
+        region="singapore",
+        train_set="eu-train-union",
+        release=_RELEASE,
+        conditioning_ablation="no_city",
     )
     assert mod._datamodule(union_cfg, build=False)._conditioning_ablation == "no_city"
 
-    single_cfg = ScaffoldConfig(release=_RELEASE, conditioning_ablation="no_city")
+    single_cfg = ScaffoldConfig(
+        region="singapore", release=_RELEASE, conditioning_ablation="no_city"
+    )
     assert mod._datamodule(single_cfg, build=False)._conditioning_ablation == "no_city"
     # default stays full (the scored Lane-S run opts IN to the ablation explicitly)
     assert (
-        mod._datamodule(ScaffoldConfig(release=_RELEASE), build=False)._conditioning_ablation
+        mod._datamodule(
+            ScaffoldConfig(region="singapore", release=_RELEASE), build=False
+        )._conditioning_ablation
         == "full"
     )

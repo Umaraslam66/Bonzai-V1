@@ -40,7 +40,7 @@ _PROV = {
 
 
 def test_config_carries_eval_lengths_with_argparse_defaults() -> None:
-    cfg = ScaffoldConfig()
+    cfg = ScaffoldConfig(region="singapore")  # region REQUIRED; eval lengths are region-agnostic
     assert cfg.eval_cells == 64
     assert cfg.eval_max_new == 512
 
@@ -48,7 +48,7 @@ def test_config_carries_eval_lengths_with_argparse_defaults() -> None:
 def test_eval_lengths_land_in_model_dump_hence_every_report() -> None:
     # scripts/train_scaffold.py::_write_report renders cfg.model_dump() wholesale, so
     # presence in the dump == presence in every reports/ summary (F9).
-    dump = ScaffoldConfig().model_dump()
+    dump = ScaffoldConfig(region="singapore").model_dump()  # region REQUIRED (no default)
     assert dump["eval_cells"] == 64
     assert dump["eval_max_new"] == 512
 
@@ -57,7 +57,13 @@ def test_checkpoint_hparams_carry_eval_lengths() -> None:
     # save_hyperparameters(cfg.model_dump()) puts the lengths into every checkpoint's
     # hparams (same wire as the F16 conditioning_scheme tag).
     cfg = ScaffoldConfig(
-        d_model=64, n_layers=2, n_heads=2, max_len=128, accelerator="cpu", devices=1
+        region="singapore",
+        d_model=64,
+        n_layers=2,
+        n_heads=2,
+        max_len=128,
+        accelerator="cpu",
+        devices=1,
     )
     lit = ScaffoldLit(cfg)
     assert lit.hparams["eval_max_new"] == 512
@@ -203,7 +209,7 @@ def test_generate_and_score_passes_lengths_to_slice_eval(monkeypatch) -> None:
         character_stats=(0.0,) * 7,  # Task 24b required field
     )
     dm = SimpleNamespace(val_cells=[example])
-    cfg = ScaffoldConfig(devices=1, accelerator="cpu")
+    cfg = ScaffoldConfig(region="singapore", devices=1, accelerator="cpu")
     model = SimpleNamespace(model=object())
     ts._generate_and_score(
         model,

@@ -1,0 +1,38 @@
+{
+  "compile_kept_for_scored_runs": false,
+  "compile_overhead_frac": 0.6259,
+  "compile_step_indices": [
+    0,
+    1,
+    14,
+    16,
+    19,
+    43,
+    52,
+    65,
+    83,
+    105,
+    108,
+    121,
+    146,
+    158,
+    173,
+    202,
+    206,
+    207,
+    212,
+    217,
+    234,
+    241
+  ],
+  "dynamo_unique_graphs": 19,
+  "n_steps": 250,
+  "none_in_second_half": false,
+  "recompiles": 22,
+  "recompiles_plateaued": false,
+  "steady_step_seconds": 0.06889,
+  "thresholds": {
+    "max_overhead_frac": 0.1,
+    "max_recompiles": 10
+  }
+}

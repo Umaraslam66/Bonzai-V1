@@ -39,6 +39,7 @@ from cfm.eval.holdout.paths import (
     holdout_manifest_for_region,
     multiregion_holdout_manifest_path,
 )
+from cfm.eval.shard import sharded_eval
 from cfm.eval.slice_metrics import slice_eval
 from cfm.inference.generate import generate_cell_tokens, try_decode_block
 from cfm.training.config import ScaffoldConfig
@@ -94,6 +95,14 @@ def _resolve_emergence_floor(region: str) -> tuple[float, dict]:
             f"required keys {missing}; {fix}"
         )
     return float(entry["floor"]), {"region": region, **entry}
+
+
+def _gen_seconds_per_token(gen_seconds: float, n_tokens: int) -> float:
+    """Per-generated-token wall cost — the quantity the §6 13,312-token eval-budget
+    projection extrapolates from (AR generation is one sequential forward per token,
+    so cost scales ~linearly in tokens). Guards divide-by-zero: when nothing was
+    generated (e.g. cfg.eval_cells == 0) the per-token cost is 0.0, not an error."""
+    return gen_seconds / n_tokens if n_tokens else 0.0
 
 
 def _accelerator_for(devices: int) -> str:
@@ -172,6 +181,38 @@ def _datamodule(cfg: ScaffoldConfig, *, build: bool = True) -> CellDataModule:
     )
 
 
+def score_cell(
+    model: torch.nn.Module,
+    *,
+    prefix_ids: list[int],
+    char_stats: list[float] | None,
+    max_new: int,
+    seed: int,
+) -> dict:
+    """Generate + decode ONE cell, keyed on ``seed`` (= base + GLOBAL index) so the result is
+    rank-INDEPENDENT — the unit ``sharded_eval`` distributes and the eval-sharding INTEGRATION
+    golden re-verifies bit-identical across GPUs (it imports THIS function, so the golden
+    exercises the wired path, never a parallel copy). ``gen_seconds`` is wall-clock and is NOT
+    part of the deterministic per-cell score (the golden compares everything else)."""
+    from cfm.eval.emergence import sequence_has_building_tokens
+
+    _g0 = time.perf_counter()
+    tokens = generate_cell_tokens(
+        model, prefix=prefix_ids, max_new=max_new, seed=seed, char_stats=char_stats
+    )
+    gen_s = time.perf_counter() - _g0
+    cell_blocks = split_cell_into_features(tokens)
+    decoded = [(b, try_decode_block(b)) for b in cell_blocks]
+    return {
+        "gen_seconds": gen_s,  # wall-clock; NOT part of the deterministic score
+        "n_tokens": len(tokens),  # prefix-stripped tail = generated tokens
+        "has_building": sequence_has_building_tokens(tokens),
+        "n_attempted": len(cell_blocks),
+        "blocks": [b for b, d in decoded if d is not None],
+        "geoms": [d for b, d in decoded if d is not None],
+    }
+
+
 def _generate_and_score(
     model: ScaffoldLit,
     dm: CellDataModule,
@@ -203,7 +244,6 @@ def _generate_and_score(
     ``generated_length_cap`` defaults to ``max_new`` (one source: the cap IS the
     generation budget); pass it explicitly only to assert a different report value.
     """
-    from cfm.eval.emergence import sequence_has_building_tokens
 
     if generated_length_cap is None:
         generated_length_cap = max_new
@@ -221,31 +261,55 @@ def _generate_and_score(
     random.Random(cfg.seed).shuffle(order)
     sampled = [val[order[i % len(order)]] for i in range(n_cells)]
 
+    # Bake-off Task 11: SHARD generation+decode across the node's ranks (the budget lever:
+    # rank-0-serial billed 4 GPUs for 1 GPU's work). ``_score_one`` is keyed on the GLOBAL cell
+    # index (seed = cfg.seed + i) so a cell's result is rank-INDEPENDENT — the property the
+    # eval-sharding golden verifies; ``gather_in_order`` reassembles per-cell results in canonical
+    # global order on EVERY rank, so downstream scoring is byte-deterministic. Generation timing
+    # is still per-cell single-GPU (perf_counter inside _score_one) so the SUMMED gen_seconds /
+    # n_tokens give the same single-GPU per-token rate as the serial path (only wall-clock shrinks).
+    def _score_one(i: int) -> dict:
+        example = sampled[i]
+        # SHARED per-cell generate+decode (the eval-sharding integration golden imports
+        # score_cell, so the golden re-verifies THIS exact path, not a parallel copy). seed =
+        # cfg.seed + GLOBAL i -> rank-independent. Task 24b: char_stats are already ablation-
+        # applied by the datamodule (train/gen identity, like the prefix ids).
+        r = score_cell(
+            model.model,
+            prefix_ids=list(example.prefix_ids),
+            char_stats=list(example.character_stats),
+            max_new=max_new,
+            seed=cfg.seed + i,
+        )
+        r["stratum"] = example.stratum  # real density bucket (-1 unknown); carried per cell
+        return r
+
+    import torch.distributed as dist
+
+    if dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
+        # COLLECTIVE: every rank MUST call (all_gather_object inside). run_short places the model
+        # on every rank's GPU and runs this BEFORE the rank-0-only report gate.
+        per_cell = sharded_eval(n_cells, _score_one)
+    else:
+        per_cell = [_score_one(i) for i in range(n_cells)]  # serial: CPU test / single device
+
     blocks: list[list[int]] = []
     geoms: list[dict] = []
     strata: list[int] = []
     n_attempted = 0
     n_cells_with_building_tokens = 0
-    for i, example in enumerate(sampled):
-        tokens = generate_cell_tokens(
-            model.model,
-            prefix=list(example.prefix_ids),
-            max_new=max_new,
-            seed=cfg.seed + i,
-            # Task 24b: the example's stats are ALREADY ablation-applied by the
-            # datamodule (train/gen identity by construction, like the prefix ids).
-            char_stats=list(example.character_stats),
-        )
-        if sequence_has_building_tokens(tokens):
+    gen_seconds = 0.0
+    n_tokens_generated = 0
+    for r in per_cell:
+        gen_seconds += r["gen_seconds"]
+        n_tokens_generated += r["n_tokens"]
+        n_attempted += r["n_attempted"]
+        if r["has_building"]:
             n_cells_with_building_tokens += 1
-        cell_blocks = split_cell_into_features(tokens)
-        n_attempted += len(cell_blocks)
-        for block in cell_blocks:
-            decoded = try_decode_block(block)
-            if decoded is not None:
-                blocks.append(block)
-                geoms.append(decoded)
-                strata.append(example.stratum)  # real stratum: density bucket (-1 unknown)
+        for block, geom in zip(r["blocks"], r["geoms"], strict=True):
+            blocks.append(block)
+            geoms.append(geom)
+            strata.append(r["stratum"])
     metrics = slice_eval(
         blocks,
         geoms,
@@ -261,6 +325,10 @@ def _generate_and_score(
     # building tokens present but n_polygons low => didn't close (a different cause).
     metrics["n_cells_generated"] = n_cells
     metrics["n_cells_with_building_tokens"] = n_cells_with_building_tokens
+    # Task 8: generation-only timing + generated-token count, so run_short can derive
+    # the per-token cost the §6 13,312-budget projection extrapolates from.
+    metrics["gen_seconds"] = gen_seconds
+    metrics["n_tokens_generated"] = n_tokens_generated
     return metrics
 
 
@@ -271,6 +339,7 @@ def run_smoke(devices: int = 4) -> dict:
     cfg = ScaffoldConfig(
         devices=devices,
         accelerator=accel,
+        region="singapore",  # region is now REQUIRED; the wiring smoke is the SG dev path
         d_model=64,
         n_layers=2,
         n_heads=2,
@@ -453,7 +522,11 @@ def run_short(
     fit, not at the post-train eval. ``cfg.eval_cells == 0`` generates nothing, so no
     floor is needed (run_smoke is likewise out of scope: it is the wiring smoke,
     verdict-None by design)."""
-    cfg = cfg or ScaffoldConfig()
+    # No bare ScaffoldConfig() fallback: region is REQUIRED, so a default-constructed
+    # config can no longer exist (and a region-less run must never silently start).
+    # run_short is always handed a real cfg by main(); a None here is a caller bug.
+    if cfg is None:
+        raise ValueError("run_short requires a ScaffoldConfig (region is mandatory; no default)")
     if cfg.accelerator == "gpu":
         assert_training_env_locked()
 
@@ -498,13 +571,15 @@ def run_short(
     trainer.fit(lit, dm, ckpt_path=ckpt_path)
     fit_seconds = time.time() - t0
 
-    # Eval + report on the global-zero rank only: the model is DDP-synced, so rank 0
-    # is representative, and only one process must write the report file.
-    if not trainer.is_global_zero:
-        return {"trained_steps": int(trainer.global_step)}
-    cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step), params_m=params_m)
-    # Time the eval EXPLICITLY: autoregressive generation is the binding bake-off cost,
-    # so price it rather than assume it is free (the eval-cost reframe).
+    # Eval generation is SHARDED across ALL ranks (Task 11): the all_gather_object inside
+    # _generate_and_score is COLLECTIVE, so every rank must place the model on its GPU and
+    # participate BEFORE the rank-0-only report gate. (mamba kernels causal_conv1d / selective_scan
+    # are CUDA-only and RAISE on a CPU tensor; Lightning's DDP teardown left the model on CPU, so
+    # re-place it on every rank. transformer-ar tolerated CPU eval, masking this; mamba does not.)
+    if cfg.accelerator == "gpu" and torch.cuda.is_available():
+        lit.to("cuda")
+    # Time the eval EXPLICITLY (wall-clock): autoregressive generation is the binding bake-off
+    # cost; with sharding the wall-clock is ~world_size-fold below the SUMMED single-GPU gen time.
     e0 = time.time()
     metrics = _generate_and_score(
         lit,
@@ -523,9 +598,26 @@ def run_short(
         floor_regime_cell_length=DEFAULT_MAX_CELL_TOKENS,
     )
     eval_seconds = time.time() - e0
+    # Report on the global-zero rank only: the gathered per-cell metrics are identical on every
+    # rank (gather_in_order returns the full list to all), and only one process must write.
+    if not trainer.is_global_zero:
+        return {"trained_steps": int(trainer.global_step)}
+    cost = _cost(cfg, fit_seconds=fit_seconds, steps=int(trainer.global_step), params_m=params_m)
     cost["eval_seconds"] = round(eval_seconds, 1)
     cost["eval_node_h"] = round(eval_seconds / 3600.0, 4)
     cost["eval_node_h_per_cell"] = round(eval_seconds / 3600.0 / max(1, cfg.eval_cells), 6)
+    # Task 8: per-GENERATED-token cost (generation only, decode/score excluded). This is
+    # what the §6 13,312-token scored-eval budget projection extrapolates from — the
+    # diagnostic gens eval_max_new (2048) tokens/cell, so eval_seconds alone can't be
+    # scaled to the 13,312 regime; the per-token rate can (AR cost ~linear in tokens).
+    # .get with 0 defaults: a no-eval run (eval_cells=0) or any metrics without the gen
+    # fields yields a 0.0 per-token cost (the _gen_seconds_per_token guard), never a KeyError.
+    cost["gen_seconds_per_token"] = round(
+        _gen_seconds_per_token(
+            metrics.get("gen_seconds", 0.0), metrics.get("n_tokens_generated", 0)
+        ),
+        6,
+    )
     report = _write_report(
         cfg,
         metrics,
@@ -586,6 +678,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-steps", type=int, default=None, help="override ScaffoldConfig.max_steps"
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="ScaffoldConfig.seed (overrides the --config YAML / default). The bake-off matrix "
+        "loops 3 distinct seeds per backbone; the seed drives ALL run RNG — model init "
+        "(L.seed_everything before build), the train/val tile split, and the data sampler.",
+    )
     parser.add_argument("--max-len", type=int, default=None, help="override cell-token budget")
     parser.add_argument(
         "--shard-cache",
@@ -640,7 +740,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--region",
         default=None,
-        help="override ScaffoldConfig.region (e.g. krakow); default keeps the config value",
+        help="ScaffoldConfig.region (e.g. krakow) — REQUIRED unless supplied via --config; "
+        "there is NO default (a region-less run fails loudly, never silent singapore)",
     )
     parser.add_argument(
         "--release",
@@ -703,6 +804,7 @@ def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
     overrides.update({"devices": args.devices, "accelerator": _accelerator_for(args.devices)})
     for flag, key in [
         ("backbone", "backbone"),
+        ("seed", "seed"),
         ("max_steps", "max_steps"),
         ("max_len", "max_len"),
         ("d_model", "d_model"),
@@ -722,6 +824,17 @@ def build_config_from_args(args: argparse.Namespace) -> ScaffoldConfig:
             overrides[key] = val
     if args.no_compile:
         overrides["compile"] = False
+    # Fail-closed: ScaffoldConfig.region is REQUIRED (no silent singapore default).
+    # Raise a NAMED error here rather than let pydantic surface an opaque
+    # "field required" ValidationError — and NEVER pick a region implicitly. A
+    # region reaches `overrides` only from --region or the --config YAML; absent
+    # both, the run has not named its corpus and must not start.
+    if "region" not in overrides:
+        raise SystemExit(
+            "region is required: pass --region <city> (e.g. --region krakow) or set "
+            "`region:` in the --config YAML. There is no default — a run must name its "
+            "corpus (the retired Phase-1 singapore default is gone)."
+        )
     return ScaffoldConfig(**overrides)
 
 
