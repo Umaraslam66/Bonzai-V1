@@ -1,5 +1,21 @@
 # Steering-probe result (2026-07-19)
 
+> **ADDENDUM (same day, supersedes the verdict table below): fixed-closure re-analysis.**
+> The defect-(a) fix (float-drift epsilon in `_is_closed_ring`, this commit) corrects the
+> feature classifier the probe metrics run through; on the frozen eyeball fixture it
+> re-seals 37/258 building features exact-`==` had misclassified (24/234 → 61/197 sealed/
+> unsealed, roads untouched). Authoritative artifacts:
+> `steering_per_cell_metrics_fixedclosure*.json`. Under the fixed classifier: C4 control
+> 3/3 (stronger: Δmed 6.5–11.5 buildings); **C1 drops to 1/3 strict** (T7 p=.0002,
+> M7 p=.0166, T13 p=.0385 — all 3 right direction; the 2/3 pass in the table below was
+> partly building perimeters miscounted as road length); C5 unchanged (0/3 strict, all 3
+> right direction, T7 p=.0237); C2/C3 verdicts unchanged. Headline becomes:
+> `probe_valid=True`, `macro_steers=NOT YET DECIDED` (consistent trend, under the strict
+> bar at n=40), `product_steers=NOT YET DECIDED` — **both now ride on the n=160
+> replication** (job 49835918, running), which covers C1, C4, C5 and is judged on its own
+> sample with the FIXED classifier. The pre-fix verdict JSON is retained for provenance
+> only.
+
 Spec: `docs/superpowers/specs/2026-07-17-steering-probe.md` (pre-registered contrasts + verdict
 rule). Code: commit `51aaea9`. GPU job: Leonardo `49831125` (COMPLETED 0:0, 24m37s wall on one
 full node ≈ **1.6 GPU-h billed** — the ~8 GPU-h estimate used the 100M-mixer gen rate; the 53M

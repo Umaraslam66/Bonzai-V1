@@ -35,6 +35,29 @@ def test_building_open_line_is_not_promoted() -> None:
     assert out[0]["type"] == "LineString"
 
 
+def test_float_drift_closure_is_promoted() -> None:
+    # Defect (a) regression: decoder rotation arithmetic leaves ~1e-14 m residue on the
+    # closing vertex; exact `==` wrongly demoted ~52% of clean round-trips. This case is
+    # RED on the pre-fix exact-equality code (regime-distinguishing by construction).
+    drift_ring = {
+        "type": "LineString",
+        "coordinates": [[0.0, 0.0], [0.0, 2.0], [2.0, 2.0], [2.0, 0.0], [1.2e-14, -6.1e-15]],
+    }
+    out = promote_building_rings([[_FEATURE, _BUILDING, 1, 2]], [drift_ring])
+    assert out[0]["type"] == "Polygon"
+
+
+def test_model_scale_near_closure_still_fails() -> None:
+    # Defect (b) must NOT be absorbed: a generated ring missing closure by ~1 cm (model
+    # precision scale, >> float drift) stays LineString — the epsilon covers drift only.
+    near_ring = {
+        "type": "LineString",
+        "coordinates": [[0.0, 0.0], [0.0, 2.0], [2.0, 2.0], [2.0, 0.0], [0.01, 0.0]],
+    }
+    out = promote_building_rings([[_FEATURE, _BUILDING, 1, 2]], [near_ring])
+    assert out[0]["type"] == "LineString"
+
+
 def test_non_linestring_passes_through_unchanged() -> None:
     pt = {"type": "Point", "coordinates": [1, 2]}
     poly = {"type": "Polygon", "coordinates": [_CLOSED_RING["coordinates"]]}

@@ -29,8 +29,12 @@ def test_construction_identity_class_totals(report):
     for cg in report.per_context.values():
         for k in tot:
             tot[k] += cg.counts[k]
-    assert tot["building_sealed"] == 24
-    assert tot["building_unsealed"] == 234  # NOT counted as roads
+    # RE-PINNED 2026-07-19 with the defect-(a) closure fix (float-drift epsilon in
+    # _is_closed_ring): 37 of the 61 sealed buildings close to within ~1e-14 m and were
+    # previously misclassified as unsealed by exact `==` (24/234 -> 61/197; sum conserved
+    # at 258, road counts untouched — the epsilon moved only the sealed/unsealed split).
+    assert tot["building_sealed"] == 61
+    assert tot["building_unsealed"] == 197  # NOT counted as roads
     assert tot["road"] == 439
     assert tot["road_node"] == 33
 
