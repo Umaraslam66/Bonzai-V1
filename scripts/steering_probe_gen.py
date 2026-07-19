@@ -104,10 +104,19 @@ def _prefix(
     return [*ids9, CHARACTER_PLACEHOLDER_ID]
 
 
-def build_arms(ckpt_id: str, *, char_mean: list[float]) -> list[dict[str, Any]]:
+def build_arms(
+    ckpt_id: str,
+    *,
+    char_mean: list[float],
+    seeds: tuple[int, ...] = GEN_SEEDS,
+    contrasts_filter: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
     """PURE construction of the full flattened work-item list for ONE checkpoint.
 
-    5 contrasts x 2 arms x 40 paired seeds = 400 work items. Each item::
+    Default (main run): 5 contrasts x 2 arms x 40 paired seeds = 400 work items. The
+    2026-07-19 pre-registered REPLICATION addendum passes disjoint ``seeds`` (3000..3159)
+    and ``contrasts_filter={'C1','C4','C5'}``; pairing/identity semantics are unchanged.
+    Each item::
 
         {ckpt_id, contrast, arm ('A'|'B'), gen_seed, prefix (10 ids), char_stats (list[float]),
          stratum (zoning, skeleton, cell_density, coastal), swapped_field}
@@ -115,7 +124,7 @@ def build_arms(ckpt_id: str, *, char_mean: list[float]) -> list[dict[str, Any]]:
     ``char_mean`` (spec: the factorial diagnostic's dataset-mean char) is injected by the caller
     (``--mean-char-json`` or computed from the held-out cache); every other char vector is
     derived here from the REAL transform so the whole list is reproducible from ``ckpt_id`` +
-    ``char_mean`` alone.
+    ``char_mean`` + ``seeds`` + ``contrasts_filter`` alone.
     """
     char_fixed = _char_for("medium_mixed")
     char_dense = _char_for("dense_urban")
@@ -170,6 +179,8 @@ def build_arms(ckpt_id: str, *, char_mean: list[float]) -> list[dict[str, Any]]:
 
     items: list[dict[str, Any]] = []
     for contrast, swapped_field, (macro_a, char_a), (macro_b, char_b) in contrasts:
+        if contrasts_filter is not None and contrast not in contrasts_filter:
+            continue
         for arm, macro, char_stats in (("A", macro_a, char_a), ("B", macro_b, char_b)):
             prefix = _prefix(
                 pop_density=macro["pop_density"],
@@ -179,7 +190,7 @@ def build_arms(ckpt_id: str, *, char_mean: list[float]) -> list[dict[str, Any]]:
                 coastal=macro["coastal"],
             )
             stratum = [macro["zoning"], macro["skeleton"], macro["cell_density"], macro["coastal"]]
-            for gen_seed in GEN_SEEDS:
+            for gen_seed in seeds:
                 items.append(
                     {
                         "ckpt_id": ckpt_id,
@@ -238,6 +249,13 @@ def main() -> None:
         help="path to a JSON list of char_mean; overrides --cache",
     )
     ap.add_argument("--cache", default="reports/_standing_eval/heldout_cache.json")
+    ap.add_argument("--seed-start", type=int, default=2000, help="first paired gen seed")
+    ap.add_argument("--n-seeds", type=int, default=40, help="number of paired gen seeds")
+    ap.add_argument(
+        "--contrasts",
+        default=None,
+        help="comma-separated contrast ids to run (e.g. C1,C4,C5); default all",
+    )
     args = ap.parse_args()
 
     # Torch-touching imports are LAZY so ``build_arms``/tests never pull GPU/model machinery.
@@ -262,7 +280,9 @@ def main() -> None:
     ckpt_id = f"{meta['backbone']}-seed{meta['seed']}"
     print(f"[steering] loaded {ckpt_id}: {meta}", flush=True)
 
-    full = build_arms(ckpt_id, char_mean=char_mean)
+    seeds = tuple(range(args.seed_start, args.seed_start + args.n_seeds))
+    cfilter = frozenset(args.contrasts.split(",")) if args.contrasts else None
+    full = build_arms(ckpt_id, char_mean=char_mean, seeds=seeds, contrasts_filter=cfilter)
     work = shard_items(full, k, n)
     print(f"[steering] {len(work)}/{len(full)} items in this shard", flush=True)
 
