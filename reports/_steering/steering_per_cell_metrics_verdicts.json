@@ -1,0 +1,212 @@
+{
+  "contrasts": {
+    "C1": {
+      "metric": "total_road_length",
+      "expected_sign": 1,
+      "per_ckpt": {
+        "mamba-hybrid-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 29,
+          "n_neg": 11,
+          "n_tie": 0,
+          "median_delta": 488.25,
+          "p_sign": 0.006426576095691416,
+          "rank_biserial": 0.6487804878048781,
+          "passes": true
+        },
+        "transformer-ar-seed13": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 25,
+          "n_neg": 15,
+          "n_tie": 0,
+          "median_delta": 235.0,
+          "p_sign": 0.1538599441628321,
+          "rank_biserial": 0.3170731707317073,
+          "passes": false
+        },
+        "transformer-ar-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 30,
+          "n_neg": 10,
+          "n_tie": 0,
+          "median_delta": 521.5,
+          "p_sign": 0.0022214337732293643,
+          "rank_biserial": 0.6439024390243903,
+          "passes": true
+        }
+      },
+      "n_pass": 2,
+      "steers": true
+    },
+    "C2": {
+      "metric": "n_buildings",
+      "expected_sign": 1,
+      "per_ckpt": {
+        "mamba-hybrid-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 15,
+          "n_neg": 18,
+          "n_tie": 7,
+          "median_delta": 0.0,
+          "p_sign": 0.7283324808813632,
+          "rank_biserial": -0.13725490196078433,
+          "passes": false
+        },
+        "transformer-ar-seed13": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 12,
+          "n_neg": 20,
+          "n_tie": 8,
+          "median_delta": -0.5,
+          "p_sign": 0.21532714972272515,
+          "rank_biserial": -0.29545454545454547,
+          "passes": false
+        },
+        "transformer-ar-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 13,
+          "n_neg": 22,
+          "n_tie": 5,
+          "median_delta": -1.0,
+          "p_sign": 0.17546524899080396,
+          "rank_biserial": -0.2634920634920635,
+          "passes": false
+        }
+      },
+      "n_pass": 0,
+      "steers": false
+    },
+    "C3": {
+      "metric": "n_features",
+      "expected_sign": 1,
+      "per_ckpt": {
+        "mamba-hybrid-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 29,
+          "n_neg": 11,
+          "n_tie": 0,
+          "median_delta": 5.0,
+          "p_sign": 0.006426576095691416,
+          "rank_biserial": 0.7085365853658536,
+          "passes": true
+        },
+        "transformer-ar-seed13": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 24,
+          "n_neg": 13,
+          "n_tie": 3,
+          "median_delta": 2.0,
+          "p_sign": 0.09887174959294498,
+          "rank_biserial": 0.46799431009957326,
+          "passes": false
+        },
+        "transformer-ar-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 27,
+          "n_neg": 12,
+          "n_tie": 1,
+          "median_delta": 3.5,
+          "p_sign": 0.023702702470473014,
+          "rank_biserial": 0.5051282051282051,
+          "passes": false
+        }
+      },
+      "n_pass": 1,
+      "steers": false
+    },
+    "C4": {
+      "metric": "n_buildings",
+      "expected_sign": 1,
+      "per_ckpt": {
+        "mamba-hybrid-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 39,
+          "n_neg": 0,
+          "n_tie": 1,
+          "median_delta": 5.0,
+          "p_sign": 3.637978807091713e-12,
+          "rank_biserial": 1.0,
+          "passes": true
+        },
+        "transformer-ar-seed13": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 35,
+          "n_neg": 2,
+          "n_tie": 3,
+          "median_delta": 8.0,
+          "p_sign": 1.0244548320770264e-08,
+          "rank_biserial": 0.9857752489331437,
+          "passes": true
+        },
+        "transformer-ar-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 35,
+          "n_neg": 1,
+          "n_tie": 4,
+          "median_delta": 4.0,
+          "p_sign": 1.076841726899147e-09,
+          "rank_biserial": 0.9819819819819819,
+          "passes": true
+        }
+      },
+      "n_pass": 3,
+      "steers": true
+    },
+    "C5": {
+      "metric": "total_road_length",
+      "expected_sign": 1,
+      "per_ckpt": {
+        "mamba-hybrid-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 27,
+          "n_neg": 13,
+          "n_tie": 0,
+          "median_delta": 331.24999999999994,
+          "p_sign": 0.03847730828420026,
+          "rank_biserial": 0.44146341463414634,
+          "passes": false
+        },
+        "transformer-ar-seed13": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 25,
+          "n_neg": 15,
+          "n_tie": 0,
+          "median_delta": 186.00000000000003,
+          "p_sign": 0.1538599441628321,
+          "rank_biserial": 0.5658536585365853,
+          "passes": false
+        },
+        "transformer-ar-seed7": {
+          "n_pairs": 40,
+          "n_dropped_pairs": 0,
+          "n_pos": 26,
+          "n_neg": 13,
+          "n_tie": 1,
+          "median_delta": 144.0,
+          "p_sign": 0.05325191409792751,
+          "rank_biserial": 0.3564102564102564,
+          "passes": false
+        }
+      },
+      "n_pass": 0,
+      "steers": false
+    }
+  },
+  "probe_valid": true,
+  "macro_steers": true,
+  "product_steers": false
+}
