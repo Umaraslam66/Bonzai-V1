@@ -1,3 +1,7 @@
+> SUPERSEDED 2026-06-17 by `docs/superpowers/plans/2026-06-17-phase-2-bakeoff-2backbone.md` — historical bake-off design, retained for lineage. Canon:
+> `docs/GROUND_TRUTH.md` + `docs/PROJECT_FOCUS.md`. NOTE: the "crown the winner / scaling-curve" framing here
+> is DEFERRED — current focus is methodology validation, not the architecture verdict (see PROJECT_FOCUS).
+
 # Phase-2 Architecture Bake-off Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -420,7 +420,10 @@ def test_exempt_regime_logs_union_drop_stats(tmp_path, monkeypatch, caplog):
     )
     with caplog.at_level(logging.INFO, logger="cfm.data.training.datamodule"):
         dm.setup("fit")  # exempt regime: must not raise
-    [rec] = [r for r in caplog.records if "union" in r.getMessage()]  # exactly one
+    # Filter on the message's own wording, NOT bare "union": pytest's tmp_path embeds this
+    # test's NAME (…logs_union…), so path-carrying records (holdout audit PASS) also contain
+    # "union" and a substring filter over-matches.
+    [rec] = [r for r in caplog.records if "union over-length drops" in r.getMessage()]
     msg = rec.getMessage()
     assert rec.levelno == logging.INFO
     assert "1/5" in msg  # counts: too_long / non-empty union denominator

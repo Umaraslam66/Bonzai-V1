@@ -9,7 +9,10 @@ is then a measured RATE (decoded / attempted), not an exception.
 
 from __future__ import annotations
 
+import torch
+
 from cfm.data.sub_f import decoder as sub_f_decoder
+from cfm.data.sub_f.vocab import CELL_END_TOKEN_ID
 from cfm.data.sub_g import seam_decodability as sub_g_seam
 from cfm.data.training.conditioning import CONDITIONING_ID_BASE
 from cfm.inference import generate as G
@@ -68,3 +71,76 @@ def test_generation_is_seed_reproducible():
     c = G.generate_cell_tokens(m, prefix=prefix, max_new=32, seed=8)
     assert a == b  # same seed -> identical (reproducible)
     assert a != c  # different seed -> different (sampling is actually stochastic)
+
+
+# ----------------------------------------------------------------------------- #
+# Tooth 5 (cell-EOS): the generator BREAK isolated from model learning. Proves the
+# break wiring with NO training, so a future Tooth-1 RED can be triaged:
+# Tooth 5 green + Tooth 1 red => undertraining, not broken break-logic.
+# ----------------------------------------------------------------------------- #
+
+_OTHER_ID = 5  # a non-260 id the stub emits before the terminator (must be < _STUB_VOCAB)
+_STUB_VOCAB = 512
+
+
+class _ForcedEmitModel:
+    """Controllable MicroAR stand-in: emits ``_OTHER_ID`` for the first k-1 sampled
+    steps and <cell_end>=260 on the k-th step (and every step after, so WITHOUT the
+    break it runs to max_new). Exposes only the interface generate_cell_tokens
+    touches: ``.training``/``.eval()``/``.train()``/``.parameters()``/``__call__``.
+    One-hot logits (favored=0.0, rest=-inf) make multinomial deterministic."""
+
+    def __init__(self, *, k: int) -> None:
+        self.k = k
+        self.calls = 0
+        self.training = False
+        self._param = torch.zeros(1)  # the device probe reads next(model.parameters())
+
+    def parameters(self):
+        return iter([self._param])
+
+    def eval(self):
+        self.training = False
+        return self
+
+    def train(self, mode: bool = True):
+        self.training = mode
+        return self
+
+    def __call__(self, ids: torch.Tensor, char_stats: torch.Tensor | None = None) -> torch.Tensor:
+        self.calls += 1
+        favored = CELL_END_TOKEN_ID if self.calls >= self.k else _OTHER_ID
+        t = ids.shape[1]
+        logits = torch.full((1, t, _STUB_VOCAB), float("-inf"))
+        logits[0, -1, favored] = 0.0  # only the last position is read ([:, -1]) -> one-hot
+        return logits
+
+
+def test_generate_breaks_on_cell_end_and_keeps_it():
+    """The model emits 260 on the k-th step; generation stops there (NOT at max_new),
+    the trailing 260 is KEPT, and __call__ was invoked exactly k times (no over-run)."""
+    k = 4
+    max_new = 50
+    model = _ForcedEmitModel(k=k)
+
+    tail = G.generate_cell_tokens(model, prefix=[0, 1, 2], max_new=max_new, seed=0)
+
+    assert len(tail) == k  # stops on the step that emitted 260, NOT at the cap
+    assert tail[-1] == CELL_END_TOKEN_ID  # the trailing 260 is included (D.9-keep)
+    assert tail[:-1] == [_OTHER_ID] * (k - 1)  # the preceding k-1 tokens
+    assert len(tail) < max_new  # decisively unpinned from the cap
+    assert model.calls == k  # halted at the break — no forward past the terminator
+
+
+def test_generate_runs_to_cap_when_no_cell_end_emitted():
+    """Contrast / non-vacuity: a model that NEVER emits 260 runs the full max_new
+    (the pre-fix baseline shape). This is what Tooth 1 must move off of."""
+    max_new = 16
+    # k > max_new: the stub never reaches the 260 step within the budget.
+    model = _ForcedEmitModel(k=max_new + 5)
+
+    tail = G.generate_cell_tokens(model, prefix=[0, 1, 2], max_new=max_new, seed=0)
+
+    assert len(tail) == max_new  # pinned at the cap
+    assert CELL_END_TOKEN_ID not in tail
+    assert model.calls == max_new

@@ -1,3 +1,7 @@
+> NOTE (2026-06-23): current design, but the scored run / architecture crown / realism eval is DEFERRED per
+> `docs/PROJECT_FOCUS.md` (current focus = methodology validation). Do not run the scored matrix, decide(),
+> or build the realism eval without Umar's word.
+
 # Phase-2 bake-off — 2-backbone delta design (2026-06-17)
 
 **Status:** DELTA on the locked `2026-06-02-phase-2-bakeoff-design.md` (+ its

@@ -112,7 +112,7 @@ dataloader_sentinels:
     on_disk: false
     token: <cell_start>
   - id: 260
-    on_disk: false
+    on_disk: true
     token: <cell_end>
 halt: Halt 3
 release: 2026-04-15.0

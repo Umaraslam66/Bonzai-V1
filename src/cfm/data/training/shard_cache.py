@@ -64,7 +64,11 @@ SHARD_CACHE_SCHEMA_VERSION: str = "1.0"
 #: _tile_conditioning_dict's field mapping, _cell_density_by_cell, or the
 #: CellPayload/TrainingShard schema. The golden-fixture test pins this constant
 #: TO the cache bytes, so a silent un-bumped derivation change goes red.
-SHARD_CACHE_DERIVATION_VERSION: str = "1"
+#: v2 (cell-EOS, 2026-06-20): build_shards now appends <cell_end>=260 to every
+#: non-empty cell's tokens — a CellPayload-derivation meaning change. The bump
+#: fail-closes every v1 cache (ShardCacheStale), forcing a clean v2 rebuild so no
+#: 260/non-260 mix can reach the locked run matrix.
+SHARD_CACHE_DERIVATION_VERSION: str = "2"
 
 #: The conditioning scheme the builder produces (Task 24b carrier). Recorded in
 #: the key: a cache built under one scheme must never feed a run expecting another.

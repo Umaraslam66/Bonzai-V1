@@ -1,3 +1,7 @@
+> SUPERSEDED 2026-06-17 by `docs/superpowers/specs/2026-06-17-phase-2-bakeoff-2backbone-delta-design.md` — historical bake-off design, retained for lineage. Canon:
+> `docs/GROUND_TRUTH.md` + `docs/PROJECT_FOCUS.md`. NOTE: the "crown the winner / scaling-curve" framing here
+> is DEFERRED — current focus is methodology validation, not the architecture verdict (see PROJECT_FOCUS).
+
 # Phase-2 Architecture Bake-off — design
 
 **Status:** design locked via brainstorm 2026-06-02 (9 topics, topic-by-topic gate discipline); awaiting spec review → implementation plan.

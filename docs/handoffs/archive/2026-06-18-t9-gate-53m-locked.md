@@ -1,3 +1,9 @@
+> ⚠️ SUPERSEDED & CONTAINS A CORRECTED ERROR — historical (flagged 2026-06-23). NOT the live boot doc
+> (superseded by `2026-06-19-eval-set-gen-cell-selection-next.md` and by `docs/PROJECT_FOCUS.md`). Verified
+> vs `docs/GROUND_TRUTH.md` §3: this doc's §3 BUDGET says "Σ 1,859 held-out **cells**" — that is **1,859
+> usable TILES, not cells** (real held-out cells ≈ 94,520); and its "~1,008 GPU-h / ~20%" scored-matrix
+> budget is **VOID** (it assumed 1,859 = cells). Do not act on this doc's cell counts or budget. Canon: GROUND_TRUTH §3.
+
 # LIVE BOOT DOC — Phase-2 bake-off: ~53M LOCKED (clean 1:7), param-match DONE; sharding-golden + T10 next (2026-06-18)
 
 Current boot doc for the Phase-2 bake-off. Supersedes the archived handoffs in

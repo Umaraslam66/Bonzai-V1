@@ -1,0 +1,58 @@
+# Phase-2 bake-off scored-run recipe — transformer-ar, ~53M rung (locked clean-1:7 pair).
+# AUTHORIZED 2026-06-22 (PI) — TRAIN-ONLY scored matrix. Loaded by scripts/bakeoff_run.sbatch
+# (BACKBONE=transformer-ar SCALE=53M SEED=<s> ...) via train_scaffold.py --config; the strict
+# _load_config_yaml accepts ScaffoldConfig fields ONLY.
+#
+# RESOLUTIONS (this session):
+#  [A] seeds -> a real mechanism: train_scaffold.py gained --seed; bakeoff_run.sbatch takes SEED
+#      and passes --seed (proven to drive ALL run RNG: init, tile-split, sampler). The matrix loops
+#      3 seeds per backbone over THIS file (single `seed` below = the loader-compatible default):
+#        for s in 7 13 23; do for bb in transformer-ar mamba-hybrid; do \
+#          SEED=$s BACKBONE=$bb SCALE=53M REGION=krakow RELEASE=2026-04-15.0 \
+#            TRAIN_SET=eu-train-union sbatch scripts/bakeoff_run.sbatch; done; done
+#  [C] region = report/floor TAG only (does NOT filter eval). The eval scores the held-out CELL
+#      SELECTION (OPEN — eval-set-gen; see [B]),
+#      partitions by city, emits PerCityKS for all 4 cities (decision layer consumes it). Matrix = 6
+#      train runs (2 bb x 3 seeds); each scores all 4 held-out cities.
+#  [D] max_steps MEASURED: avg cell body = 596.7 tokens over 941,969 train cells ->
+#      (20 x 53,733,348)/(16 x 596.7) = 112,563 (r=20 -> ~1.07B tokens -> 1.72x reuse).
+#  [E] OOM probe: batch 1 / seq 13322 fwd+bwd = 5.6 GB (tf) on a 64 GB A100 -> eff-batch-16
+#      (batch 1 x 4 dev x 4 accum) fits with ~58 GB headroom; no activation checkpointing needed.
+#  [B] DONE: eval-sharding WIRED into run_short — sharded across 4 ranks under --devices 4,
+#      AUTOMATIC (no --shard-eval flag; serial fallback off-DDP). Integration golden PASS on
+#      mamba-hybrid (wired path bit-identical, 523/523 ragged, determinism; job 47390793). Eval
+#      drops to the ~20% budget. DECISION-STEP inputs (consumed by run_bakeoff_decision, NOT this
+#      training config — recorded here for lineage; the strict _load_config_yaml accepts only
+#      ScaffoldConfig keys, so these are comments, not loadable fields):
+#        real-features parquet: reports/phase-2-bakeoff/real-features-2026-04-15.0.parquet
+#                               (29MB; reproduces the locked floor 265/265)
+#        frozen floor sha256  : 95abb88bfaf0a79d4254883478aa5e5b558ed63c27a3c0a5845e8bb65f3a6be6
+#                               (reports/conditioning_floor/2026-04-15.0/)
+#      RESOLVED (2026-06-22): the held-out eval CELL SOURCE = the SEALED Lane-S sampler manifest
+#      (5,705 cells / 146 floored strata; floor_sha256 95abb88 + census_sha256 pinned, job 47600021).
+#      The realism eval (manifest cells -> 4-tuple Lane-S vs the parquet -> decide) is the SEPARATE
+#      gated step AFTER these TRAIN-ONLY runs (eval_cells: 0 below). GROUND_TRUTH §3 (canonical).
+
+release: "2026-04-15.0"
+train_set: "eu-train-union"
+region: "krakow"             # [C] TAG only — eval scores all 4 held-out cities (per-city KS)
+backbone: "transformer-ar"
+d_model: 512                 # locked 53M table: d512/14L/8H = 52,798,948
+n_layers: 14
+n_heads: 8
+max_len: 13312               # scored-run gate: == DEFAULT_MAX_CELL_TOKENS
+batch_size: 1                # [E] proven 5.6 GB; grad_accum 4 -> effective batch 16
+grad_accum: 4
+lr: 0.0003
+max_steps: 112563            # [D] MEASURED (r=20, avg body 596.7, eff-batch 16)
+compile: false               # --no-compile (T7 verdict)
+shard_cache: "data/processed/training_cache"
+eval_cells: 0                # TRAIN-ONLY scored matrix (PI 2026-06-22): NO built-in per-cell slice
+                             # eval. Realism verdict is the SEPARATE gated step — generate the SEALED
+                             # Lane-S manifest's 5,705 cells -> verify_gen_coverage -> decide().
+                             # 0 is 0-cell-safe (slice_eval / buildings_emerged guarded; report writes).
+eval_max_new: 13312          # scored-run gate: >= DEFAULT_MAX_CELL_TOKENS
+conditioning_scheme: "value-char-v1"
+conditioning_ablation: "full"
+precision: "bf16-mixed"
+seed: 7                      # [A] loader default; the matrix overrides via SEED -> --seed (7/13/23)

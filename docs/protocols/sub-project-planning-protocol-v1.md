@@ -1,3 +1,5 @@
+> SUPERSEDED by `docs/protocols/sub-project-planning-protocol-v3.md` — historical, retained for lineage. The current version is canonical; canon facts: `docs/GROUND_TRUTH.md`.
+
 # Sub-project planning protocol v1
 
 **Status:** active, derived from Phase 1 sub-E experience (2026-05-20 close).

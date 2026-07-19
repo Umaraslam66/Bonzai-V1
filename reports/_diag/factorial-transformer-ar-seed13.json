@@ -1,0 +1,65 @@
+{
+  "ckpt_id": "transformer-ar-seed13",
+  "meta": {
+    "backbone": "transformer-ar",
+    "d_model": 512,
+    "n_layers": 14,
+    "seed": 13,
+    "global_step": 110570,
+    "train_set": "eu-train-union",
+    "conditioning_scheme": "value-char-v1",
+    "conditioning_ablation": "full"
+  },
+  "n_cells": 2000,
+  "char_marginal": {
+    "mean": 0.7005841062068939,
+    "frac_pos": 1.0,
+    "n": 2000
+  },
+  "macro_marginal": {
+    "mean": 0.004471615940332413,
+    "frac_pos": 0.611,
+    "n": 2000
+  },
+  "macro_gap_cache": {
+    "mean": 0.008176655948162078,
+    "frac_pos": 0.683,
+    "n": 2000
+  },
+  "macro_gap_maxdist": {
+    "mean": 0.0195756179690361,
+    "frac_pos": 0.7835,
+    "n": 2000
+  },
+  "macro_gap_when_char_ablated": {
+    "mean": 0.014614801049232483,
+    "frac_pos": 0.6285,
+    "n": 2000
+  },
+  "macro_marginal_no_char": {
+    "mean": 0.011209425747394561,
+    "frac_pos": 0.575,
+    "n": 2000
+  },
+  "const_macro": [
+    1509,
+    1574,
+    1638,
+    1701,
+    1764,
+    1831,
+    1927,
+    1956,
+    2036,
+    0
+  ],
+  "mean_char": [
+    1.0627989163635752,
+    1.057493201030337,
+    0.25659765476620544,
+    0.693676694655578,
+    1.8073627855146648,
+    0.551125,
+    0.944375
+  ]
+}

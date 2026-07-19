@@ -1,0 +1,65 @@
+{
+  "ckpt_id": "mamba-hybrid-seed7",
+  "meta": {
+    "backbone": "mamba-hybrid",
+    "d_model": 512,
+    "n_layers": 24,
+    "seed": 7,
+    "global_step": 110472,
+    "train_set": "eu-train-union",
+    "conditioning_scheme": "value-char-v1",
+    "conditioning_ablation": "full"
+  },
+  "n_cells": 2000,
+  "char_marginal": {
+    "mean": 0.7492930218428373,
+    "frac_pos": 1.0,
+    "n": 2000
+  },
+  "macro_marginal": {
+    "mean": 0.005274049624800682,
+    "frac_pos": 0.6355,
+    "n": 2000
+  },
+  "macro_gap_cache": {
+    "mean": 0.006971153065562248,
+    "frac_pos": 0.6835,
+    "n": 2000
+  },
+  "macro_gap_maxdist": {
+    "mean": 0.017713816776871682,
+    "frac_pos": 0.783,
+    "n": 2000
+  },
+  "macro_gap_when_char_ablated": {
+    "mean": 0.014602158218622208,
+    "frac_pos": 0.63,
+    "n": 2000
+  },
+  "macro_marginal_no_char": {
+    "mean": 0.020558305472135545,
+    "frac_pos": 0.6145,
+    "n": 2000
+  },
+  "const_macro": [
+    1509,
+    1574,
+    1638,
+    1701,
+    1764,
+    1831,
+    1927,
+    1956,
+    2036,
+    0
+  ],
+  "mean_char": [
+    1.0627989163635752,
+    1.057493201030337,
+    0.25659765476620544,
+    0.693676694655578,
+    1.8073627855146648,
+    0.551125,
+    0.944375
+  ]
+}

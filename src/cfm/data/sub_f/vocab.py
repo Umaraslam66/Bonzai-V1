@@ -4,8 +4,10 @@ Loads BP1 semantic + BP2 encoding-primitive + structural sentinels +
 BP4 unknown + BP7 boundary-reference slots from their respective YAML
 configs and exposes a deterministic, ascending-id tuple.
 
-Dataloader sentinels (<pad>/<eos>/<bos>/<cell_start>/<cell_end>, IDs 256-260)
-are on_disk=false per `configs/sub_f/sentinel_inventory.yaml` and excluded.
+Dataloader sentinels <pad>/<eos>/<bos>/<cell_start> (IDs 256-259) are on_disk=false
+per `configs/sub_f/sentinel_inventory.yaml` and excluded. <cell_end> (260) is
+on_disk=true (cell-EOS): the cell-level stop signal, family "terminator", loaded by
+`_load_cell_end_slot`.
 
 Structural sentinels (<feature> id 509, <feature_end> id 510) live at the
 front of BP2 reserved_v2_headroom per the T8 plan-write sentinel-inventory
@@ -29,7 +31,13 @@ import yaml
 
 _CONFIGS = Path(__file__).resolve().parents[4] / "configs" / "sub_f"
 
-Family = Literal["semantic", "unknown", "encoding_primitive", "structural", "boundary_reference"]
+Family = Literal[
+    "semantic", "unknown", "encoding_primitive", "structural", "terminator", "boundary_reference"
+]
+
+#: The cell-level terminator <cell_end> token id (cell-EOS). ONE source — build_shards
+#: appends it at non-empty cell-end and generate.py breaks on it, both via this name.
+CELL_END_TOKEN_ID: Final[int] = 260
 
 
 @dataclass(frozen=True)
@@ -165,11 +173,31 @@ def _load_boundary_reference_slots() -> list[VocabSlot]:
     ]
 
 
+def _load_cell_end_slot() -> list[VocabSlot]:
+    """The cell-level terminator <cell_end> (id 260) — the one dataloader sentinel
+    flipped on_disk=true (cell-EOS). It is a STOP signal, NOT a feature-grammar
+    primitive like <feature>/<feature_end> (509/510), so it gets its OWN family
+    "terminator": this keeps the structural-range invariant ({509,510}) honest rather
+    than widening it to admit 260 (which would silently admit 261-508).
+
+    The dataloader_sentinels block is otherwise unread by the loader, so flipping
+    on_disk in the YAML is inert without this loader. Emits a slot for every sentinel
+    with on_disk=true — after the flip, exactly one: 260.
+    """
+    inv = yaml.safe_load((_CONFIGS / "sentinel_inventory.yaml").read_text(encoding="utf-8"))
+    return [
+        VocabSlot(token_id=int(s["id"]), tag=str(s["token"]), family="terminator")
+        for s in inv["dataloader_sentinels"]["slots"]
+        if s.get("on_disk", False)
+    ]
+
+
 @lru_cache(maxsize=1)
 def load_sub_f_vocab() -> tuple[VocabSlot, ...]:
     """Return all on-disk sub-F slots in strictly ascending token_id order.
 
-    Excludes dataloader sentinels (IDs 256-260, on_disk=false).
+    Excludes dataloader sentinels 256-259 (on_disk=false); <cell_end> 260 is
+    on_disk=true (family=terminator, cell-EOS) and IS included.
     Cached at module level - same tuple returned on every call.
     """
     all_slots = (
@@ -177,6 +205,7 @@ def load_sub_f_vocab() -> tuple[VocabSlot, ...]:
         + _load_unknown_slots()
         + _load_encoding_primitive_slots()
         + _load_structural_sentinel_slots()
+        + _load_cell_end_slot()
         + _load_boundary_reference_slots()
     )
     return tuple(sorted(all_slots, key=lambda s: s.token_id))
@@ -191,5 +220,6 @@ def vocab_tag_to_id() -> dict[str, int]:
 # Total on-disk vocab count, used by tests + downstream checks.
 # Halt-2 revisit 2026-05-29: direction 48->360 grew BP2 encoding_primitive 209->521
 # (96 anchor + 360 direction + 65 magnitude); retired direction_v1_deprecated (48) is
-# NOT emitted. Total on-disk: BP1 127 + BP4 28 + BP2 521 + structural 2 + BP7 8 = 686.
-SUB_F_ON_DISK_TOTAL: Final[int] = 686
+# NOT emitted. Total on-disk: BP1 127 + BP4 28 + BP2 521 + structural 2 + terminator 1
+# (cell-EOS <cell_end> 260) + BP7 8 = 687.
+SUB_F_ON_DISK_TOTAL: Final[int] = 687

@@ -10,12 +10,17 @@ RNG in the SAME order as the pre-refactor one (``embed -> pos -> char_proj -> mi
 head``). A reorder (e.g. building the head before the mixer) silently changes the random
 init and this test goes red — which is exactly the regression it exists to catch.
 
-The golden is captured once on the locked Leonardo CPU env (torch 2.5.1) and committed;
-the T3 verification runs on that same env so float arithmetic is identical.
+The golden is captured once on the locked Leonardo CPU env (torch 2.5.1, Linux x86_64) and
+committed; the T3 verification runs on that same env so float arithmetic is identical.
+Bit-identity is therefore DEFINED only on that env: other BLAS backends (e.g. macOS Apple
+Accelerate) round matmuls differently (~1e-7 uniform drift, loss unaffected). Off the locked
+env this test asserts allclose instead — still red on real logic regressions (structured /
+large drift), while the bit-exact gate continues to run where it is defined.
 """
 
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 
 import torch
@@ -23,6 +28,9 @@ import torch
 from cfm.models.micro_ar import MicroAR, MicroARConfig
 
 _GOLDEN = Path(__file__).resolve().parent / "_golden" / "micro_ar_v1.pt"
+
+#: The env the golden was captured on (docstring): bit-identity holds there and only there.
+_ON_CAPTURE_ENV = platform.system() == "Linux" and platform.machine() == "x86_64"
 
 
 def _fixed_model_and_input():
@@ -63,5 +71,16 @@ def test_micro_ar_forward_and_loss_match_golden() -> None:
         _GOLDEN.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"logits": logits, "loss": loss}, _GOLDEN)
     g = torch.load(_GOLDEN, weights_only=True)  # our own trusted fixture of plain tensors
-    assert torch.equal(logits, g["logits"]), "forward logits drifted from the pre-refactor golden"
-    assert torch.equal(loss, g["loss"]), "training loss drifted from the pre-refactor golden"
+    if _ON_CAPTURE_ENV:
+        assert torch.equal(logits, g["logits"]), (
+            "forward logits drifted from the pre-refactor golden"
+        )
+        assert torch.equal(loss, g["loss"]), "training loss drifted from the pre-refactor golden"
+    else:
+        # Off the capture env: BLAS rounding differs at ~1e-7; assert closeness, not bits.
+        assert torch.allclose(logits, g["logits"], rtol=1e-4, atol=1e-6), (
+            "forward logits drifted from the pre-refactor golden beyond BLAS rounding"
+        )
+        assert torch.allclose(loss, g["loss"], rtol=1e-4, atol=1e-6), (
+            "training loss drifted from the pre-refactor golden beyond BLAS rounding"
+        )

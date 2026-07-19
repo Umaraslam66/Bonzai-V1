@@ -61,16 +61,25 @@ class GapResult:
 def _binomial_sign_test_pvalue(n: int, k: int) -> float:
     """One-sided sign-test p-value for H0: P(positive) = 0.5 vs H1: P > 0.5.
 
-    Exact binomial; n cells, k positives.
+    Exact binomial tail P(X >= k) for X ~ Binomial(n, 0.5), computed in LOG-SPACE
+    (``lgamma`` + log-sum-exp) — NOT ``comb(n, x) * 0.5**n``, which raised OverflowError
+    for n in the thousands (``comb`` exceeds the float range). Identical to the exact
+    formula where the latter does not overflow.
     """
-    from math import comb
+    from math import exp, lgamma, log
 
-    if n == 0:
-        return 1.0
-    p_tail = 0.0
-    for x in range(k, n + 1):
-        p_tail += comb(n, x) * 0.5**n
-    return p_tail
+    if n == 0 or k <= 0:
+        return 1.0  # P(X >= 0) = 1
+    if k > n:
+        return 0.0
+    ln_half_n = n * log(0.5)
+    ln_fact_n = lgamma(n + 1)
+    # log C(n, x) = lgamma(n+1) - lgamma(x+1) - lgamma(n-x+1)
+    log_terms = [
+        ln_fact_n - lgamma(x + 1) - lgamma(n - x + 1) + ln_half_n for x in range(k, n + 1)
+    ]
+    m = max(log_terms)
+    return min(1.0, exp(m + log(sum(exp(t - m) for t in log_terms))))
 
 
 def compute_perplexity_gap(

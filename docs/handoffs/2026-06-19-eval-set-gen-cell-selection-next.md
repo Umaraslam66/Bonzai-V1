@@ -59,8 +59,19 @@ Design constraints (carry into the sub-project — do NOT scope here):
   clears min_n=50 there, so the sampler need only preserve coverage while bounding generation cost.
 - **Frozen + sha-locked**, write-once, like the conditioning floor (`95abb88`) — a `_*_LOCKED` marker +
   a manifest the eval reads; reproducible from a committed regen script.
-- **4 held-out cities, corrected counts** (523/579/156/601 usable TILES → a defined CELL subset ⊂ ~77k).
-- **Re-derive the scored-matrix budget** at the chosen N (the ~20% figure is void).
+- **4 held-out cities. BINDING CELL COUNT (counted 2026-06-20, job `47473524`):** **94,520 distinct
+  non-empty conditionable cells** over 1,952 manifest held-out tiles (549/616/171/616) — supersedes the
+  ~77k estimate (which undercounted; avg cell-body ≈488 tok). Per `(zoning,skeleton,density,coastal)`:
+  **78 global / 185 `(city,stratum)` strata. THIN-STRATA IS LIVE: 82/185 (44%) hold <50 distinct cells,
+  95 <75, 103 <100.** (Feature-level floor `min_n=50` is comfortably cleared — 0/312 — so whether the
+  sampler floors on CELLS or generated-FEATURES is the load-bearing {N/thin-strata} call. GROUND_TRUTH §3.)
+- **CAP LOCKED at 13,312 (record-only, 2026-06-20):** eval generation cap stays `DEFAULT_MAX_CELL_TOKENS`
+  = 13,312 — NOT lowered. Self-termination (Tooth-1: 0/64 at cap, p99≈601) makes it a near-free safety
+  ceiling; per-cell cost is ~600-tok-driven. The old "cap at ~4,500 to save budget" idea is DEAD. The
+  budget re-derivation below uses ~600 tok/cell, not the cap. GROUND_TRUTH §3.
+- **Re-derive the scored-matrix budget** at the chosen N (the ~20% figure is void; new basis: ~600 tok/cell
+  self-terminated, 4-GPU-sharded ≈ 0.0045 GPU-h/cell — e.g. N=50/stratum ≈ 7% of the 5,000-GPU-h grant,
+  transformer rate; mamba gen-rate UNVERIFIED at scale — measure in the next GPU smoke).
 - Then the held-out eval wiring is **mechanical** (all built): generate the sampled held-out cells →
   `gen_realism.gen_features_by_city` (4-tuple) → `lane_s_excess` vs the parquet → `decide`
   (memorization-first → power-gated worst-case → winner / `NO_DECISIVE_WINNER`).

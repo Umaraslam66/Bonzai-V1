@@ -20,6 +20,7 @@ from typing import Any
 import torch
 
 from cfm.data.sub_f.decoder import decode_feature
+from cfm.data.sub_f.vocab import CELL_END_TOKEN_ID
 from cfm.data.sub_g.seam_decodability import split_cell_into_features
 from cfm.data.training.conditioning import (
     CHARACTER_PREFIX_POSITIONS,
@@ -83,6 +84,12 @@ def generate_cell_tokens(
             probs = torch.softmax(logits, dim=-1)
             nxt = torch.multinomial(probs, num_samples=1, generator=gen)
             ids = torch.cat([ids, nxt], dim=1)
+            # cell-EOS: the model self-terminates by emitting <cell_end>=260. Stop there
+            # instead of running to the max_new cap. The 260 is KEPT in the returned tail
+            # (mirrors the training sequences `...510, 260`; split_cell_into_features drops
+            # it after the last 510, so decode is unaffected).
+            if int(nxt) == CELL_END_TOKEN_ID:
+                break
     finally:
         model.train(was_training)
     return ids[0, len(prefix) :].tolist()

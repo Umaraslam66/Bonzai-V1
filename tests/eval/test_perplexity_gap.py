@@ -1,14 +1,36 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from math import comb
 
 import pytest
 
 from cfm.eval.perplexity_gap import (
     GapResult,
     PerCellNLL,
+    _binomial_sign_test_pvalue,
     compute_perplexity_gap,
 )
+
+
+def test_sign_test_no_overflow_at_full_run_n() -> None:
+    """At n=8000 (full-run scale) the exact tail must not overflow.
+
+    The hand-rolled ``comb(n, x) * 0.5**n`` raised OverflowError here (comb(8000, x)
+    is too large to convert to float); the full 6-checkpoint matrix died on it.
+    """
+    p_half = _binomial_sign_test_pvalue(n=8000, k=4200)
+    assert 0.0 <= p_half <= 1.0
+    # ~13 sigma above half -> significant; ~0.2 sigma -> not.
+    assert _binomial_sign_test_pvalue(n=8000, k=4600) < 0.01
+    assert _binomial_sign_test_pvalue(n=8000, k=4010) > 0.01
+
+
+def test_sign_test_matches_exact_for_small_n() -> None:
+    """Where ``comb`` does NOT overflow, the (fixed) tail must match it to float precision."""
+    for n, k in [(30, 30), (30, 0), (30, 20), (10, 7), (100, 60)]:
+        exact = sum(comb(n, x) * 0.5**n for x in range(k, n + 1))
+        assert _binomial_sign_test_pvalue(n=n, k=k) == pytest.approx(exact, abs=1e-9)
 
 
 def _fake_model_forward(
