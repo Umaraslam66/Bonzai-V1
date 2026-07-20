@@ -19,9 +19,11 @@ package.
 from __future__ import annotations
 
 import logging
+import math
+import statistics
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -29,7 +31,33 @@ import yaml
 from cfm.data.sub_f.decoder import try_decode_block
 from cfm.data.sub_g.seam_decodability import split_cell_into_features
 
+# All torch-free (verified 2026-07-20): read_held_out_cities lives in bakeoff_decision
+# (imports only city_aggregate/conditioning_floor/ladder — no torch); city_aggregate,
+# conditioning_floor and gen_realism are the locked scored-lane primitives this module
+# orchestrates. Importing this module must STILL not pull torch (Task-5 discipline).
+from cfm.eval.bakeoff_decision import read_held_out_cities
+from cfm.eval.city_aggregate import (
+    BindingVerdict,
+    NoDecisiveWinner,
+    PerCityKS,
+    binding_city_verdict,
+)
+from cfm.eval.conditioning_floor import LaneSResult, VerifiedFloorArtifact
+from cfm.eval.gen_realism import DecodedCell
+
+if TYPE_CHECKING:
+    from cfm.eval.realism_driver.driver import GenCellRecord
+
 logger = logging.getLogger(__name__)
+
+
+class MemorizationHalt(RuntimeError):
+    """A checkpoint FAILED the Lane-M memorization discriminator during the scored
+    realism eval — a hard halt mirroring ``bakeoff_decision.MemorizationRefusal``
+    (``bakeoff_decision.py``): a regurgitator passes realism by construction, so NO
+    scoring (coverage / excess / verdict) may run past this. The CLI writes
+    ``memorization.yaml`` and raises this BEFORE any ``lane_s_excess`` call."""
+
 
 #: {(metric, stratum) -> samples}; stratum is the floor's 4-tuple. Structural
 #: mirror of ``gen_realism.GenFeatures`` / ``bakeoff_decision.GenFeatures`` (kept
@@ -148,3 +176,221 @@ def write_real_features(path: str | Path, payload: dict) -> None:
 def load_real_features(path: str | Path) -> dict:
     """Read a real-features YAML back into its raw mapping (for end-state verify)."""
     return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+
+# --------------------------------------------------------------------------- #
+# Task 6 — scored-lane driver: decode -> city-set guard -> seed aggregation
+# --------------------------------------------------------------------------- #
+
+
+def decoded_cells_from_artifact(
+    meta: Mapping[str, Any],
+    records: Sequence[GenCellRecord],
+    *,
+    release: str,
+    verify_tokens: bool = False,
+) -> list[DecodedCell]:
+    """Map Task-2 ``GenCellRecord``s to ``gen_realism.DecodedCell`` in manifest order.
+
+    REUSES each record's ALIGNED ``(blocks, geoms)`` — the kept decode results the driver
+    already produced GPU-side — so scoring consumes the exact geometry that was generated.
+    ``cell_key`` -> ``(city, tile_i, tile_j)`` (the cell_i/cell_j identity dims are dropped;
+    the tile is what keys the floor's ``(zoning, skeleton, coastal)`` labels), and
+    ``density_bucket`` -> ``cell_density_bucket`` (the conditioned stratum dim).
+
+    ``verify_tokens`` (a dry-run determinism assert): re-decode ``record.tokens`` on the CPU
+    via the torch-free :func:`decode_tokens_to_cell` and require the result to EQUAL the
+    stored ``(blocks, geoms)`` — catches a gen/scoring decode drift before it silently
+    changes features. ``release`` is cross-checked against ``meta['release']`` when present
+    (a lineage warning — the tile labels ``gen_features_by_city`` reads are release-scoped)."""
+    meta_release = meta.get("release")
+    if meta_release is not None and meta_release != release:
+        logger.warning(
+            "decoded_cells_from_artifact: release=%r but artifact meta.release=%r — a "
+            "lineage mismatch (features key on THIS release's tile labels).",
+            release,
+            meta_release,
+        )
+    out: list[DecodedCell] = []
+    for rec in records:
+        city, tile_i, tile_j, _cell_i, _cell_j = rec.cell_key
+        blocks = [list(b) for b in rec.blocks]
+        geoms = list(rec.geoms)
+        if verify_tokens:
+            re_blocks, re_geoms = decode_tokens_to_cell(rec.tokens)
+            if re_blocks != blocks or re_geoms != geoms:
+                raise ValueError(
+                    f"decoded_cells_from_artifact: decode determinism drift for cell "
+                    f"{rec.cell_key} — re-decoded (blocks, geoms) != the artifact's stored "
+                    "aligned decode; the gen-side and score-side decoders disagree."
+                )
+        out.append(
+            DecodedCell(
+                city=city,
+                tile_i=int(tile_i),
+                tile_j=int(tile_j),
+                cell_density_bucket=rec.density_bucket,
+                blocks=blocks,
+                geoms=geoms,
+            )
+        )
+    return out
+
+
+def assert_city_sets(
+    manifest: Mapping[str, Any],
+    artifact: VerifiedFloorArtifact,
+    real_by_city: Mapping[str, Any],
+    gen_by_city_per_ckpt: Mapping[tuple[str, int], Mapping[str, Any]],
+) -> frozenset[str]:
+    """STRICT held-out set-equality across the manifest, the floor artifact, the real
+    features, and EVERY checkpoint's gen — ``bakeoff_decision.decide()``'s Tooth-2,
+    replicated explicitly here because the crown path in this module does NOT call
+    ``decide()``.
+
+    Reads the manifest's ``held_out_cities`` via the STRICT
+    ``bakeoff_decision.read_held_out_cities`` (never a ``.get(..., [])`` that would make
+    completeness vacuously pass on zero cities). Any mismatch raises ``ValueError`` naming
+    the offender — a silently-shrunk or padded city set changes the worst-case max domain.
+    Returns the single agreed held-out set."""
+    held = read_held_out_cities(manifest)
+    artifact_held = frozenset(artifact.payload["held_out_cities"])
+    if artifact_held != held:
+        raise ValueError(
+            "assert_city_sets: floor artifact held_out_cities "
+            f"{sorted(artifact_held)} != manifest {sorted(held)} — floors frozen for a "
+            "DIFFERENT held-out set are lineage skew; refusing."
+        )
+    real_set = frozenset(real_by_city)
+    if real_set != held:
+        raise ValueError(
+            "assert_city_sets: real_by_city "
+            f"(missing: {sorted(held - real_set)}, extra: {sorted(real_set - held)}) != the "
+            f"held-out set {sorted(held)}; refusing a shrunk/padded reference domain."
+        )
+    for (backbone, seed), gen in sorted(gen_by_city_per_ckpt.items()):
+        gen_set = frozenset(gen)
+        if gen_set != held:
+            raise ValueError(
+                f"assert_city_sets: gen for ({backbone}, seed {seed}) "
+                f"(missing: {sorted(held - gen_set)}, extra: {sorted(gen_set - held)}) != the "
+                f"held-out set {sorted(held)} — every checkpoint must generate for every "
+                "held-out city."
+            )
+    return held
+
+
+def n_reference_by_city(
+    artifact: VerifiedFloorArtifact,
+    real_by_city: Mapping[str, GenFeatures],
+) -> dict[str, int]:
+    """Per held-out city: total REAL feature count over the city's FLOORED strata ONLY —
+    the #21 power-gate reference population, EXACTLY ``bakeoff_decision.decide()``'s rule
+    (the floored-strata sum, never the all-strata sum).
+
+    THE HONEST ``PerCityKS.n_features`` (Task-6 constraint): ``n_features`` feeds
+    ``feature_resolution.single_region_floor_gap`` (the ``C/sqrt(n)`` resolution floor), so
+    it must be the backbone-independent reference the floor was measured against. Unfloored
+    strata are excluded — counting them would inflate n and SHRINK the resolution floor into
+    a silently more permissive gate (Task-26 spec review #3)."""
+    floored_by_city: dict[str, set[tuple[str, tuple]]] = {}
+    for rec in artifact.payload["floors"]:
+        floored_by_city.setdefault(rec["city"], set()).add((rec["metric"], tuple(rec["stratum"])))
+    out: dict[str, int] = {}
+    for city, feats in real_by_city.items():
+        floored = floored_by_city.get(city, set())
+        out[city] = sum(len(samples) for key, samples in feats.items() if key in floored)
+    return out
+
+
+def seed_aggregated_per_backbone(
+    lane_s_by_ckpt: Mapping[tuple[str, int], Mapping[str, LaneSResult]],
+    *,
+    n_reference_by_city: Mapping[str, int],
+) -> dict[str, list[PerCityKS]]:
+    """Per (backbone, city): mean of that backbone's per-seed ``median_excess`` = ``ks``;
+    std-error of those per-seed values over seeds = ``seed_sem`` (sample stdev / sqrt(n);
+    ``0.0`` for a single seed, which collapses the seed floor to ``C/sqrt(n)``). Returns the
+    ``{backbone: [PerCityKS, ...]}`` map ``binding_city_verdict`` consumes.
+
+    Requires >= 2 backbones (a single entry never auto-wins — ``pick_winner``'s rule) and a
+    consistent seed COUNT across backbones (the seed-noise floor compares like with like).
+    Every (backbone, seed) must score exactly ``n_reference_by_city``'s cities."""
+    keys = list(lane_s_by_ckpt)
+    if not keys:
+        raise ValueError("seed aggregation: no (backbone, seed) results supplied")
+    backbones = sorted({bb for bb, _seed in keys})
+    if len(backbones) < 2:
+        raise ValueError(
+            f"seed aggregation: got {len(backbones)} backbone(s) ({backbones}); a bake-off "
+            "verdict needs >= 2 backbones — a single entry never auto-wins."
+        )
+    cities = sorted(n_reference_by_city)
+    if not cities:
+        raise ValueError("seed aggregation: n_reference_by_city is empty")
+
+    seeds_by_backbone = {bb: sorted(seed for b, seed in keys if b == bb) for bb in backbones}
+    seed_counts = {bb: len(s) for bb, s in seeds_by_backbone.items()}
+    if len(set(seed_counts.values())) != 1:
+        raise ValueError(
+            f"seed aggregation: backbones ran DIFFERENT seed counts {seed_counts} — the "
+            "seed-noise floor compares like with like; refusing an unbalanced sweep."
+        )
+    if next(iter(seed_counts.values())) < 2:
+        logger.warning(
+            "seed aggregation: only %d seed(s) per backbone — the seed-noise floor collapses "
+            "to C/sqrt(n) (GROUND_TRUTH §4 wants 3 seeds).",
+            next(iter(seed_counts.values())),
+        )
+
+    per_backbone: dict[str, list[PerCityKS]] = {}
+    for bb in backbones:
+        per_city_vals: dict[str, list[float]] = {c: [] for c in cities}
+        for seed in seeds_by_backbone[bb]:
+            ckpt = lane_s_by_ckpt[(bb, seed)]
+            if set(ckpt) != set(cities):
+                raise ValueError(
+                    f"seed aggregation: ({bb}, seed {seed}) scored cities "
+                    f"(missing: {sorted(set(cities) - set(ckpt))}, "
+                    f"extra: {sorted(set(ckpt) - set(cities))}) != {cities}; refusing."
+                )
+            for c in cities:
+                per_city_vals[c].append(float(ckpt[c].median_excess))
+        per_backbone[bb] = [
+            PerCityKS(
+                city=c,
+                ks=statistics.fmean(per_city_vals[c]),
+                n_features=int(n_reference_by_city[c]),
+                seed_sem=(
+                    statistics.stdev(per_city_vals[c]) / math.sqrt(len(per_city_vals[c]))
+                    if len(per_city_vals[c]) >= 2
+                    else 0.0
+                ),
+            )
+            for c in cities
+        ]
+    return per_backbone
+
+
+def aggregate_seed_verdict(
+    lane_s_by_ckpt: Mapping[tuple[str, int], Mapping[str, LaneSResult]],
+    *,
+    n_reference_by_city: Mapping[str, int],
+) -> BindingVerdict | NoDecisiveWinner:
+    """The ONLY crown path (orchestrator decision 2026-07-20): the locked two-floor rule
+    with its seed-noise input POPULATED.
+
+    Builds per-backbone ``PerCityKS`` via :func:`seed_aggregated_per_backbone` (mean
+    per-seed ``median_excess`` = ``ks``; per-seed std-error = ``seed_sem``) and hands the
+    map to ``city_aggregate.binding_city_verdict`` — which demotes any city whose
+    winner-vs-runner-up gap fails to clear ``max(C/sqrt(n) resolution floor, seed-noise
+    floor)`` and returns ``NoDecisiveWinner`` when no city is decisive.
+
+    Deliberately NOT ``bakeoff_decision.decide()``: decide() builds ``PerCityKS`` with
+    ``seed_sem=0`` (its scalar is a single fixed-scale excess), which would silently DROP the
+    locked seed-noise floor of GROUND_TRUTH §4. Here the 3-seed spread IS the input, so the
+    seed floor actually binds."""
+    per_backbone = seed_aggregated_per_backbone(
+        lane_s_by_ckpt, n_reference_by_city=n_reference_by_city
+    )
+    return binding_city_verdict(per_backbone)
