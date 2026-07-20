@@ -249,3 +249,80 @@ def test_arg_parser_half_flags_are_mutually_exclusive():
                 "--train-only",
             ]
         )
+
+
+# --------------------------------------------------------------------------- #
+# Train extraction routing (Leonardo job 49904814 regression)
+# --------------------------------------------------------------------------- #
+
+
+def _noop_flattener(shards, *, seed, ablation):
+    """Torch-free flattener stand-in: zero examples (routing is what's under test)."""
+    return [], {}
+
+
+def test_extract_train_routes_via_all_validated_tiles_never_holdout(monkeypatch):
+    """REGIME SPY (job 49904814): a TRAIN city's default extraction path must go
+    through ``build_train_city_shards`` — explicit ALL-validated ``tile_ids`` — and
+    must NEVER touch ``holdout_manifest_for_region`` (train cities have no holdout
+    manifest; the old ``build_shards_in_memory(release, city)`` call left
+    ``tile_ids=None``, whose holdout-subtracting path raises ``ValueError`` for any
+    non-held-out region). This test FAILS under the old regime: the fake builder
+    below would record ``tile_ids=None`` instead of the explicit sorted inventory."""
+    import cfm.data.training.build_shards as bs
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError(
+            "holdout_manifest_for_region called for a TRAIN city — the job-49904814 "
+            "regression path is live again"
+        )
+
+    monkeypatch.setattr(bs, "holdout_manifest_for_region", _forbidden)
+    # Synthetic validated inventory for the fake train city (unsorted on purpose:
+    # build_train_city_shards must sort).
+    monkeypatch.setattr(
+        bs,
+        "_validated_inventory",
+        lambda release, region: [{"tile_i": 2, "tile_j": 1}, {"tile_i": 0, "tile_j": 3}],
+    )
+
+    seen: dict = {}
+
+    def _fake_build_shards_in_memory(release, region, *, tile_ids=None):
+        seen["release"], seen["region"], seen["tile_ids"] = release, region, tile_ids
+        return ["shard-sentinel"]
+
+    monkeypatch.setattr(bs, "build_shards_in_memory", _fake_build_shards_in_memory)
+
+    got = rf.extract_train(
+        release="test-rel",
+        ablation="full",
+        seed=0,
+        train_cities=["a_coruna"],  # the region job 49904814 actually died on
+        flattener=_noop_flattener,  # torch-free; shard_builder left DEFAULT (real routing)
+    )
+    assert seen["region"] == "a_coruna"
+    # Explicit sorted all-validated tile ids — NEVER None (None = the holdout path).
+    assert seen["tile_ids"] == [(0, 3), (2, 1)]
+    assert got == {}  # zero examples -> zero feature cities (routing-only fixture)
+
+
+def test_extract_train_injected_shard_builder_is_honored():
+    """The injectable seam (Task-1 discipline): an injected builder is called once
+    per train city with (release, city) and the real modules are never imported."""
+    calls: list[tuple[str, str]] = []
+
+    def _builder(release: str, city: str) -> list:
+        calls.append((release, city))
+        return []
+
+    got = rf.extract_train(
+        release="r",
+        ablation="full",
+        seed=0,
+        train_cities=["x_city", "y_city"],
+        shard_builder=_builder,
+        flattener=_noop_flattener,
+    )
+    assert calls == [("r", "x_city"), ("r", "y_city")]
+    assert got == {}

@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from cfm.eval.conditioning_floor import load_verified_floor
@@ -195,18 +195,45 @@ def extract_heldout(
 
 
 def extract_train(
-    *, release: str, ablation: str, seed: int, train_cities: Sequence[str]
+    *,
+    release: str,
+    ablation: str,
+    seed: int,
+    train_cities: Sequence[str],
+    shard_builder: Callable[[str, str], list] | None = None,
+    flattener: Callable[..., tuple[list, object]] | None = None,
 ) -> dict[str, scoring.GenFeatures]:
-    """Training real features: per city, ``build_shards_in_memory`` (all its tiles) ->
-    ``flatten_shards_to_cells`` -> decode ``CellExample.tokens`` -> ``gen_features_by_city``.
-    Torch-pulling imports are LAZY here. This is the heaviest CPU step (29 cities x tiles)."""
-    from cfm.data.training.build_shards import build_shards_in_memory  # lazy
-    from cfm.data.training.datamodule import flatten_shards_to_cells  # lazy: pulls torch
+    """Training real features: per city, ``build_train_city_shards`` (ALL validated
+    tiles) -> ``flatten_shards_to_cells`` -> decode ``CellExample.tokens`` ->
+    ``gen_features_by_city``. Heavy imports are LAZY (the flattener pulls torch).
+    This is the heaviest CPU step (29 cities x tiles).
+
+    FIX (Leonardo job 49904814): a TRAIN city's shards MUST come from
+    ``build_shards.build_train_city_shards`` — the I1-boundary bypass that
+    enumerates the city's tiles from its validated inventory. The previous
+    ``build_shards_in_memory(release, city)`` call left ``tile_ids=None``, which
+    routes ``compute_training_tile_ids`` -> ``_holdout_ids`` ->
+    ``holdout_manifest_for_region`` — by construction that path exists only to
+    SUBTRACT holdout tiles and RAISES ``ValueError`` for any non-held-out region
+    (train cities have no holdout manifest; the fail-closed I1 guard stays intact
+    as the backstop). The regime spy test pins this routing.
+
+    ``shard_builder``/``flattener`` are injectable for torch-free tests (the
+    Task-1 ``build_conditioned_cells`` injection discipline); ``None`` resolves
+    the real functions via LOCAL imports. ``shard_builder(release, city)``."""
+    if shard_builder is None:
+        from cfm.data.training.build_shards import build_train_city_shards  # lazy: heavy IO deps
+
+        shard_builder = build_train_city_shards
+    if flattener is None:
+        from cfm.data.training.datamodule import flatten_shards_to_cells  # lazy: pulls torch
+
+        flattener = flatten_shards_to_cells
 
     by_city: dict[str, scoring.GenFeatures] = {}
     for city in train_cities:
-        shards = build_shards_in_memory(release, city)  # tile_ids=None -> full city
-        examples, dropped = flatten_shards_to_cells(shards, seed=seed, ablation=ablation)
+        shards = shard_builder(release, city)  # ALL validated tiles; NEVER the holdout path
+        examples, dropped = flattener(shards, seed=seed, ablation=ablation)
         decoded: list[DecodedCell] = []
         for ex in examples:
             blocks, geoms = scoring.decode_tokens_to_cell(ex.tokens)
