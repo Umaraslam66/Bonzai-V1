@@ -244,16 +244,16 @@ loses all 6; longer than needed). Per-checkpoint jobs also let mamba (slower) an
 
 | File | Responsibility |
 |---|---|
-| `src/cfm/eval/realism/__init__.py` (create) | Package marker for the driver's pure-logic core. |
-| `src/cfm/eval/realism/conditioning.py` (create) | Load+verify manifest; join manifest cells → matched `(prefix_ids, char_stats, real_body_tokens)` via the training datamodule. Injectable shard-builder. |
-| `src/cfm/eval/realism/driver.py` (create) | Ordered cell list + `run_generation(cells, gen_fn, rank, world_size)` over `sharded_eval`; per-cell artifact schema (`GenCellRecord`) serialize/read. Injectable `gen_fn` (no torch in the core). |
-| `src/cfm/eval/realism/scoring.py` (create) | Decode artifact → `DecodedCell`; per-(backbone,seed) `gen_features_by_city`; the seed-aware aggregation (`aggregate_seed_verdict`) wrapping `binding_city_verdict`; explicit set-equality + memorization-first guards. |
+| `src/cfm/eval/realism_driver/__init__.py` (create) | Package marker for the driver's pure-logic core. |
+| `src/cfm/eval/realism_driver/conditioning.py` (create) | Load+verify manifest; join manifest cells → matched `(prefix_ids, char_stats, real_body_tokens)` via the training datamodule. Injectable shard-builder. |
+| `src/cfm/eval/realism_driver/driver.py` (create) | Ordered cell list + `run_generation(cells, gen_fn, rank, world_size)` over `sharded_eval`; per-cell artifact schema (`GenCellRecord`) serialize/read. Injectable `gen_fn` (no torch in the core). |
+| `src/cfm/eval/realism_driver/scoring.py` (create) | Decode artifact → `DecodedCell`; per-(backbone,seed) `gen_features_by_city`; the seed-aware aggregation (`aggregate_seed_verdict`) wrapping `binding_city_verdict`; explicit set-equality + memorization-first guards. |
 | `scripts/realism_eval_gen.py` (create) | Generation CLI (Leonardo): `load_model` → build cells → `sharded_eval` → write artifact + sentinel + end-state verify. `--dry-run`/`--limit-cells`/`--stratum`. |
 | `scripts/realism_eval_real_features.py` (create) | Leonardo no-GPU CLI: extract real held-out + `train_cities` features → `real-features.yaml`. |
 | `scripts/realism_eval_decide.py` (create) | Local scoring/aggregation CLI: fetch → decode → memorization-first halt → coverage → excess → seed verdict → `decision.yaml` + reports. |
 | `scripts/realism_eval.sbatch` (create) | Leonardo torchrun 4-GPU per-checkpoint job (copy `steering_probe.sbatch` verification discipline; `eval_sharding_golden.sbatch` torchrun launch). |
 | `docs/handoffs/2026-07-20-realism-eval-result-TEMPLATE.md` (create) | Prose `reports/` summary template (filled at run time as `reports/2026-07-XX-realism-eval-result.md`). |
-| `tests/eval/realism/test_conditioning.py`, `test_driver.py`, `test_scoring.py` (create) | Fast unit tests with synthetic manifest/floor/CellExample fixtures. |
+| `tests/eval/realism_driver/test_conditioning.py`, `test_driver.py`, `test_scoring.py` (create) | Fast unit tests with synthetic manifest/floor/CellExample fixtures. |
 
 Artifacts (NOT committed — data): `reports/_realism_eval/2026-04-15.0/{gen-<bb>-seed<k>.json,
 gen-features-<bb>-seed<k>.yaml, real-features.yaml, coverage-<bb>-seed<k>.yaml, memorization.yaml,
@@ -263,8 +263,8 @@ decision.yaml}` + sentinels.
 
 ## Task 1 — Conditioning source: manifest → matched conditioning join  *(local, TDD)*
 
-**Files:** create `src/cfm/eval/realism/__init__.py`, `src/cfm/eval/realism/conditioning.py`; test
-`tests/eval/realism/test_conditioning.py`.
+**Files:** create `src/cfm/eval/realism_driver/__init__.py`, `src/cfm/eval/realism_driver/conditioning.py`; test
+`tests/eval/realism_driver/test_conditioning.py`.
 
 **Interfaces:**
 ```python
@@ -317,7 +317,7 @@ exercised in unit tests).
 
 ## Task 2 — Driver core: ordered generation over `sharded_eval` (injectable gen fn)  *(local, TDD)*
 
-**Files:** create `src/cfm/eval/realism/driver.py`; test `tests/eval/realism/test_driver.py`.
+**Files:** create `src/cfm/eval/realism_driver/driver.py`; test `tests/eval/realism_driver/test_driver.py`.
 
 **Interfaces:**
 ```python
@@ -368,7 +368,7 @@ def read_gen_artifact(path) -> tuple[dict, list[GenCellRecord]]  # (meta, record
 
 ## Task 3 — Generation CLI  *(local code; run is ops)*
 
-**Files:** create `scripts/realism_eval_gen.py`; extend `tests/eval/realism/test_driver.py` with a CLI
+**Files:** create `scripts/realism_eval_gen.py`; extend `tests/eval/realism_driver/test_driver.py` with a CLI
 arg-parse test (no torch).
 
 **CLI (argparse), mirroring `steering_probe_gen.py`:**
@@ -459,8 +459,8 @@ clean. Real run is ops (T8), no GPU.
 
 ## Task 6 — Scoring / aggregation CLI: memorization-first → seed verdict  *(local, TDD)*
 
-**Files:** create `src/cfm/eval/realism/scoring.py`, `scripts/realism_eval_decide.py`; test
-`tests/eval/realism/test_scoring.py`.
+**Files:** create `src/cfm/eval/realism_driver/scoring.py`, `scripts/realism_eval_decide.py`; test
+`tests/eval/realism_driver/test_scoring.py`.
 
 **Interfaces (`scoring.py`):**
 ```python
