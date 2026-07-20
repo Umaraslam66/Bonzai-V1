@@ -45,6 +45,14 @@ EXPECTED_N_CELLS = 5705
 EXPECTED_N_STRATA = 146
 
 
+class ManifestLineageError(ValueError):
+    """A validly-sealed manifest is NOT the pinned Lane-S lineage (wrong floor/census
+    sha or wrong cell/strata count). Explicit raise, NEVER ``assert``: bare asserts
+    are stripped under ``python -O`` / ``PYTHONOPTIMIZE=1``, which would let a
+    differently-sealed manifest pass silently — fail-loud outranks the brief's
+    incidental 'assert' wording (review verdict 2026-07-20)."""
+
+
 class ConditioningJoinError(RuntimeError):
     """A manifest cell has no matching flattened CellExample (A2: expect none).
 
@@ -65,29 +73,34 @@ class ConditionedCell:
 
 
 def load_verified_manifest_or_raise(path: Path) -> dict:
-    """``lane_s_sampler.load_verified_manifest`` + pinned-lineage asserts.
+    """``lane_s_sampler.load_verified_manifest`` + pinned-lineage checks.
 
     The seal verification (absent/unsealed/sha-mismatch/version-skew ->
     ``SamplerArtifactError``) is delegated to the lane_s reader; THIS layer pins
-    which sealed manifest it is: floor_sha256, census_sha256, cell count and
-    stratum count must match the locked lineage constants above."""
+    WHICH sealed manifest it is: floor_sha256, census_sha256, cell count and
+    stratum count must match the locked lineage constants above, else
+    :class:`ManifestLineageError` (explicit raise — survives ``python -O``)."""
     manifest = load_verified_manifest(path)
-    assert manifest["floor_sha256"] == EXPECTED_FLOOR_SHA256, (
-        f"manifest floor_sha256={manifest['floor_sha256']!r} != pinned "
-        f"{EXPECTED_FLOOR_SHA256!r} — not the locked Lane-S lineage; refusing."
-    )
-    assert manifest["census_sha256"] == EXPECTED_CENSUS_SHA256, (
-        f"manifest census_sha256={manifest['census_sha256']!r} != pinned "
-        f"{EXPECTED_CENSUS_SHA256!r} — not the locked Lane-S lineage; refusing."
-    )
+    if manifest["floor_sha256"] != EXPECTED_FLOOR_SHA256:
+        raise ManifestLineageError(
+            f"manifest floor_sha256={manifest['floor_sha256']!r} != pinned "
+            f"{EXPECTED_FLOOR_SHA256!r} — not the locked Lane-S lineage; refusing."
+        )
+    if manifest["census_sha256"] != EXPECTED_CENSUS_SHA256:
+        raise ManifestLineageError(
+            f"manifest census_sha256={manifest['census_sha256']!r} != pinned "
+            f"{EXPECTED_CENSUS_SHA256!r} — not the locked Lane-S lineage; refusing."
+        )
     n_cells = len(manifest["cells"])
-    assert n_cells == EXPECTED_N_CELLS, (
-        f"manifest carries {n_cells} cells, expected {EXPECTED_N_CELLS}; refusing."
-    )
+    if n_cells != EXPECTED_N_CELLS:
+        raise ManifestLineageError(
+            f"manifest carries {n_cells} cells, expected {EXPECTED_N_CELLS}; refusing."
+        )
     n_strata = len(manifest["strata"])
-    assert n_strata == EXPECTED_N_STRATA, (
-        f"manifest carries {n_strata} strata, expected {EXPECTED_N_STRATA}; refusing."
-    )
+    if n_strata != EXPECTED_N_STRATA:
+        raise ManifestLineageError(
+            f"manifest carries {n_strata} strata, expected {EXPECTED_N_STRATA}; refusing."
+        )
     logger.info(
         "lane-s manifest verified: %d cells / %d strata, floor %.8s, census %.8s",
         n_cells,

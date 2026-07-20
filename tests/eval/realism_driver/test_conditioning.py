@@ -201,13 +201,24 @@ def test_manifest_verification_rejects_bad_sha(tmp_path):
 
 
 def test_manifest_verification_rejects_wrong_census_sha(tmp_path):
-    # (b) validly-sealed but census_sha256 != pinned constant -> AssertionError
+    # (b) validly-sealed but census_sha256 != pinned constant -> ManifestLineageError
+    # (explicit raise, NOT assert: must fire under python -O too)
     path = tmp_path / "sampler-manifest.yaml"
     ls.seal_manifest(
         _sealable_payload(floor_sha=_FLOOR_SHA, census_sha="c0ffee", n_cells=5705, n_strata=146),
         path,
     )
-    with pytest.raises(AssertionError):
+    with pytest.raises(cond.ManifestLineageError, match="census_sha256"):
+        cond.load_verified_manifest_or_raise(path)
+
+
+def test_manifest_verification_rejects_wrong_floor_sha(tmp_path):
+    path = tmp_path / "sampler-manifest.yaml"
+    ls.seal_manifest(
+        _sealable_payload(floor_sha="deadbeef", census_sha=_CENSUS_SHA, n_cells=5705, n_strata=146),
+        path,
+    )
+    with pytest.raises(cond.ManifestLineageError, match="floor_sha256"):
         cond.load_verified_manifest_or_raise(path)
 
 
@@ -217,5 +228,15 @@ def test_manifest_verification_rejects_wrong_cell_count(tmp_path):
         _sealable_payload(floor_sha=_FLOOR_SHA, census_sha=_CENSUS_SHA, n_cells=10, n_strata=146),
         path,
     )
-    with pytest.raises(AssertionError):
+    with pytest.raises(cond.ManifestLineageError, match="10 cells"):
+        cond.load_verified_manifest_or_raise(path)
+
+
+def test_manifest_verification_rejects_wrong_strata_count(tmp_path):
+    path = tmp_path / "sampler-manifest.yaml"
+    ls.seal_manifest(
+        _sealable_payload(floor_sha=_FLOOR_SHA, census_sha=_CENSUS_SHA, n_cells=5705, n_strata=3),
+        path,
+    )
+    with pytest.raises(cond.ManifestLineageError, match="3 strata"):
         cond.load_verified_manifest_or_raise(path)
