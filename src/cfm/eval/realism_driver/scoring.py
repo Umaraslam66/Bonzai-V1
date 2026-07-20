@@ -309,13 +309,14 @@ def seed_aggregated_per_backbone(
     n_reference_by_city: Mapping[str, int],
 ) -> dict[str, list[PerCityKS]]:
     """Per (backbone, city): mean of that backbone's per-seed ``median_excess`` = ``ks``;
-    std-error of those per-seed values over seeds = ``seed_sem`` (sample stdev / sqrt(n);
-    ``0.0`` for a single seed, which collapses the seed floor to ``C/sqrt(n)``). Returns the
-    ``{backbone: [PerCityKS, ...]}`` map ``binding_city_verdict`` consumes.
+    std-error of those per-seed values over seeds = ``seed_sem`` (sample stdev / sqrt(n)).
+    Returns the ``{backbone: [PerCityKS, ...]}`` map ``binding_city_verdict`` consumes.
 
-    Requires >= 2 backbones (a single entry never auto-wins — ``pick_winner``'s rule) and a
-    consistent seed COUNT across backbones (the seed-noise floor compares like with like).
-    Every (backbone, seed) must score exactly ``n_reference_by_city``'s cities."""
+    Requires >= 2 backbones (a single entry never auto-wins — ``pick_winner``'s rule), a
+    consistent seed COUNT across backbones (the seed-noise floor compares like with like),
+    and >= 2 seeds per backbone (review fix I-1: a single seed would set ``seed_sem=0`` and
+    silently drop the locked seed-noise floor — refused, never warned past). Every
+    (backbone, seed) must score exactly ``n_reference_by_city``'s cities."""
     keys = list(lane_s_by_ckpt)
     if not keys:
         raise ValueError("seed aggregation: no (backbone, seed) results supplied")
@@ -336,11 +337,17 @@ def seed_aggregated_per_backbone(
             f"seed aggregation: backbones ran DIFFERENT seed counts {seed_counts} — the "
             "seed-noise floor compares like with like; refusing an unbalanced sweep."
         )
-    if next(iter(seed_counts.values())) < 2:
-        logger.warning(
-            "seed aggregation: only %d seed(s) per backbone — the seed-noise floor collapses "
-            "to C/sqrt(n) (GROUND_TRUTH §4 wants 3 seeds).",
-            next(iter(seed_counts.values())),
+    n_seeds = next(iter(seed_counts.values()))
+    if n_seeds < 2:
+        # REVIEW FIX I-1 (2026-07-20): RAISE, never warn-and-proceed. A single seed makes
+        # seed_sem=0, which silently re-opens the exact seed-noise-floor hole this module
+        # closes (a partial run would crown with the locked floor dropped). No override
+        # flag by design: the locked run shape is 3 seeds (GROUND_TRUTH §4); a lost
+        # checkpoint goes back to the PI, not to a flag.
+        raise ValueError(
+            f"seed aggregation: only {n_seeds} seed per backbone — seed_sem would be 0.0, "
+            "silently DROPPING the locked seed-noise floor (GROUND_TRUTH §4: 3 seeds). "
+            "Refusing; a single-seed crown is exactly the hole this crown path closes."
         )
 
     per_backbone: dict[str, list[PerCityKS]] = {}

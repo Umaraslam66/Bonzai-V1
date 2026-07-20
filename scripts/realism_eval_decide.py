@@ -96,6 +96,35 @@ SUMMARY_FILENAME = "summary.md"
 #: end-state write).
 SENTINEL = "REALISM_EVAL_DECISION_DONE"
 
+#: The LOCKED run shape (GROUND_TRUTH §4): exactly 2 backbones x exactly 3 seeds each.
+#: REVIEW FIX I-1 (2026-07-20): enforced at the CLI boundary with NO override flag —
+#: a partial (fewer-artifact) run would score with seed_sem degraded and silently
+#: weaken the seed-noise floor; a lost checkpoint goes back to the PI, not to a flag.
+EXPECTED_N_BACKBONES = 2
+EXPECTED_SEEDS_PER_BACKBONE = 3
+
+
+def assert_locked_run_shape(
+    gen_by_ckpt: dict[tuple[str, int], dict[str, GenFeatures]],
+) -> None:
+    """Hard-require the locked scored-run shape: exactly ``EXPECTED_N_BACKBONES`` backbones
+    with exactly ``EXPECTED_SEEDS_PER_BACKBONE`` seeds EACH. Raises ``SystemExit`` naming
+    what was found vs expected. No escape hatch by design (review fix I-1)."""
+    seeds_by_backbone: dict[str, list[int]] = {}
+    for bb, seed in sorted(gen_by_ckpt):
+        seeds_by_backbone.setdefault(bb, []).append(seed)
+    found = {bb: sorted(s) for bb, s in seeds_by_backbone.items()}
+    bad_counts = {bb: len(s) for bb, s in found.items() if len(s) != EXPECTED_SEEDS_PER_BACKBONE}
+    if len(found) != EXPECTED_N_BACKBONES or bad_counts:
+        raise SystemExit(
+            f"realism_eval_decide: locked run shape is {EXPECTED_N_BACKBONES} backbones x "
+            f"{EXPECTED_SEEDS_PER_BACKBONE} seeds each (GROUND_TRUTH §4); found "
+            f"{len(found)} backbone(s) with seeds {found} "
+            f"(wrong seed counts: {bad_counts or 'none'}). A partial run would degrade the "
+            "seed-noise floor — refusing; there is no override flag. A missing checkpoint "
+            "is a PI decision, not a CLI option."
+        )
+
 
 # --------------------------------------------------------------------------- #
 # Write-once helpers (mirror the eval-set / gen-artifact discipline)
@@ -431,7 +460,12 @@ def _summary_prose(verdict: BindingVerdict | NoDecisiveWinner, config: dict) -> 
 def build_arg_parser() -> argparse.ArgumentParser:
     """The CLI. Torch-free so it is unit-testable without a GPU."""
     ap = argparse.ArgumentParser(
-        description="Scored realism-eval decision runner (Task 6; local, GPU-free)."
+        description="Scored realism-eval decision runner (Task 6; local, GPU-free).",
+        epilog=(
+            "OPS NOTE (M-3): after a memorization halt, re-running into the same --out-dir "
+            "fails on the write-once gen-features dumps FIRST — deliberate (write-once "
+            "discipline); use a fresh --out-dir for a re-decision."
+        ),
     )
     ap.add_argument(
         "--gen-artifact",
@@ -512,6 +546,7 @@ def main(argv: list[str] | None = None) -> None:
     manifest = load_verified_manifest(Path(args.manifest))
     real_by_city, real_train_by_city = _load_real(Path(args.real_features))
     gen_by_ckpt = _load_gen_artifacts(args.gen_artifacts, release=args.release)
+    assert_locked_run_shape(gen_by_ckpt)  # review fix I-1: 2 backbones x 3 seeds, no override
 
     config = {
         "spec": DECISION_SPEC,

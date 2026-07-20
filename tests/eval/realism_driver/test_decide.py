@@ -187,6 +187,40 @@ def test_aggregate_requires_two_backbones():
         )
 
 
+def test_aggregate_refuses_single_seed_per_backbone():
+    """Review fix I-1: a single seed per backbone RAISES (never warn-and-proceed) — seed_sem
+    would be 0.0, silently re-opening the exact seed-noise-floor hole this task closes."""
+    with pytest.raises(ValueError, match="seed-noise floor"):
+        scoring.aggregate_seed_verdict(
+            {
+                ("A", 0): {"d_city": _ls("d_city", 0.1)},
+                ("B", 0): {"d_city": _ls("d_city", 0.5)},
+            },
+            n_reference_by_city={"d_city": 100},
+        )
+
+
+def test_cli_run_shape_refuses_partial_artifact_sets():
+    """Review fix I-1 at the CLI boundary: the locked shape is exactly 2 backbones x 3 seeds.
+    A 2-artifact partial (1 seed per backbone) is a SystemExit naming found-vs-expected;
+    an unbalanced 3/2 split and a 3rd backbone refuse too; the exact locked shape passes."""
+    partial = {("A", 0): {}, ("B", 0): {}}
+    with pytest.raises(SystemExit, match="3 seeds") as exc:
+        decide_cli.assert_locked_run_shape(partial)
+    assert "'A': [0]" in str(exc.value)  # names what was found
+
+    unbalanced = {("A", s): {} for s in (0, 1, 2)} | {("B", 0): {}, ("B", 1): {}}
+    with pytest.raises(SystemExit, match="'B': 2"):
+        decide_cli.assert_locked_run_shape(unbalanced)
+
+    three_backbones = {(bb, s): {} for bb in ("A", "B", "C") for s in (0, 1, 2)}
+    with pytest.raises(SystemExit, match="3 backbone"):
+        decide_cli.assert_locked_run_shape(three_backbones)
+
+    locked = {(bb, s): {} for bb in ("A", "B") for s in (0, 1, 2)}
+    decide_cli.assert_locked_run_shape(locked)  # the locked shape passes silently
+
+
 def test_aggregate_refuses_unbalanced_seed_counts():
     with pytest.raises(ValueError, match="seed count"):
         scoring.aggregate_seed_verdict(
