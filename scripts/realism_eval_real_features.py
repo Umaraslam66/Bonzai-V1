@@ -37,7 +37,7 @@ torch-pulling import (``build_conditioned_cells`` -> datamodule, ``build_shards_
 Run (ops; NOT this session — CPU, no GPU, run on a Leonardo serial/data node):
     python scripts/realism_eval_real_features.py \\
         --floor-artifact <conditioning-floor.yaml> \\
-        --manifest <sealed_lane_s_manifest.json> \\
+        --manifest <sealed_lane_s_manifest.yaml> \\
         --out reports/realism_eval/real-features.yaml
 
 Sizing a single half first (partial, non-canonical):
@@ -86,7 +86,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         required=True,
         help="frozen conditioning-floor YAML; its train_cities set is the train half",
     )
-    ap.add_argument("--manifest", required=True, help="sealed Lane-S sampler manifest JSON")
+    ap.add_argument("--manifest", required=True, help="sealed Lane-S sampler manifest YAML")
     ap.add_argument("--out", required=True, help="output real-features YAML (write-once)")
     ap.add_argument("--release", default=DEFAULT_RELEASE, help="Overture release for the join")
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED, help="flatten seed (inert in body)")

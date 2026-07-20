@@ -38,7 +38,7 @@ tile labels off disk) is the ops path inside ``main``; the tested core
 module never pulls torch.
 
 Run (ops; local / a CPU node — no GPU):
-    python scripts/realism_eval_decide.py \\
+    python -m scripts.realism_eval_decide \\
         --gen-artifact <bb1-seed0.json> ... (x6) \\
         --real-features reports/realism_eval/real-features.yaml \\
         --floor-artifact <conditioning-floor.yaml> \\
@@ -57,7 +57,11 @@ from pathlib import Path
 import yaml
 
 # iCloud-Drive-safe path inject (same pattern as scripts/run_bakeoff_decision.py).
+# Repo-root goes on sys.path too so ``python scripts/realism_eval_decide.py`` (direct
+# invocation) can import the ``scripts`` package (``from scripts.run_bakeoff_decision``),
+# not only ``python -m scripts.realism_eval_decide``.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # bakeoff_decision holds the STRICT per-candidate Lane-M sweep (memorization_check) and the
 # exact real-features loader the decision runner uses — reused so the schema/teeth are ONE
@@ -76,6 +80,7 @@ from cfm.eval.lane_s_sampler import (
     verify_gen_coverage,
 )
 from cfm.eval.realism_driver import scoring
+from cfm.eval.realism_driver.conditioning import load_verified_manifest_or_raise
 from cfm.eval.realism_driver.scoring import DryRunReport, GenFeatures, MemorizationHalt
 from scripts.run_bakeoff_decision import _load_real
 
@@ -698,7 +703,11 @@ def main(argv: list[str] | None = None) -> None:
 
     # Step 1: verified floor (sha/lock) BEFORE any scoring — decide()'s Tooth-1, explicit.
     verified = load_verified_floor(Path(args.floor_artifact))
-    manifest = load_verified_manifest(Path(args.manifest))
+    # The PINNED loader on the production scored path: the manifest must be the locked
+    # Lane-S lineage (floor/census sha, 5705 cells, 146 strata) — a differently-sealed
+    # manifest cannot slip past decide. The dry-run path deliberately uses the bare
+    # load_verified_manifest (a dry run may score a stand-in slice).
+    manifest = load_verified_manifest_or_raise(Path(args.manifest))
     real_by_city, real_train_by_city = _load_real(Path(args.real_features))
     gen_by_ckpt = _load_gen_artifacts(args.gen_artifacts, release=args.release)
     assert_locked_run_shape(gen_by_ckpt)  # review fix I-1: 2 backbones x 3 seeds, no override

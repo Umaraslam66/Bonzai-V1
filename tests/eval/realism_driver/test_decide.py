@@ -24,6 +24,7 @@ import pytest
 import yaml
 
 import scripts.realism_eval_decide as decide_cli
+from cfm.eval import lane_s_sampler as ls
 from cfm.eval.city_aggregate import BindingVerdict, NoDecisiveWinner
 from cfm.eval.conditioning_floor import (
     LaneSResult,
@@ -33,6 +34,13 @@ from cfm.eval.conditioning_floor import (
 )
 from cfm.eval.lane_s_sampler import SamplerCoverageError
 from cfm.eval.realism_driver import scoring
+from cfm.eval.realism_driver.conditioning import (
+    EXPECTED_CENSUS_SHA256,
+    EXPECTED_FLOOR_SHA256,
+    EXPECTED_N_CELLS,
+    EXPECTED_N_STRATA,
+    ManifestLineageError,
+)
 from cfm.eval.realism_driver.scoring import MemorizationHalt
 
 # --------------------------------------------------------------------------- #
@@ -437,6 +445,91 @@ def test_decoded_cells_from_artifact_maps_and_reuses_decode():
 # --------------------------------------------------------------------------- #
 # CLI arg surface
 # --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# F-1: the PRODUCTION scored path pins the Lane-S manifest lineage
+# --------------------------------------------------------------------------- #
+
+
+def _sealed_manifest(path: Path, *, floor_sha: str, census_sha: str) -> None:
+    """A validly-SEALED Lane-S manifest at ``path`` (seal check passes); lineage fields
+    are caller-controlled so a wrong-sha manifest can be fed to the production loader."""
+    payload = {
+        "sampler_schema_version": ls.SAMPLER_SCHEMA_VERSION,
+        "release": "eu.test",
+        "floor_sha256": floor_sha,
+        "census_sha256": census_sha,
+        "methodology": {"target_features": 50, "headroom": 2.0, "seed": 7},
+        "held_out_cities": ["glasgow"],
+        "strata": [{"city": "glasgow", "stratum": [i, 0, 0, 0]} for i in range(EXPECTED_N_STRATA)],
+        "cells": [
+            {
+                "city": "glasgow",
+                "tile_i": 0,
+                "tile_j": 0,
+                "cell_i": i // 8,
+                "cell_j": i % 8,
+                "density_bucket": 0,
+            }
+            for i in range(EXPECTED_N_CELLS)
+        ],
+    }
+    ls.seal_manifest(payload, path)
+
+
+def test_production_path_refuses_wrong_sha_manifest(tmp_path: Path):
+    """F-1: ``main()`` (the scored production path) loads the manifest through the PINNED
+    ``load_verified_manifest_or_raise`` — a validly-sealed but wrong-floor-sha manifest is
+    refused with ``ManifestLineageError`` BEFORE any gen artifact is read, so a
+    differently-sealed manifest can never slip past the decide step. (The dry-run path keeps
+    the bare loader and is not pinned — covered by test_dryrun.)"""
+    floor = _frozen_floor(tmp_path)
+    manifest_path = tmp_path / "sampler-manifest.yaml"
+    _sealed_manifest(manifest_path, floor_sha="deadbeef", census_sha=EXPECTED_CENSUS_SHA256)
+    with pytest.raises(ManifestLineageError, match="floor_sha256"):
+        decide_cli.main(
+            [
+                "--gen-artifact",
+                "never-read.json",  # manifest raises first; gen artifacts are never loaded
+                "--real-features",
+                "never-read-real.yaml",
+                "--floor-artifact",
+                str(floor),
+                "--manifest",
+                str(manifest_path),
+                "--out-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+
+
+def test_production_path_accepts_pinned_lineage_manifest(tmp_path: Path):
+    """A manifest whose lineage MATCHES the pinned constants passes the loader (the gate lets
+    the true Lane-S lineage through); scoring then proceeds past the manifest load and fails
+    later on the placeholder gen artifact, proving the pin itself did not reject it."""
+    floor = _frozen_floor(tmp_path)
+    manifest_path = tmp_path / "sampler-manifest.yaml"
+    _sealed_manifest(
+        manifest_path, floor_sha=EXPECTED_FLOOR_SHA256, census_sha=EXPECTED_CENSUS_SHA256
+    )
+    # NOT ManifestLineageError: the pin accepts it, so failure comes later (unreadable gen).
+    with pytest.raises(Exception) as exc:  # asserting NOT the lineage error, so any is fine
+        decide_cli.main(
+            [
+                "--gen-artifact",
+                str(tmp_path / "missing-gen.json"),
+                "--real-features",
+                str(tmp_path / "missing-real.yaml"),
+                "--floor-artifact",
+                str(floor),
+                "--manifest",
+                str(manifest_path),
+                "--out-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+    assert not isinstance(exc.value, ManifestLineageError)
 
 
 def test_arg_parser_collects_repeated_gen_artifacts():

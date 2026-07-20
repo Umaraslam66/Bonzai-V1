@@ -76,7 +76,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     """The CLI. Kept torch-free so it is unit-testable without a GPU."""
     ap = argparse.ArgumentParser(description="Scored realism-eval generation driver (Task 3).")
     ap.add_argument("--ckpt", required=True, help="bake-off checkpoint (.ckpt) to generate from")
-    ap.add_argument("--manifest", required=True, help="sealed Lane-S sampler manifest JSON")
+    ap.add_argument("--manifest", required=True, help="sealed Lane-S sampler manifest YAML")
     ap.add_argument("--out", required=True, help="output gen artifact JSON (write-once)")
     ap.add_argument("--release", default=DEFAULT_RELEASE, help="Overture release for the join")
     ap.add_argument("--base-seed", type=int, default=DEFAULT_BASE_SEED, help="seed base (base+i)")
