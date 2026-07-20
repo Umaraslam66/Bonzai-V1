@@ -21,7 +21,8 @@ from __future__ import annotations
 import logging
 import math
 import statistics
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -33,8 +34,9 @@ from cfm.data.sub_g.seam_decodability import split_cell_into_features
 
 # All torch-free (verified 2026-07-20): read_held_out_cities lives in bakeoff_decision
 # (imports only city_aggregate/conditioning_floor/ladder — no torch); city_aggregate,
-# conditioning_floor and gen_realism are the locked scored-lane primitives this module
-# orchestrates. Importing this module must STILL not pull torch (Task-5 discipline).
+# conditioning_floor, gen_realism, lane_s_sampler and conditioning_discrimination are the
+# locked scored-lane primitives this module orchestrates. Importing this module must STILL not
+# pull torch (Task-5 discipline; lane_s_sampler / _tile_features re-checked 2026-07-20).
 from cfm.eval.bakeoff_decision import read_held_out_cities
 from cfm.eval.city_aggregate import (
     BindingVerdict,
@@ -42,8 +44,10 @@ from cfm.eval.city_aggregate import (
     PerCityKS,
     binding_city_verdict,
 )
-from cfm.eval.conditioning_floor import LaneSResult, VerifiedFloorArtifact
-from cfm.eval.gen_realism import DecodedCell
+from cfm.eval.conditioning_discrimination import _tile_features
+from cfm.eval.conditioning_floor import LaneSResult, VerifiedFloorArtifact, lane_s_excess
+from cfm.eval.gen_realism import DecodedCell, gen_features_by_city
+from cfm.eval.lane_s_sampler import CoverageReport, verify_gen_coverage
 
 if TYPE_CHECKING:
     from cfm.eval.realism_driver.driver import GenCellRecord
@@ -401,3 +405,163 @@ def aggregate_seed_verdict(
         lane_s_by_ckpt, n_reference_by_city=n_reference_by_city
     )
     return binding_city_verdict(per_backbone)
+
+
+# --------------------------------------------------------------------------- #
+# Task 7a — LOCAL scoring dry-run (no GPU, no checkpoint, no verdict)
+# --------------------------------------------------------------------------- #
+
+
+def single_stratum_gen_features(
+    cells: Sequence[DecodedCell],
+    *,
+    stratum: tuple,
+    release: str | None = None,
+) -> dict[str, GenFeatures]:
+    """LOCAL dry-run ONLY: assign EVERY decoded cell's features to ONE synthetic 4-tuple
+    ``stratum`` (NO disk read).
+
+    The heldout-cache stand-in (``data/_diag/heldout_cache.json``) carries no tile identity —
+    only ``{region, body_tokens}`` — and the held-out EU tile labels are not on the local disk,
+    so the real ``gen_realism.gen_features_by_city`` (which reads
+    ``(zoning, road_skeleton, coastal)`` off disk per tile) cannot key the floor's 4-tuple
+    grammar locally. This reuses the IDENTICAL feature classification
+    (``conditioning_discrimination._tile_features``: ring promotion, building-area vs
+    road-length, outbound-bref exclusion) so decode->feature is faithful, and stamps the
+    caller's single synthetic stratum in place of the disk labels. NEVER used on Leonardo (real
+    tiles -> the real ``gen_features_by_city``). ``release`` is accepted for signature parity
+    with ``gen_features_by_city`` and is unused."""
+    key_stratum = tuple(stratum)
+    by_city: dict[str, GenFeatures] = {}
+    for cell in cells:
+        density = cell.cell_density_bucket
+        feats, _n_bref = _tile_features(cell.blocks, cell.geoms, [density] * len(cell.blocks))
+        gf = by_city.setdefault(cell.city, {})
+        for metric, value, _dens in feats:
+            gf.setdefault((metric, key_stratum), []).append(float(value))
+    return by_city
+
+
+def synthesize_dry_run_manifest(gen_by_city: Mapping[str, GenFeatures], *, min_n: int) -> dict:
+    """A synthetic, sealed-SHAPED Lane-S manifest built FROM the observed gen features so
+    ``verify_gen_coverage`` can run without the real sealed manifest (whose strata key real EU
+    tile labels unavailable locally).
+
+    Every observed ``(city, stratum)`` becomes a NON-ceiling stratum owing its observed
+    metrics, ``target_features = max(1, min_n)`` so a dry run passes coverage on whatever it
+    generated. This is a wiring check, NEVER the sealed manifest and NEVER a real coverage
+    gate — the scored run always loads the sealed manifest instead."""
+    strata: list[dict] = []
+    for city in sorted(gen_by_city):
+        by_stratum: dict[tuple, list[str]] = {}
+        for metric, stratum in gen_by_city[city]:
+            by_stratum.setdefault(stratum, []).append(metric)
+        for stratum in sorted(by_stratum, key=_stratum_sort_key):
+            metrics = sorted(set(by_stratum[stratum]))
+            strata.append(
+                {
+                    "city": city,
+                    "stratum": list(stratum),
+                    "owed_metrics": metrics,
+                    "binding_metric": metrics[0],
+                    "ceiling_bound": False,
+                }
+            )
+    return {
+        "held_out_cities": sorted(gen_by_city),
+        "methodology": {"target_features": max(1, int(min_n))},
+        "strata": strata,
+    }
+
+
+@dataclass(frozen=True)
+class DryRunReport:
+    """Result of the Task-7a LOCAL scoring dry-run over ONE artifact.
+
+    Deliberately carries NO ``BindingVerdict`` / ``NoDecisiveWinner`` field: a dry run is
+    structurally incapable of a crown — it stops before any seed aggregation and never invokes
+    ``aggregate_seed_verdict`` / ``binding_city_verdict``. It surfaces the decode + gen-feature
+    + coverage + Lane-S wiring so a human can confirm the chain runs, plus the determinism
+    ``verify_tokens`` outcome."""
+
+    n_cells: int
+    n_self_terminated: int
+    verify_tokens: bool
+    cities: list[str]
+    gen_stratum_keys: dict[str, list[tuple[str, tuple]]]
+    coverage: CoverageReport
+    lane_s_by_city: dict[str, LaneSResult]
+    scored_cities: list[str]
+
+
+def dry_run_score(
+    *,
+    meta: Mapping[str, Any],
+    records: Sequence[GenCellRecord],
+    real_by_city: Mapping[str, GenFeatures],
+    verified: VerifiedFloorArtifact,
+    release: str,
+    gen_features_fn: Callable[..., Mapping[str, GenFeatures]] = gen_features_by_city,
+    manifest: dict | None = None,
+    min_n: int | None = None,
+    verify_tokens: bool = True,
+) -> DryRunReport:
+    """Task-7a LOCAL scoring dry-run: ``decode -> gen features -> verify_gen_coverage ->
+    lane_s_excess`` for ONE artifact, then STOP.
+
+    It NEVER calls ``aggregate_seed_verdict`` / ``binding_city_verdict`` and writes nothing — a
+    dry run cannot emit a decision.yaml or any crown language. ``verify_tokens`` (default ON)
+    re-decodes each record's tokens on the CPU and asserts they reproduce the stored aligned
+    ``(blocks, geoms)`` bit-identically (the determinism check the 7b PASS criteria require);
+    a drift raises ``ValueError`` in :func:`decoded_cells_from_artifact`.
+
+    ``gen_features_fn`` is the real ``gen_features_by_city`` on Leonardo (real tile labels) or
+    :func:`single_stratum_gen_features` locally (heldout-cache stand-in, no tile identity). When
+    ``manifest`` is ``None`` a synthetic 1-per-observed-stratum manifest is built so coverage can
+    run without the sealed manifest. A city whose Lane-S is vacuous (thin / mismatched strata) is
+    WARNED and reported, never crowned."""
+    decoded = decoded_cells_from_artifact(
+        meta, records, release=release, verify_tokens=verify_tokens
+    )
+    gen_by_city = dict(gen_features_fn(decoded, release=release))
+    cov_min_n = min_n if min_n is not None else 1
+    mf = (
+        manifest
+        if manifest is not None
+        else synthesize_dry_run_manifest(gen_by_city, min_n=cov_min_n)
+    )
+    coverage = verify_gen_coverage(gen_by_city, mf, min_n=min_n)
+
+    lane_s: dict[str, LaneSResult] = {}
+    for city in sorted(gen_by_city):
+        if city not in real_by_city:
+            logger.warning(
+                "dry-run: no real features for city %r — Lane-S skipped (reported, not crowned)",
+                city,
+            )
+            continue
+        try:
+            lane_s[city] = lane_s_excess(
+                gen_by_city[city], real_by_city[city], verified, city=city, min_n=min_n
+            )
+        except ValueError as exc:
+            # A vacuous Lane-S locally (thin slice / mismatched synthetic strata) is EXPECTED
+            # for a dry run — report it, never fail the wiring check (and never crown).
+            logger.warning(
+                "dry-run: Lane-S vacuous for city %r (%s) — reported, not crowned", city, exc
+            )
+
+    n_self_terminated = sum(1 for r in records if r.self_terminated)
+    return DryRunReport(
+        n_cells=len(records),
+        n_self_terminated=n_self_terminated,
+        verify_tokens=verify_tokens,
+        cities=sorted(gen_by_city),
+        gen_stratum_keys={
+            city: sorted(gen_by_city[city], key=lambda kv: (kv[0], _stratum_sort_key(kv[1])))
+            for city in sorted(gen_by_city)
+        },
+        coverage=coverage,
+        lane_s_by_city=lane_s,
+        scored_cities=sorted(lane_s),
+    )

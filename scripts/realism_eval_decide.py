@@ -76,7 +76,7 @@ from cfm.eval.lane_s_sampler import (
     verify_gen_coverage,
 )
 from cfm.eval.realism_driver import scoring
-from cfm.eval.realism_driver.scoring import GenFeatures, MemorizationHalt
+from cfm.eval.realism_driver.scoring import DryRunReport, GenFeatures, MemorizationHalt
 from scripts.run_bakeoff_decision import _load_real
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,10 @@ SUMMARY_FILENAME = "summary.md"
 #: rank-0 stdout sentinel — printed ONLY after decision.yaml is written (no marker without
 #: end-state write).
 SENTINEL = "REALISM_EVAL_DECISION_DONE"
+
+#: DISTINCT dry-run sentinel — a dry run can NEVER print ``SENTINEL`` (no decision was made),
+#: so a dry run is never mistaken for a scored decision downstream.
+DRY_RUN_SENTINEL = "REALISM_EVAL_DRY_RUN_OK"
 
 #: The LOCKED run shape (GROUND_TRUTH §4): exactly 2 backbones x exactly 3 seeds each.
 #: REVIEW FIX I-1 (2026-07-20): enforced at the CLI boundary with NO override flag —
@@ -471,8 +475,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--gen-artifact",
         dest="gen_artifacts",
         action="append",
-        required=True,
-        help="a write-once gen artifact JSON (repeat once per backbone x seed; the 6 scored ckpts)",
+        help="a write-once gen artifact JSON (repeat once per backbone x seed; the 6 scored "
+        "ckpts). Under --dry-run supply EXACTLY ONE (a single checkpoint slice).",
     )
     ap.add_argument(
         "--real-features", required=True, help="checkpoint-independent real-features YAML"
@@ -483,15 +487,45 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="frozen conditioning-floor YAML PATH (sha/lock verified here BEFORE any scoring)",
     )
     ap.add_argument(
-        "--manifest", required=True, help="sealed Lane-S sampler manifest (verified read)"
+        "--manifest",
+        default=None,
+        help="sealed Lane-S sampler manifest (verified read); REQUIRED for a scored decision, "
+        "OPTIONAL under --dry-run (a synthetic 1-per-stratum manifest is built from the gen).",
     )
-    ap.add_argument("--out-dir", required=True, help="output directory (write-once decision.yaml)")
+    ap.add_argument(
+        "--out-dir",
+        default=None,
+        help="output directory (write-once decision.yaml); REQUIRED for a scored decision, "
+        "IGNORED under --dry-run (a dry run writes nothing).",
+    )
     ap.add_argument("--release", default=DEFAULT_RELEASE, help="Overture release for tile labels")
     ap.add_argument(
         "--min-n",
         type=int,
         default=None,
         help="override qualify min_n (default: the floor's frozen methodology.min_n)",
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="LOCAL scoring dry-run over ONE artifact: decode -> gen features -> coverage -> "
+        "Lane-S excess, then STOP. NO seed aggregation, NO verdict, writes NOTHING — a dry run "
+        "is structurally incapable of a crown.",
+    )
+    ap.add_argument(
+        "--synthetic-stratum",
+        default=None,
+        help="--dry-run only: 'zoning,skeleton,density,coastal' (density an int bucket) — assign "
+        "every decoded cell to ONE synthetic stratum WITHOUT reading tile labels off disk (for a "
+        "stand-in artifact whose tiles are not on the local disk, e.g. the heldout-cache slice). "
+        "Omit to use the real gen_features_by_city (needs local tile labels).",
+    )
+    ap.add_argument(
+        "--verify-tokens",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="--dry-run only: re-decode each cell's tokens and assert they reproduce the stored "
+        "aligned (blocks, geoms) bit-identically (default ON in --dry-run).",
     )
     return ap
 
@@ -535,11 +569,132 @@ def _load_gen_artifacts(
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Task 7a — LOCAL scoring dry-run CLI (no GPU, no checkpoint, no verdict)
+# --------------------------------------------------------------------------- #
+
+
+def _parse_synthetic_stratum(spec: str) -> tuple:
+    """Parse ``'zoning,skeleton,density,coastal'`` into the floor's 4-tuple (density -> int)."""
+    parts = [p.strip() for p in spec.split(",")]
+    if len(parts) != 4:
+        raise SystemExit(
+            f"--synthetic-stratum must be 'zoning,skeleton,density,coastal' (4 comma-separated "
+            f"fields); got {spec!r}."
+        )
+    zoning, skeleton, density, coastal = parts
+    try:
+        density_i = int(density)
+    except ValueError:
+        raise SystemExit(
+            f"--synthetic-stratum density (3rd field) must be an int bucket; got {density!r}."
+        ) from None
+    return (zoning, skeleton, density_i, coastal)
+
+
+def _log_dry_run(report: DryRunReport) -> None:
+    """Human-readable dry-run summary (logged; the sentinel is the only stdout marker)."""
+    logger.info(
+        "DRY-RUN summary: %d cells (%d self-terminated), verify_tokens=%s; cities=%s",
+        report.n_cells,
+        report.n_self_terminated,
+        report.verify_tokens,
+        report.cities,
+    )
+    logger.info(
+        "DRY-RUN coverage: %d ok, %d ceiling-bound-excluded",
+        len(report.coverage.ok),
+        len(report.coverage.ceiling_bound_excluded),
+    )
+    for city in report.cities:
+        keys = report.gen_stratum_keys.get(city, [])
+        r = report.lane_s_by_city.get(city)
+        if r is None:
+            logger.info(
+                "DRY-RUN %s: %d gen stratum keys; Lane-S NOT scored (reported)", city, len(keys)
+            )
+        else:
+            logger.info(
+                "DRY-RUN %s: %d gen stratum keys; Lane-S median_excess=%.4f (n_qualifying=%d, "
+                "n_skipped_thin=%d)",
+                city,
+                len(keys),
+                r.median_excess,
+                r.n_qualifying,
+                r.n_skipped_thin,
+            )
+
+
+def run_dry_run(args: argparse.Namespace) -> DryRunReport:
+    """Wire and run the Task-7a LOCAL scoring dry-run over EXACTLY ONE gen artifact, print the
+    dry-run sentinel, and return the report. Never asserts the locked 2x3 run shape, never
+    scores a verdict, never writes anything."""
+    from functools import partial
+
+    from cfm.eval.gen_realism import gen_features_by_city  # torch-free; reads tile labels
+    from cfm.eval.realism_driver.driver import read_gen_artifact
+
+    n_arts = len(args.gen_artifacts or [])
+    if n_arts != 1:
+        raise SystemExit(
+            f"--dry-run scores EXACTLY ONE --gen-artifact (a single checkpoint slice); got "
+            f"{n_arts}. The locked 2x3 scored-run shape is a PRODUCTION concern, not a dry run."
+        )
+    verify_tokens = True if args.verify_tokens is None else bool(args.verify_tokens)
+
+    verified = load_verified_floor(Path(args.floor_artifact))
+    real_by_city, _real_train = _load_real(Path(args.real_features))
+    manifest = load_verified_manifest(Path(args.manifest)) if args.manifest else None
+    meta, records = read_gen_artifact(Path(args.gen_artifacts[0]))
+
+    if args.synthetic_stratum:
+        stratum = _parse_synthetic_stratum(args.synthetic_stratum)
+        gen_features_fn = partial(scoring.single_stratum_gen_features, stratum=stratum)
+        logger.info("DRY-RUN: single synthetic stratum %s (no disk tile-label read)", stratum)
+    else:
+        gen_features_fn = gen_features_by_city
+
+    report = scoring.dry_run_score(
+        meta=meta,
+        records=records,
+        real_by_city=real_by_city,
+        verified=verified,
+        release=args.release,
+        gen_features_fn=gen_features_fn,
+        manifest=manifest,
+        min_n=args.min_n,
+        verify_tokens=verify_tokens,
+    )
+    _log_dry_run(report)
+    print(DRY_RUN_SENTINEL, flush=True)
+    return report
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     args = build_arg_parser().parse_args(argv)
+
+    if args.dry_run:
+        run_dry_run(args)
+        return
+
+    # A scored decision hard-requires the artifacts the parser leaves optional for --dry-run.
+    missing = [
+        name
+        for name, value in (
+            ("--gen-artifact", args.gen_artifacts),
+            ("--manifest", args.manifest),
+            ("--out-dir", args.out_dir),
+        )
+        if not value
+    ]
+    if missing:
+        raise SystemExit(
+            f"realism_eval_decide: {', '.join(missing)} required for a scored decision run "
+            "(only --dry-run may omit them)."
+        )
 
     # Step 1: verified floor (sha/lock) BEFORE any scoring — decide()'s Tooth-1, explicit.
     verified = load_verified_floor(Path(args.floor_artifact))
