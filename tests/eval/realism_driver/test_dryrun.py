@@ -343,6 +343,39 @@ def test_verify_tokens_mismatch_raises(tmp_path: Path):
     assert report.verify_tokens is True
 
 
+def _point_rec_with_coords(coords: list[float]) -> GenCellRecord:
+    """The honest real Point record with its stored geom coordinates replaced."""
+    return GenCellRecord(
+        cell_key=("d_city", 0, 0, 0, 0),
+        density_bucket=1,
+        tokens=_REAL_POINT_TOKENS,
+        blocks=_REAL_POINT_BLOCKS,
+        geoms=[{"type": "Point", "coordinates": coords}],
+        self_terminated=True,
+    )
+
+
+def test_verify_tokens_tolerates_ulp_scale_geom_drift():
+    """Cross-platform ULP drift (measured 5.7e-14 on a real Leonardo x86 artifact re-decoded
+    on local ARM) must PASS: a 1e-13-perturbed stored geom float is within _VERIFY_GEOM_ATOL.
+    Blocks stay EXACT (ints)."""
+    rec = _point_rec_with_coords([164.0 + 1e-13, 96.5])
+    decoded = scoring.decoded_cells_from_artifact(
+        {"release": "test"}, [rec], release="test", verify_tokens=True
+    )
+    assert len(decoded) == 1  # passed the determinism check
+
+
+def test_verify_tokens_rejects_above_tolerance_geom_drift():
+    """The gate still distinguishes regimes: a 1e-6-perturbed geom float (three orders above
+    _VERIFY_GEOM_ATOL=1e-9, the _CLOSURE_EPS_M scale) FAILS loud."""
+    rec = _point_rec_with_coords([164.0 + 1e-6, 96.5])
+    with pytest.raises(ValueError, match="determinism drift"):
+        scoring.decoded_cells_from_artifact(
+            {"release": "test"}, [rec], release="test", verify_tokens=True
+        )
+
+
 # --------------------------------------------------------------------------- #
 # 4. single_stratum_gen_features: the ops adaptation is real (no disk read)
 # --------------------------------------------------------------------------- #

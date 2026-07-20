@@ -187,6 +187,37 @@ def load_real_features(path: str | Path) -> dict:
 # --------------------------------------------------------------------------- #
 
 
+#: Absolute per-float tolerance for the ``verify_tokens`` geom comparison (DRY-RUN DIAGNOSTIC
+#: ONLY — production scoring reuses the stored decode and never touches this; _CLOSURE_EPS_M
+#: and every eval classification path are deliberately untouched). Measured cross-platform
+#: drift on real artifacts (Leonardo x86 decode vs local ARM re-decode, mamba seed23, 12
+#: cells): blocks bit-identical, geom floats differing by max 5.7e-14 — pure ULP drift, the
+#: same class as the b30d604 closure-epsilon phenomenon. 1e-9 sits three orders below
+#: _CLOSURE_EPS_M=1e-6 and six below any feature quantum, so real decoder disagreements
+#: still fail loud while ULP noise passes.
+_VERIFY_GEOM_ATOL = 1e-9
+
+
+def _geoms_match(a: Any, b: Any, *, atol: float = _VERIFY_GEOM_ATOL) -> bool:
+    """Structural identity + per-float ``atol`` over arbitrarily nested geom payloads.
+
+    dict/list/tuple shapes and keys must match EXACTLY; numeric leaves compare with
+    ``abs(a-b) <= atol`` (bools exact — a bool is not ULP-drifted arithmetic); every other
+    leaf (e.g. the ``type`` string) compares exactly. Any structural difference or a delta
+    above ``atol`` is a mismatch."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a is b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return abs(float(a) - float(b)) <= atol
+    if isinstance(a, Mapping) and isinstance(b, Mapping):
+        return a.keys() == b.keys() and all(_geoms_match(a[k], b[k], atol=atol) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(
+            _geoms_match(x, y, atol=atol) for x, y in zip(a, b, strict=True)
+        )
+    return bool(a == b)
+
+
 def decoded_cells_from_artifact(
     meta: Mapping[str, Any],
     records: Sequence[GenCellRecord],
@@ -203,9 +234,11 @@ def decoded_cells_from_artifact(
     ``density_bucket`` -> ``cell_density_bucket`` (the conditioned stratum dim).
 
     ``verify_tokens`` (a dry-run determinism assert): re-decode ``record.tokens`` on the CPU
-    via the torch-free :func:`decode_tokens_to_cell` and require the result to EQUAL the
-    stored ``(blocks, geoms)`` — catches a gen/scoring decode drift before it silently
-    changes features. ``release`` is cross-checked against ``meta['release']`` when present
+    via the torch-free :func:`decode_tokens_to_cell` and require the result to match the
+    stored ``(blocks, geoms)`` — blocks EXACTLY (ints), geoms structurally identical with
+    per-float ``_VERIFY_GEOM_ATOL`` tolerance (cross-platform ULP drift is real; bit-identity
+    was over-strict) — catching a gen/scoring decode drift before it silently changes
+    features. ``release`` is cross-checked against ``meta['release']`` when present
     (a lineage warning — the tile labels ``gen_features_by_city`` reads are release-scoped)."""
     meta_release = meta.get("release")
     if meta_release is not None and meta_release != release:
@@ -222,11 +255,15 @@ def decoded_cells_from_artifact(
         geoms = list(rec.geoms)
         if verify_tokens:
             re_blocks, re_geoms = decode_tokens_to_cell(rec.tokens)
-            if re_blocks != blocks or re_geoms != geoms:
+            # Blocks are ints: EXACT equality, always. Geoms carry derived floats:
+            # structural identity + _VERIFY_GEOM_ATOL numeric tolerance (cross-platform
+            # ULP drift is real; see the constant). Structural or >atol mismatch fails loud.
+            if re_blocks != blocks or not _geoms_match(re_geoms, geoms):
                 raise ValueError(
                     f"decoded_cells_from_artifact: decode determinism drift for cell "
                     f"{rec.cell_key} — re-decoded (blocks, geoms) != the artifact's stored "
-                    "aligned decode; the gen-side and score-side decoders disagree."
+                    f"aligned decode (blocks exact; geoms structural + atol="
+                    f"{_VERIFY_GEOM_ATOL}); the gen-side and score-side decoders disagree."
                 )
         out.append(
             DecodedCell(
