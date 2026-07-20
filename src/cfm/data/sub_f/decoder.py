@@ -167,6 +167,22 @@ def decode_feature(tokens: list[int]) -> dict[str, Any]:
     }
 
 
+def try_decode_block(block: list[int]) -> dict[str, Any] | None:
+    """Decode one 509/510 feature block, or ``None`` if it fails to decode.
+
+    The robust per-block primitive (one source for "decode-or-None"), mirroring
+    sub-G ``check_decodability``'s try/except so a malformed block never raises here.
+
+    HOME (Task-5 review 2026-07-20): moved here from ``cfm.inference.generate``
+    (which re-exports it unchanged for its existing importers) so torch-free
+    consumers — e.g. ``cfm.eval.realism_driver.scoring`` decoding REAL tokens with
+    no model — can import the ONE authority without pulling torch."""
+    try:
+        return decode_feature(block)
+    except Exception:
+        return None
+
+
 def serialize_geojson(geom: dict) -> str:
     """Canonical GeoJSON serialization per spec §5.3.
 

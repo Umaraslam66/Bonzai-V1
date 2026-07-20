@@ -7,14 +7,13 @@ uses, but WITHOUT a model (already-real tokens, no generation), and (b) the
 ``scripts/run_bakeoff_decision.py`` loads (``{metric, stratum, samples}`` per
 city). Task 6 extends this module with the scored-lane driver.
 
-TORCH DISCIPLINE (verified 2026-07-20): the two decode primitives live in
-torch-free modules — ``split_cell_into_features`` in ``cfm.data.sub_g``'s
-``seam_decodability`` and ``decode_feature`` in ``cfm.data.sub_f.decoder``. The
-usual ``try_decode_block`` wrapper lives in ``cfm.inference.generate``, which
-imports ``torch`` at module top; so its 4-line try/except is re-implemented here
-(``_try_decode_feature``) against the torch-free ``decode_feature`` rather than
-imported — keeping this whole module GPU/torch-free, matching the Task-1/Task-2
-import discipline of the realism_driver package.
+TORCH DISCIPLINE (verified 2026-07-20; single authority per Task-5 review): the
+decode primitives live in torch-free modules — ``split_cell_into_features`` in
+``cfm.data.sub_g``'s ``seam_decodability`` and ``try_decode_block`` in
+``cfm.data.sub_f.decoder`` (its home since the review fix; ``cfm.inference.generate``
+re-exports it unchanged for its torch-side importers). Importing this module never
+pulls torch, matching the Task-1/Task-2 import discipline of the realism_driver
+package.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from typing import Any
 import yaml
 
 # BOTH torch-free (checked 2026-07-20): importing this module must not pull torch.
-from cfm.data.sub_f.decoder import decode_feature
+from cfm.data.sub_f.decoder import try_decode_block
 from cfm.data.sub_g.seam_decodability import split_cell_into_features
 
 logger = logging.getLogger(__name__)
@@ -43,16 +42,6 @@ GenFeatures = dict[tuple[str, tuple], list[float]]
 # --------------------------------------------------------------------------- #
 
 
-def _try_decode_feature(block: list[int]) -> dict[str, Any] | None:
-    """Decode one 509/510 feature block, or ``None`` if it fails — the torch-free
-    twin of ``cfm.inference.generate.try_decode_block`` (same try/except contract:
-    a malformed block never raises here; decodability is a measured rate)."""
-    try:
-        return decode_feature(block)
-    except Exception:
-        return None
-
-
 def decode_tokens_to_cell(tokens: Sequence[int]) -> tuple[list[list[int]], list[dict]]:
     """Split a real cell's token body into feature blocks and decode each, keeping
     only the blocks that decode — returning ALIGNED ``(blocks, geoms)`` exactly as
@@ -65,7 +54,7 @@ def decode_tokens_to_cell(tokens: Sequence[int]) -> tuple[list[list[int]], list[
     kept_blocks: list[list[int]] = []
     kept_geoms: list[dict] = []
     for block in split_cell_into_features(list(tokens)):
-        geom = _try_decode_feature(block)
+        geom = try_decode_block(block)
         if geom is not None:
             kept_blocks.append(block)
             kept_geoms.append(geom)
