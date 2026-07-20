@@ -68,7 +68,7 @@ DEFAULT_MAX_NEW = 4096
 _SPEC = "realism-eval-gen-v1"
 
 #: rank-0 end-state sentinel (printed to stdout, deliberately, AFTER the artifact is
-#: re-read and its count/order/holes verified — no marker without end-state verify).
+#: re-read and its count + cell order verified — no marker without end-state verify).
 SENTINEL = "REALISM_EVAL_GEN_DONE"
 
 
@@ -159,27 +159,35 @@ def _free_tcp_port() -> int:
         return int(s.getsockname()[1])
 
 
-def _init_distributed(*, dry_run: bool):
-    """Initialise the process group and pick this rank's device.
-
-    A scored run is launched by ``torchrun`` (WORLD_SIZE>=2, one rank per GPU) and uses
-    NCCL. ``sharded_eval`` calls ``all_gather_object`` UNCONDITIONALLY (no group-less
-    path), so even a ``--dry-run`` single process needs an initialised group — a loopback
-    gloo group of size 1. WORLD_SIZE<2 without ``--dry-run`` is refused (mirrors
-    ``eval_sharding_golden.py``: a scored run must saturate the full 4-GPU node).
-    """
-    import os
-
-    import torch
-    import torch.distributed as dist
-
-    world_env = int(os.environ.get("WORLD_SIZE", "1"))
+def check_world_size(world_env: int, *, dry_run: bool) -> None:
+    """Torch-free refusal guard: WORLD_SIZE<2 without ``--dry-run`` is a hard abort
+    (mirrors ``eval_sharding_golden.py``'s hard guard: a scored run must saturate the
+    full 4-GPU node — boost_usr_prod bills per node)."""
     if world_env < 2 and not dry_run:
         raise SystemExit(
             "realism_eval_gen: refusing WORLD_SIZE<2 for a scored run. Launch via "
             "torchrun --standalone --nproc_per_node=4 (full node), or pass --dry-run for a "
             "single-process smoke."
         )
+
+
+def _init_distributed(*, dry_run: bool):
+    """Initialise the process group and pick this rank's device.
+
+    A scored run is launched by ``torchrun`` (WORLD_SIZE>=2, one rank per GPU) and uses
+    NCCL. ``sharded_eval`` calls ``all_gather_object`` UNCONDITIONALLY (no group-less
+    path), so even a ``--dry-run`` single process needs an initialised group — a loopback
+    gloo group of size 1. The WORLD_SIZE<2 refusal lives in :func:`check_world_size`
+    (torch-free, unit-tested) and runs BEFORE any torch import.
+    """
+    import os
+
+    world_env = int(os.environ.get("WORLD_SIZE", "1"))
+    check_world_size(world_env, dry_run=dry_run)
+
+    import torch
+    import torch.distributed as dist
+
     if world_env >= 2:
         dist.init_process_group(backend="nccl")
         rank = dist.get_rank()
@@ -198,37 +206,32 @@ def _init_distributed(*, dry_run: bool):
 
 
 def _make_gen_fn(model, device, *, max_new: int):
-    """Build the per-cell generate+decode closure the driver dispatches.
+    """Build the per-cell closure the driver dispatches: ``score_cell`` VERBATIM.
 
-    ``driver.run_generation`` needs a dict with ``tokens``/``blocks``/``geoms``.
-    ``scripts.train_scaffold.score_cell`` returns ``blocks``/``geoms`` but only
-    ``n_tokens`` (not the raw token tail the driver needs for ``self_terminated``), so
-    this closure calls the SAME underlying primitives ``score_cell`` wraps — a single
-    ``generate_cell_tokens`` then the identical ``split_cell_into_features`` /
-    ``try_decode_block`` decode — and additionally surfaces ``tokens``. One generation
-    per cell; no parallel decode implementation."""
+    ``scripts.train_scaffold.score_cell`` is the single authority on generate+decode
+    (the eval-sharding golden imports THIS function, so it literally guards the realism
+    path too). Its dict now carries ``tokens`` (additive key) alongside ``blocks``/
+    ``geoms`` — everything ``driver.run_generation`` reads; extra keys are ignored.
+    ``char_stats`` is passed unconditionally as ``list(cell.char_stats)``, mirroring the
+    training/golden call shape (train_scaffold's matched-conditioning path)."""
+    import sys
+
     import torch
 
-    from cfm.data.sub_g.seam_decodability import split_cell_into_features
-    from cfm.inference.generate import generate_cell_tokens, try_decode_block
+    # scripts/ is not a package on sys.path when launched as ``torchrun scripts/...py``;
+    # repo root on sys.path first (same route eval_sharding_golden.py takes).
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.train_scaffold import score_cell
 
     def gen_fn(cell: ConditionedCell, seed: int) -> dict:
-        char_stats = list(cell.char_stats) if cell.char_stats else None
         with torch.no_grad():
-            tokens = generate_cell_tokens(
+            return score_cell(
                 model,
-                prefix=list(cell.prefix_ids),
+                prefix_ids=list(cell.prefix_ids),
+                char_stats=list(cell.char_stats),
                 max_new=max_new,
                 seed=seed,
-                char_stats=char_stats,
             )
-        blocks = split_cell_into_features(tokens)
-        decoded = [(b, try_decode_block(b)) for b in blocks]
-        return {
-            "tokens": tokens,
-            "blocks": [b for b, d in decoded if d is not None],
-            "geoms": [d for b, d in decoded if d is not None],
-        }
 
     return gen_fn
 
@@ -317,19 +320,18 @@ def main(argv: list[str] | None = None) -> None:
 def _verify_end_state(out: str, *, expected: Sequence[ConditionedCell]) -> None:
     """Re-read the just-written artifact and prove it is complete BEFORE the sentinel.
 
-    Asserts the record count equals the expected cell count, the cell_keys are in the
-    exact expected (manifest) order, and no slot is a hole (``None``). A false DONE
-    poisons every downstream scoring step, so the marker is earned by disk state, never
-    by control flow reaching the end (F8)."""
+    Asserts the record count equals the expected cell count and the cell_keys are in
+    the exact expected (manifest) order. (A per-slot ``None`` hole check would be
+    vacuous here — ``read_gen_artifact`` reconstructs a ``GenCellRecord`` per entry or
+    raises; count+order ARE the real gate. Upstream, ``gather_in_order`` already fails
+    loud on any unfilled slot.) A false DONE poisons every downstream scoring step, so
+    the marker is earned by disk state, never by control flow reaching the end (F8)."""
     _meta, records = read_gen_artifact(out)
     if len(records) != len(expected):
         raise SystemExit(
             f"end-state verify FAILED: artifact has {len(records)} records, expected "
             f"{len(expected)} (count not conserved)."
         )
-    holes = [i for i, r in enumerate(records) if r is None]
-    if holes:
-        raise SystemExit(f"end-state verify FAILED: {len(holes)} hole(s), e.g. {holes[:8]}.")
     got = [r.cell_key for r in records]
     want = [c.cell_key for c in expected]
     if got != want:

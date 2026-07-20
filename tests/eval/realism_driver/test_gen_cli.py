@@ -117,3 +117,23 @@ def test_resolve_ablation_match_returns_value():
 def test_resolve_ablation_mismatch_raises_systemexit():
     with pytest.raises(SystemExit):
         gen.resolve_ablation("full", "no_character")
+
+
+@pytest.mark.parametrize("extra", [["--stratum", "3"], ["--limit-cells", "5"]])
+def test_filters_without_dry_run_refused(extra):
+    """--stratum/--limit-cells are dry-run-only: main() aborts BEFORE any torch import."""
+    argv = ["--ckpt", "c.ckpt", "--manifest", "m.json", "--out", "o.json", *extra]
+    with pytest.raises(SystemExit, match="dry-run-only"):
+        gen.main(argv)
+
+
+def test_check_world_size_refuses_single_process_scored_run():
+    """WORLD_SIZE<2 without --dry-run is a hard abort (full-node discipline)."""
+    with pytest.raises(SystemExit, match="WORLD_SIZE<2"):
+        gen.check_world_size(1, dry_run=False)
+
+
+def test_check_world_size_allows_dry_run_and_multiproc():
+    gen.check_world_size(1, dry_run=True)  # dry-run smoke: allowed
+    gen.check_world_size(4, dry_run=False)  # full node: allowed
+    gen.check_world_size(2, dry_run=True)  # multiproc dry-run: allowed
