@@ -55,6 +55,21 @@ MANIFEST="${MANIFEST:-/leonardo_work/AIFAC_P02_222/Bonzai-OSM/data/processed/lan
 # if unset, is left to the python default (DEFAULT_BASE_SEED) — no duplicated constant here.
 MAX_NEW="${MAX_NEW:-4096}"
 
+# Fail-fast preflights BEFORE any module load / heavy work (budget guard: don't burn a
+# full generation pass to hit rank-0's write-once FileExistsError or a missing input).
+if [ -e "$OUT" ]; then
+  echo "FATAL: OUT already exists (write-once artifact, refusing to overwrite): $OUT" >&2
+  exit 2
+fi
+if [ ! -f "$CKPT" ]; then
+  echo "FATAL: CKPT is not a file: $CKPT" >&2
+  exit 2
+fi
+if [ ! -f "$MANIFEST" ]; then
+  echo "FATAL: MANIFEST is not a file: $MANIFEST" >&2
+  exit 2
+fi
+
 module load python/3.11.7 cuda/12.2 gcc/12.2.0
 # mamba_ssm needs the gcc-12 libstdc++ at import; build_backbone's import chain touches it
 # even for the transformer-ar checkpoints (steering_probe.sbatch:35-39).
