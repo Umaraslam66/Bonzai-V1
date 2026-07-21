@@ -205,6 +205,7 @@ def score_cell(
     decoded = [(b, try_decode_block(b)) for b in cell_blocks]
     return {
         "gen_seconds": gen_s,  # wall-clock; NOT part of the deterministic score
+        "tokens": tokens,  # raw generated tail (realism driver derives self_terminated from it)
         "n_tokens": len(tokens),  # prefix-stripped tail = generated tokens
         "has_building": sequence_has_building_tokens(tokens),
         "n_attempted": len(cell_blocks),

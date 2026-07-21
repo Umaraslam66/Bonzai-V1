@@ -1,0 +1,149 @@
+config:
+  checkpoints:
+  - mamba-hybrid-seed13
+  - mamba-hybrid-seed23
+  - mamba-hybrid-seed7
+  - transformer-ar-seed13
+  - transformer-ar-seed23
+  - transformer-ar-seed7
+  commit: acd077fbd90a99cdb9939747f8be8efab4f4c0d2
+  floor_artifact_path: reports/conditioning_floor/2026-04-15.0/conditioning-floor.yaml
+  floor_sha256: 95abb88bfaf0a79d4254883478aa5e5b558ed63c27a3c0a5845e8bb65f3a6be6
+  gen_artifact_paths:
+  - /private/tmp/claude-501/-Users-umaraslam-Projects-Bonzai-OSM/e1028012-4e29-4e2a-bed1-98048dfd08d3/scratchpad/gen_artifacts/gen-mamba-hybrid-seed13.json
+  - /private/tmp/claude-501/-Users-umaraslam-Projects-Bonzai-OSM/e1028012-4e29-4e2a-bed1-98048dfd08d3/scratchpad/gen_artifacts/gen-mamba-hybrid-seed23.json
+  - /private/tmp/claude-501/-Users-umaraslam-Projects-Bonzai-OSM/e1028012-4e29-4e2a-bed1-98048dfd08d3/scratchpad/gen_artifacts/gen-mamba-hybrid-seed7.json
+  - /private/tmp/claude-501/-Users-umaraslam-Projects-Bonzai-OSM/e1028012-4e29-4e2a-bed1-98048dfd08d3/scratchpad/gen_artifacts/gen-transformer-ar-seed13.json
+  - /private/tmp/claude-501/-Users-umaraslam-Projects-Bonzai-OSM/e1028012-4e29-4e2a-bed1-98048dfd08d3/scratchpad/gen_artifacts/gen-transformer-ar-seed23.json
+  - /private/tmp/claude-501/-Users-umaraslam-Projects-Bonzai-OSM/e1028012-4e29-4e2a-bed1-98048dfd08d3/scratchpad/gen_artifacts/gen-transformer-ar-seed7.json
+  manifest_census_sha256: 236cea99dc370021113352c9c737da2404791ad200ca6d8d7e908e81ca6cb373
+  manifest_floor_sha256: 95abb88bfaf0a79d4254883478aa5e5b558ed63c27a3c0a5845e8bb65f3a6be6
+  manifest_path: data/processed/lane_s_sampler/2026-04-15.0/sampler-manifest.yaml
+  manifest_sampler_sha256: 391979f31a0f4ef251e2e66f5b8c097ee4f5fbe93a0d87ea994e0f4625bcda3a
+  min_n: null
+  real_features_path: /private/tmp/claude-501/-Users-umaraslam-Projects-Bonzai-OSM/e1028012-4e29-4e2a-bed1-98048dfd08d3/scratchpad/real-features.yaml
+  release: 2026-04-15.0
+  spec: realism-eval-decision-v1
+halt: MEMORIZATION_HALT
+memorization:
+- backbone: mamba-hybrid
+  failing_pairs:
+  - - munich
+    - hamburg
+  - - munich
+    - vienna
+  - - munich
+    - warsaw
+  n_pairs_no_strata: 0
+  ok: false
+  seed: 7
+- backbone: mamba-hybrid
+  failing_pairs:
+  - - munich
+    - espoo
+  - - munich
+    - hamburg
+  - - munich
+    - lodz
+  - - munich
+    - warsaw
+  n_pairs_no_strata: 0
+  ok: false
+  seed: 13
+- backbone: mamba-hybrid
+  failing_pairs:
+  - - munich
+    - tallinn
+  n_pairs_no_strata: 0
+  ok: false
+  seed: 23
+- backbone: transformer-ar
+  failing_pairs:
+  - - eisenhuttenstadt
+    - tallinn
+  - - glasgow
+    - eindhoven
+  - - glasgow
+    - hamburg
+  - - glasgow
+    - malmo
+  - - glasgow
+    - prague
+  - - glasgow
+    - tallinn
+  - - glasgow
+    - warsaw
+  - - munich
+    - hamburg
+  - - munich
+    - lodz
+  - - munich
+    - tychy
+  - - munich
+    - vienna
+  - - munich
+    - warsaw
+  n_pairs_no_strata: 0
+  ok: false
+  seed: 7
+- backbone: transformer-ar
+  failing_pairs:
+  - - eisenhuttenstadt
+    - prague
+  - - eisenhuttenstadt
+    - szczecin
+  - - glasgow
+    - edinburgh
+  - - glasgow
+    - hamburg
+  - - glasgow
+    - prague
+  - - krakow
+    - prague
+  - - krakow
+    - warsaw
+  - - munich
+    - barcelona
+  - - munich
+    - copenhagen
+  - - munich
+    - lodz
+  - - munich
+    - prague
+  - - munich
+    - tallinn
+  - - munich
+    - tychy
+  - - munich
+    - warsaw
+  n_pairs_no_strata: 0
+  ok: false
+  seed: 13
+- backbone: transformer-ar
+  failing_pairs:
+  - - eisenhuttenstadt
+    - tychy
+  - - eisenhuttenstadt
+    - valencia
+  - - glasgow
+    - hamburg
+  - - munich
+    - hamburg
+  - - munich
+    - lodz
+  - - munich
+    - prague
+  - - munich
+    - tallinn
+  - - munich
+    - tychy
+  - - munich
+    - valencia
+  - - munich
+    - vienna
+  - - munich
+    - warsaw
+  n_pairs_no_strata: 0
+  ok: false
+  seed: 23
+spec: realism-eval-decision-v1

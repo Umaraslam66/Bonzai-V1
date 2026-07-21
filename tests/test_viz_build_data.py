@@ -35,12 +35,19 @@ def test_class_totals_match_grammar(bundle):
     for c in bundle["cells"]:
         for k, v in c["counts"].items():
             totals[k] = totals.get(k, 0) + v
-    assert totals["building_sealed"] == 24
-    assert totals["building_unsealed"] == 234  # hidden among the probe's "road" lines
+    # RE-PINNED 2026-07-19 with the defect-(a) closure fix (float-drift epsilon in
+    # cfm.eval.geometry._is_closed_ring, commit b30d604): 37 building rings close to within
+    # ~1e-14 m and were previously misread as unsealed by exact `==` (24/234 -> 61/197 sealed
+    # /unsealed; sum conserved at 258, roads untouched). Matches the standing-fixture re-pin in
+    # tests/eval/test_standing_geometry_validity.py (same gen_tokens.json, same classifier).
+    assert totals["building_sealed"] == 61
+    assert totals["building_unsealed"] == 197  # hidden among the probe's "road" lines
     assert totals["road"] == 439
     assert totals["road_node"] == 33
-    # raw probe geojson has 24 polygons + 673 road linestrings; 234 + 439 = 673.
-    assert totals["building_unsealed"] + totals["road"] == 673
+    # Raw probe geojson has 24 polygons + 673 linestrings = 697 non-point features. The
+    # closure fix only re-labels linestrings (24 native + 37 promoted = 61 sealed; the other
+    # 636 linestrings split 197 unsealed + 439 road), so this total is conserved across it.
+    assert totals["building_sealed"] + totals["building_unsealed"] + totals["road"] == 697
 
 
 def test_directional_response_is_monotonic(bundle):

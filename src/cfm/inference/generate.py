@@ -19,7 +19,9 @@ from typing import Any
 
 import torch
 
-from cfm.data.sub_f.decoder import decode_feature
+# try_decode_block MOVED to the torch-free decoder (Task-5 review 2026-07-20) and
+# re-exported here unchanged so this module's existing importers keep working.
+from cfm.data.sub_f.decoder import decode_feature, try_decode_block
 from cfm.data.sub_f.vocab import CELL_END_TOKEN_ID
 from cfm.data.sub_g.seam_decodability import split_cell_into_features
 from cfm.data.training.conditioning import (
@@ -93,17 +95,6 @@ def generate_cell_tokens(
     finally:
         model.train(was_training)
     return ids[0, len(prefix) :].tolist()
-
-
-def try_decode_block(block: list[int]) -> dict[str, Any] | None:
-    """Decode one 509/510 feature block, or ``None`` if it fails to decode.
-
-    The robust per-block primitive (one source for "decode-or-None"), mirroring
-    sub-G ``check_decodability``'s try/except so a malformed block never raises here."""
-    try:
-        return decode_feature(block)
-    except Exception:
-        return None
 
 
 def decode_cell_to_geojson(cell_tokens: list[int]) -> list[dict[str, Any]]:

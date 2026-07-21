@@ -1,0 +1,144 @@
+{
+  "contrasts": {
+    "C1": {
+      "metric": "total_road_length",
+      "expected_sign": 1,
+      "per_ckpt": {
+        "mamba-hybrid-seed7": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 111,
+          "n_neg": 49,
+          "n_tie": 0,
+          "median_delta": 367.0,
+          "p_sign": 1.0525580826270639e-06,
+          "rank_biserial": 0.5135093167701863,
+          "passes": true
+        },
+        "transformer-ar-seed13": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 114,
+          "n_neg": 46,
+          "n_tie": 0,
+          "median_delta": 310.25,
+          "p_sign": 7.58807290426657e-08,
+          "rank_biserial": 0.5471273291925466,
+          "passes": true
+        },
+        "transformer-ar-seed7": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 120,
+          "n_neg": 40,
+          "n_tie": 0,
+          "median_delta": 504.0,
+          "p_sign": 1.7524500188513453e-10,
+          "rank_biserial": 0.6481366459627329,
+          "passes": true
+        }
+      },
+      "n_pass": 3,
+      "steers": true
+    },
+    "C2": {
+      "metric": "n_buildings",
+      "expected_sign": 1,
+      "per_ckpt": {},
+      "n_pass": 0,
+      "steers": false
+    },
+    "C3": {
+      "metric": "n_features",
+      "expected_sign": 1,
+      "per_ckpt": {},
+      "n_pass": 0,
+      "steers": false
+    },
+    "C4": {
+      "metric": "n_buildings",
+      "expected_sign": 1,
+      "per_ckpt": {
+        "mamba-hybrid-seed7": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 153,
+          "n_neg": 5,
+          "n_tie": 2,
+          "median_delta": 10.0,
+          "p_sign": 4.353903019651069e-39,
+          "rank_biserial": 0.9910835124591991,
+          "passes": true
+        },
+        "transformer-ar-seed13": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 151,
+          "n_neg": 6,
+          "n_tie": 3,
+          "median_delta": 11.0,
+          "p_sign": 2.1516233539518242e-37,
+          "rank_biserial": 0.9928243166975732,
+          "passes": true
+        },
+        "transformer-ar-seed7": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 142,
+          "n_neg": 2,
+          "n_tie": 16,
+          "median_delta": 6.0,
+          "p_sign": 9.363812650249866e-40,
+          "rank_biserial": 0.9978927203065134,
+          "passes": true
+        }
+      },
+      "n_pass": 3,
+      "steers": true
+    },
+    "C5": {
+      "metric": "total_road_length",
+      "expected_sign": 1,
+      "per_ckpt": {
+        "mamba-hybrid-seed7": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 121,
+          "n_neg": 38,
+          "n_tie": 1,
+          "median_delta": 379.0,
+          "p_sign": 2.748461221579655e-11,
+          "rank_biserial": 0.6130503144654088,
+          "passes": true
+        },
+        "transformer-ar-seed13": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 107,
+          "n_neg": 51,
+          "n_tie": 2,
+          "median_delta": 211.5,
+          "p_sign": 9.8977232544417e-06,
+          "rank_biserial": 0.4451874850728445,
+          "passes": true
+        },
+        "transformer-ar-seed7": {
+          "n_pairs": 160,
+          "n_dropped_pairs": 0,
+          "n_pos": 108,
+          "n_neg": 51,
+          "n_tie": 1,
+          "median_delta": 409.5,
+          "p_sign": 7.231600975860771e-06,
+          "rank_biserial": 0.4729559748427673,
+          "passes": true
+        }
+      },
+      "n_pass": 3,
+      "steers": true
+    }
+  },
+  "probe_valid": true,
+  "macro_steers": true,
+  "product_steers": true
+}

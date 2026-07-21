@@ -23,6 +23,15 @@ from cfm.eval.emergence import building_token_ids
 
 _MIN_RING_COORDS = 4  # >=3 distinct vertices + the closing repeat
 
+#: DECISION (defect (a) fix, 2026-07-19): closure is FLOAT-DRIFT-tolerant, not exact.
+#: The sealed decoder's rotation arithmetic leaves ~1e-14 m residue on the closing vertex
+#: (cos(radians(90)) = 6.1e-17 scale), so exact `==` failed ~52% of the encoder's OWN clean
+#: round-trips (eyeball probe, reports/_eyeball_probe/SUMMARY.md). 1e-6 m sits ~1e8 above
+#: that drift and far below the coordinate quantum, so the MODEL's ~1-quantum closing misses
+#: (defect (b)) still fail — the epsilon absorbs float noise, never model imprecision.
+#: Structural-boundary epsilon per the project discipline; user thresholds stay strict.
+_CLOSURE_EPS_M = 1e-6
+
 
 def _is_building_block(block: list[int]) -> bool:
     """Construction-identity: the block carries a building-class token (one authority)."""
@@ -32,7 +41,14 @@ def _is_building_block(block: list[int]) -> bool:
 
 def _is_closed_ring(geom: dict[str, Any]) -> bool:
     coords = geom.get("coordinates")
-    return isinstance(coords, list) and len(coords) >= _MIN_RING_COORDS and coords[0] == coords[-1]
+    if not (isinstance(coords, list) and len(coords) >= _MIN_RING_COORDS):
+        return False
+    first, last = coords[0], coords[-1]
+    if not (isinstance(first, (list, tuple)) and isinstance(last, (list, tuple))):
+        return first == last
+    if len(first) != len(last):
+        return False
+    return all(abs(a - b) <= _CLOSURE_EPS_M for a, b in zip(first, last, strict=True))
 
 
 def promote_building_rings(
